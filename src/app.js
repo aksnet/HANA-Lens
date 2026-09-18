@@ -1,0 +1,3705 @@
+// PLACEHOLDER - PART 1: PARSER
+const MACHINE_KEYS = new Set(['async_io_limit','build_version','clocksource.current_clocksource','cpu_clock','cpu_cores','cpu_flags','cpu_manufacturer','cpu_model','cpu_sockets','cpu_summary','cpu_threads','hw_manufacturer','hw_model','kernel.numa_balancing','kernel.shmall','kernel.shmmax','kernel.shmmni','kernel.transparent_hugepage.enabled','mem_phys','mem_swap','memory_map_area_limit','open_file_limit','os_cpe_name','os_kernel_version','os_name','os_ppms_name','os_rlimit_nofile','os_user','platform','sap_retrieval_path','sap_retrieval_path_shared','sid','sapsystem','start_time','timezone_base_name','timezone_dst_name','timezone_name','timezone_offset','timezone_tz_name','topology_mem_info','topology_mem_type'])
+const NETWORK_KEYS = new Set(['net_domain','net_hostnames','net_ip_addresses','net_nameserver_bindings','net_port_ephemeral_max_count','net_port_ranges','net_port_unreserved_ranges','net_publicname','net_publicports','net_realhostname','net.core.somaxconn','net.ipv4.tcp_max_syn_backlog','net.ipv4.tcp_rmem','net.ipv4.tcp_syn_retries','net.ipv4.tcp_timestamps','net.ipv4.tcp_tw_recycle','net.ipv4.tcp_tw_reuse','net.ipv4.tcp_window_scaling','net.ipv4.tcp_wmem'])
+
+function getIndent(line){const m=line.match(/^(\s*)/);return m?m[1].length:0}
+function parseLine(line){const t=line.trim();const eq=t.indexOf('=');if(eq===-1)return{key:t,value:null};return{key:t.substring(0,eq),value:t.substring(eq+1)}}
+
+function buildRawTree(lines){
+  const root=[],stack=[];let n=0
+  for(const line of lines){const trimmed=line.trim();if(!trimmed)continue;const indent=getIndent(line);const node={key:'n'+(n++),title:trimmed,level:indent,children:[]};while(stack.length>0&&stack[stack.length-1].indent>=indent)stack.pop();if(stack.length===0)root.push(node);else stack[stack.length-1].node.children.push(node);stack.push({node,indent})}
+  return root
+}
+
+function parseTopology(content){
+  const lines=content.split('\n').map(l=>l.replace(/\r$/,''))
+  const result={tenants:[],hosts:[],replicationRows:[],replicationRowsMain:[],rawTree:[],backupCatalogTypes:{},allMasters:''}
+  result.rawTree=buildRawTree(lines)
+  extractStructuredData(lines,result)
+  return result
+}
+
+function extractStructuredData(lines,result){
+  const aml=lines.find(l=>l.trim().startsWith('active_master='));if(aml)result.activeMaster=aml.trim().replace('active_master=','').split(':')[0]
+  const allML=lines.find(l=>l.trim().startsWith('all_masters='));if(allML)result.allMasters=allML.trim().replace('all_masters=','')
+  for(const line of lines){const t=line.trim();if(!result.systemSID&&t.startsWith('sid='))result.systemSID=t.replace('sid=','').trim();if(!result.hanaVersion&&t.startsWith('build_version='))result.hanaVersion=t.replace('build_version=','').trim();if(result.systemSID&&result.hanaVersion)break}
+  let inDc=false,inMode=false,inOpmode=false;const modeVals=[],opmodeVals=[]
+  for(const line of lines){const indent=getIndent(line);const{key,value}=parseLine(line);if(indent===2&&key==='datacenters'&&value===null){inDc=true;continue}if(inDc&&indent<=2&&value===null&&key!=='datacenters'&&key!=='')inDc=false;if(!inDc)continue;if(indent===4&&key==='mode'&&value===null){inMode=true;inOpmode=false;continue}if(indent===4&&key==='opmode'&&value===null){inOpmode=true;inMode=false;continue}if(indent===4&&key!=='mode'&&key!=='opmode'){inMode=false;inOpmode=false}if(inMode&&indent===6&&value!==null)modeVals.push(value);if(inOpmode&&indent===6&&value!==null)opmodeVals.push(value)}
+  const uniqueModes=[...new Set(modeVals)],uniqueOpmodes=[...new Set(opmodeVals)]
+  if(uniqueModes.length>0){const single=uniqueModes.length===1&&uniqueModes[0]==='primary'&&uniqueOpmodes.length===0;result.replicationStatus=single?'None (single site)':`Replication Mode: ${uniqueModes.join(' / ')} | Operation Mode: ${uniqueOpmodes.join(' / ')||'-'}`}
+  let inDbs=false,curDbId='';const dbById={};result.backupCatalogTypes={}
+  for(const line of lines){const indent=getIndent(line);const{key,value}=parseLine(line);if(indent===2&&key==='databases'&&value===null){inDbs=true;continue}if(inDbs&&indent<=2&&value===null&&key!=='databases'&&key!=='')inDbs=false;if(!inDbs)continue;if(indent===4&&value===null){curDbId=key;dbById[curDbId]=dbById[curDbId]||{}}if(indent===6&&key==='name'&&value!==null)dbById[curDbId].name=value;if(indent===6&&key==='last_catalog_backup_type'&&value!==null)dbById[curDbId].bct=value}
+  for(const entry of Object.values(dbById)){if(!entry.name)continue;if(entry.bct)result.backupCatalogTypes[entry.name]=entry.bct;if(entry.name!=='SYSTEMDB'&&!result.tenants.includes(entry.name))result.tenants.push(entry.name)}
+  extractHosts(lines,result)
+  result.replicationRows=extractReplication(lines)
+  // for canvas: only use main block (before ~dc_topologies) to avoid cycles from multi-site perspectives
+  const dcStart=lines.findIndex(l=>l.trimStart().startsWith('~dc_topologies'))
+  const mainLines=dcStart>=0?lines.slice(0,dcStart):lines
+  result.replicationRowsMain=extractReplication(mainLines)
+}
+
+function extractHosts(lines,result){
+  const NON_SERVICE=new Set(['dc_mappings','dc_net_info','group','role','host_actual_roles','host_config_roles','host_config_subpath','subpath','worker_actual_groups','worker_config_groups'])
+  const HOST_SCALAR=new Set(['host_actual_roles','host_config_roles','host_config_subpath','subpath','group','worker_actual_groups','worker_config_groups','role'])
+  let inHost=false,cur=null,curSvc=null,curPort=null,inInfo=false,inDcNet=false
+  for(const line of lines){
+    const indent=getIndent(line);const{key,value}=parseLine(line)
+    if(indent===2&&key==='host'&&value===null){inHost=true;continue}
+    if(inHost&&indent===2&&value===null&&key!=='host'&&key!==''){if(cur){result.hosts.push(cur);cur=null}inHost=false;continue}
+    if(!inHost)continue
+    if(indent===4&&value===null){if(cur)result.hosts.push(cur);cur={name:key,services:[],machineMetadata:{},networkMetadata:{},hostMeta:{}};curSvc=null;curPort=null;inInfo=false;inDcNet=false;continue}
+    if(!cur)continue
+    if(indent===6&&value!==null&&HOST_SCALAR.has(key)){cur.hostMeta[key]=value;continue}
+    if(indent===6&&value===null){if(key==='dc_net_info'){inDcNet=true;curSvc=null}else if(NON_SERVICE.has(key)){inDcNet=false;curSvc=null}else{inDcNet=false;curSvc=key;curPort=null;inInfo=false}continue}
+    if(indent===8&&value===null&&curSvc){const p=parseInt(key);if(!isNaN(p)){curPort=p;inInfo=false}continue}
+    if(indent===10&&key==='info'&&value===null){inInfo=true;continue}
+    if(inInfo&&indent<=10&&indent!==12&&value===null)inInfo=false
+    if(indent===10&&curSvc&&curPort!==null&&!inInfo&&value!==null){if(key==='active'&&value==='yes'){if(!cur.services.find(s=>s.name===curSvc&&s.port===curPort))cur.services.push({name:curSvc,port:curPort,database:''})}if(key==='database'){const s=cur.services.find(s=>s.name===curSvc&&s.port===curPort);if(s)s.database=value}}
+    if(inInfo&&indent===12&&value!==null){if(MACHINE_KEYS.has(key)){if(key==='mem_phys'||key==='mem_swap'){const b=parseInt(value);cur.machineMetadata[key]=isNaN(b)?value:`${Math.round(b/(1024**3))} GB (${value})`}else cur.machineMetadata[key]=value}if(NETWORK_KEYS.has(key))cur.networkMetadata[key]=value}
+    if(inDcNet&&(indent===10||indent===12)&&value!==null){if(NETWORK_KEYS.has(key)){if(cur.networkMetadata[key]){const ex=cur.networkMetadata[key].split(', ');if(!ex.includes(value))cur.networkMetadata[key]+=`, ${value}`}else cur.networkMetadata[key]=value}}
+  }
+  if(cur&&inHost)result.hosts.push(cur)
+}
+
+function extractReplication(allLines){
+  const rows=[];const blocks=collectTopologyBlocks(allLines)
+  for(const block of blocks){const br=extractReplicationFromBlock(block);for(const row of br){const dup=rows.some(r=>r.primaryHost===row.primaryHost&&r.primaryPort===row.primaryPort&&r.secondaryHost===row.secondaryHost&&r.volumeId===row.volumeId);if(!dup)rows.push(row)}}
+  rows.sort((a,b)=>{if(a.primaryHost!==b.primaryHost)return a.primaryHost.localeCompare(b.primaryHost);return a.primaryPort-b.primaryPort})
+  return rows
+}
+
+function collectTopologyBlocks(allLines){
+  const blocks=[];const dcStart=allLines.findIndex(l=>l.trimStart().startsWith('~dc_topologies'))
+  const main=dcStart>=0?allLines.slice(0,dcStart):allLines;blocks.push(main)
+  if(dcStart<0)return blocks
+  let cur=[]
+  for(let i=dcStart+1;i<allLines.length;i++){const line=allLines[i];const indent=getIndent(line);const trimmed=line.trim();if(indent===4&&trimmed!==''&&!trimmed.includes('=')&&/^\d+$/.test(trimmed)){if(cur.length>0)blocks.push(cur);cur=[];continue}cur.push(line.length>=4?line.substring(4):line)}
+  if(cur.length>0)blocks.push(cur)
+  return blocks
+}
+
+function extractReplicationFromBlock(lines){
+  const rows=[]
+  const dbNames={};let inDbs=false,curDbId=''
+  for(const line of lines){const indent=getIndent(line);const{key,value}=parseLine(line);if(indent===2&&key==='databases'&&value===null){inDbs=true;continue}if(inDbs&&indent<=2&&value===null&&key!=='databases'&&key!=='')inDbs=false;if(!inDbs)continue;if(indent===4&&value===null)curDbId=key;if(indent===6&&key==='name'&&value!==null)dbNames[curDbId]=value}
+  const siteMode={},siteName={},siteOpmode={},replicationChain={}
+  let inDc2=false,inMode2=false,inName2=false,inOpmode2=false,inMaps=false,mapSrc=''
+  for(const line of lines){const indent=getIndent(line);const{key,value}=parseLine(line);if(indent===2&&key==='datacenters'&&value===null){inDc2=true;continue}if(inDc2&&indent<=2&&value===null&&key!=='datacenters'&&key!==''){inDc2=false;continue}if(!inDc2)continue;if(indent===4){inMode2=key==='mode'&&value===null;inName2=key==='name'&&value===null;inOpmode2=key==='opmode'&&value===null;if(key==='mappings'&&value===null){inMaps=true;continue}else if(key!=='mappings')inMaps=false}if(inMode2&&indent===6&&value!==null)siteMode[key]=value.toUpperCase();if(inName2&&indent===6&&value!==null)siteName[key]=value;if(inOpmode2&&indent===6&&value!==null)siteOpmode[key]=value;if(inMaps&&indent===6&&value===null){mapSrc=key;replicationChain[key]=[];continue}if(inMaps&&indent===8&&value==='yes'&&replicationChain[mapSrc])replicationChain[mapSrc].push(key)}
+  const primarySiteId=Object.entries(siteMode).find(([,m])=>m==='PRIMARY')?.[0]||'1'
+  const RELEVANT=new Set(['nameserver','indexserver','xsengine']);const hostEntries=[]
+  let inHS=false,curEnt=null,curSvcN='',inDcM=false,curS=null
+  for(const line of lines){const indent=getIndent(line);const{key,value}=parseLine(line);if(indent===2&&key==='host'&&value===null){inHS=true;continue}if(inHS&&indent<=2&&value===null&&key!=='host'){inHS=false;continue}if(!inHS)continue;if(indent===4&&value===null){curEnt={dcMap:{},services:[]};hostEntries.push(curEnt);inDcM=false;curSvcN='';curS=null;continue}if(!curEnt)continue;if(indent===6&&key==='dc_mappings'&&value===null){inDcM=true;curSvcN='';continue}if(inDcM&&indent===6&&key!=='dc_mappings')inDcM=false;if(inDcM&&indent===8&&value!==null){curEnt.dcMap[key]=value;continue}if(indent===6&&value===null){inDcM=false;curSvcN=RELEVANT.has(key)?key:'';curS=null;continue}if(!curSvcN)continue;if(indent===8&&value===null){const p=parseInt(key);if(!isNaN(p)){curS={name:curSvcN,port:p,dbId:'',volume:''};curEnt.services.push(curS)}continue}if(indent===10&&curS&&value!==null){if(key==='database')curS.dbId=value;if(key==='volume')curS.volume=value}}
+  for(const entry of hostEntries){const primH=entry.dcMap[primarySiteId];if(!primH)continue;for(const svc of entry.services){if(!svc.volume)continue;for(const[srcSite,targets]of Object.entries(replicationChain)){const pH=entry.dcMap[srcSite];if(!pH)continue;for(const tgt of targets){const sH=entry.dcMap[tgt];if(!sH)continue;const dbName=dbNames[svc.dbId]||(svc.dbId?svc.dbId:'SYSTEMDB');rows.push({database:dbName,primaryHost:pH,primaryPort:svc.port,serviceName:svc.name,volumeId:svc.volume,primarySiteId:parseInt(srcSite)||1,primarySiteName:siteName[srcSite]||`Site ${srcSite}`,secondaryHost:sH,secondaryPort:svc.port,secondarySiteId:parseInt(tgt)||2,secondarySiteName:siteName[tgt]||`Site ${tgt}`,secondaryActive:'YES',replicationMode:siteMode[tgt]||'UNKNOWN',operationMode:siteOpmode[tgt]||'',replicationStatus:'ACTIVE',statusDetails:'',fullySynced:false})}}}}
+  const volInSync={};let inVols=false,curVId2='',inDcCfg=false,dcCfgSite=''
+  for(const line of lines){const indent=getIndent(line);const{key,value}=parseLine(line);if(indent===2&&key==='volumes'&&value===null){inVols=true;continue}if(inVols&&indent<=2&&value===null&&key!=='volumes'&&key!==''){inVols=false;continue}if(!inVols)continue;if(indent===4&&value===null){curVId2=key;volInSync[key]={};inDcCfg=false;continue}if(indent===6&&key==='dc_config'&&value===null){inDcCfg=true;continue}if(indent===6&&key!=='dc_config')inDcCfg=false;if(inDcCfg&&indent===8&&value===null){dcCfgSite=key;continue}if(inDcCfg&&indent===10&&key==='in_sync'&&value!==null)volInSync[curVId2][dcCfgSite]=value==='yes'}
+  for(const row of rows){const sm=volInSync[row.volumeId];const ts=String(row.secondarySiteId);if(sm&&sm[ts]!==undefined){row.fullySynced=sm[ts]}else{for(const[vId,sm2]of Object.entries(volInSync)){const parts=vId.split(':');if(parts[parts.length-1]===row.volumeId||parts[0]===row.volumeId){if(sm2[ts]!==undefined){row.fullySynced=sm2[ts];break}}}}}
+  return rows
+}
+
+function toInt(s){if(!s||s==='-')return null;const n=parseInt(s);return isNaN(n)?null:n}
+function extractRawBytes(stored){const m=stored.match(/\((\d+)\)/);if(m)return parseInt(m[1])||0;return parseInt(stored)||0}
+
+function checkTcpIpParameters(net){
+  const items=[]
+  const checks=[['net.core.somaxconn',v=>toInt(v)>=4096,'>= 4096','2382421',v=>`Value ${toInt(v)} below 4096`],['net.ipv4.tcp_max_syn_backlog',v=>toInt(v)>=8192,'>= 8192','2382421',v=>`Value ${toInt(v)} below 8192`],['net.ipv4.tcp_window_scaling',v=>v==='1','1','2382421',()=>'Should be 1'],['net.ipv4.tcp_timestamps',v=>v==='1','1','2382421',()=>'Should be 1'],['net.ipv4.tcp_tw_recycle',v=>v==='-'||v==='0','- or 0','2382421',v=>`Value "${v}" can cause TCP issues`],['net.ipv4.tcp_syn_retries',v=>toInt(v)===8,'8','2382421',v=>`Value ${toInt(v)} differs from 8`]]
+  for(const[k,ok,exp,note,warn]of checks){const v=net[k];if(v){const pass=ok(v);items.push({label:k,currentValue:v,expectedValue:exp,status:pass?'ok':'warning',sapNote:note,warning:pass?null:warn(v)})}}
+  function tcpBufCheck(label,val){
+    if(!val)return null
+    const p=val.trim().split(/\s+/)
+    const max=p.length===3?parseInt(p[2]):null
+    if(max===null)return{label,currentValue:val,expectedValue:'see description',status:'warning',sapNote:'2382421',warning:'Could not parse value'}
+    const maxMB=(max/1048576).toFixed(1)
+    const ok=max>=4194304
+    // Build descriptive warning/info text
+    const desc=`Your current maximum is ${maxMB} MB. `+
+      `Given a 10 GBit/s connection with a latency of 1 ms, the required maximum would be 10 GBit/s × 1 ms = 1.25 MB, therefore a setting of ${maxMB} MB is more than sufficient for this case. `+
+      `If you want to saturate a 1 GBit/s connection with a latency of 100 ms, the required maximum is 1 GBit/s × 100 ms = 12.5 MB${max>=13107200?' — current setting is fine.':', so the setting should be adjusted to at least 12.5 MB.'} `+
+      `The minimum and default buffer sizes do not need to be adjusted.`
+    return{label,currentValue:val,expectedValue:`current max: ${maxMB} MB`,status:ok?'ok':'warning',sapNote:'2382421',warning:ok?null:desc,_infoText:desc}
+  }
+  const rmem=net['net.ipv4.tcp_rmem'];if(rmem){const r=tcpBufCheck('net.ipv4.tcp_rmem',rmem);if(r)items.push(r)}
+  const wmem=net['net.ipv4.tcp_wmem'];if(wmem){const r=tcpBufCheck('net.ipv4.tcp_wmem',wmem);if(r)items.push(r)}
+  const reuse=net['net.ipv4.tcp_tw_reuse'];if(reuse){const v=toInt(reuse),ok=v!==null&&v>=1;items.push({label:'net.ipv4.tcp_tw_reuse',currentValue:reuse,expectedValue:'2 (SLES 15 SP2+) or 1',status:ok?'ok':'warning',sapNote:'2382421',warning:ok?null:'Recommended >= 1 (value 2 for SLES 15 SP2+).'})}
+  return items
+}
+
+function checkKernelParameters(mach){
+  const items=[]
+  const numa=mach['kernel.numa_balancing'];if(numa)items.push({label:'kernel.numa_balancing',currentValue:numa,expectedValue:'0',status:numa==='0'?'ok':'warning',sapNote:'2382421',warning:numa!=='0'?`NUMA balancing enabled (${numa})`:null})
+  const shmmax=mach['kernel.shmmax'];if(shmmax){const v=parseInt(shmmax)||0,ok=v>=1073741824;items.push({label:'kernel.shmmax',currentValue:shmmax,expectedValue:'>= 1 GB',status:ok?'ok':'warning',sapNote:'SAP HANA Platform',warning:ok?null:`Value ${v.toLocaleString()} below 1 GB`})}
+  const shmmni=mach['kernel.shmmni'];if(shmmni){const v=parseInt(shmmni)||0,ok=v===32768;items.push({label:'kernel.shmmni',currentValue:shmmni,expectedValue:'32768',status:ok?'ok':'warning',sapNote:'SAP HANA Platform',warning:ok?null:`Value ${v} differs from 32768`})}
+  const shmall=mach['kernel.shmall'],memB=extractRawBytes(mach['mem_phys']||'')
+  if(shmall&&memB>0){const TB35=35.5*1099511627776;let exp;if(memB>=TB35){const sm=parseInt(mach['kernel.shmmax']||'0')||0,sn=parseInt(mach['kernel.shmmni']||'0')||0;exp=sm>0&&sn>0?Math.floor(sm*sn/65536):0}else exp=Math.floor(0.9*memB/4096);const ok=BigInt(shmall)>=BigInt(Math.floor(exp));items.push({label:'kernel.shmall',currentValue:shmall,expectedValue:`>= ${exp.toLocaleString()}`,status:ok?'ok':'warning',sapNote:'SAP HANA Platform',warning:ok?null:`Value may be below minimum ${exp.toLocaleString()}`})}
+  const thp=mach['kernel.transparent_hugepage.enabled'];if(thp){const ok=thp.includes('[madvise]')||thp.trim()==='madvise';items.push({label:'Transparent Huge Pages (THP)',currentValue:thp,expectedValue:'always [madvise] never',status:ok?'ok':'warning',sapNote:'2131662',warning:ok?null:`Current: "${thp}". SAP recommends "always [madvise] never".`})}
+  return items
+}
+
+// ============================================================
+// HTML RENDERER
+// ============================================================
+function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function tag(cls,text){return `<span class="tag ${cls}">${escHtml(text)}</span>`}
+function monoCell(val){return `<span class="mono">${escHtml(val)}</span>`}
+function renderDescTable(rows){if(!rows.length)return '<span style="color:#A19F9D;font-size:12px;">No data.</span>';let html='<table class="desc-table">';for(const[label,val,extra]of rows)html+=`<tr><td>${escHtml(label)}</td><td>${val}${extra||''}</td></tr>`;return html+'</table>'}
+const SWAP_WARN=2*1024*1024*1024
+
+const MACHINE_GROUPS=[
+  {title:'Operating System',fields:[['os_name','OS Name'],['os_kernel_version','Kernel Version'],['os_cpe_name','CPE Name'],['os_ppms_name','PPMS Name'],['os_user','OS User'],['os_rlimit_nofile','File Limit (rlimit)'],['open_file_limit','Open File Limit'],['platform','Platform']]},
+  {title:'Hardware',fields:[['hw_manufacturer','Manufacturer'],['hw_model','Model'],['cpu_model','CPU Model'],['cpu_manufacturer','CPU Manufacturer'],['cpu_summary','CPU Summary'],['cpu_sockets','CPU Sockets'],['cpu_cores','CPU Cores'],['cpu_threads','CPU Threads'],['cpu_clock','CPU Clock (MHz)']]},
+  {title:'Memory',fields:[['mem_phys','Physical RAM'],['mem_swap','Swap Space'],['memory_map_area_limit','Memory Map Area Limit'],['async_io_limit','Async I/O Limit']]},
+  {title:'SAP HANA',fields:[['build_version','HANA Version'],['sid','SID'],['sapsystem','System Nr.'],['sap_retrieval_path','Retrieval Path'],['sap_retrieval_path_shared','Shared Path'],['topology_mem_info','Topology Memory Info'],['topology_mem_type','Topology Memory Type'],['start_time','Start Time']]},
+  {title:'Timezone',fields:[['timezone_name','Timezone'],['timezone_base_name','Base Name'],['timezone_dst_name','DST Name'],['timezone_offset','Offset (seconds)'],['timezone_tz_name','TZ Name']]},
+]
+const NETWORK_GROUPS=[{title:'Host Network',fields:[['net_hostnames','Hostnames'],['net_ip_addresses','IP Addresses'],['net_domain','Domain'],['net_publicname','Public Name'],['net_publicports','Public Ports'],['net_realhostname','Real Hostname'],['net_nameserver_bindings','Nameserver Bindings'],['net_port_ranges','Port Ranges'],['net_port_unreserved_ranges','Unreserved Port Ranges'],['net_port_ephemeral_max_count','Ephemeral Port Count']]}]
+
+function renderMetaGroup(meta,group){
+  const rows=[]
+  for(const[key,label]of group.fields){const val=meta[key];if(!val)continue
+    if(key==='mem_swap'){
+      const bytes=extractRawBytes(val);const warn=bytes>SWAP_WARN
+      const color=warn?'color:#D46B08;':''
+      const tip=warn?` <span title="Swap > 2 GB — SAP Note 2779331" style="cursor:help">⚠️</span>`:''
+      rows.push([label,`<span class="mono" style="${color}">${escHtml(val)}</span>`,tip])
+    } else if(key==='timezone_offset'&&val){
+      const secs=parseInt(val)
+      if(!isNaN(secs)){
+        const sign=secs>=0?'+':'-';const abs=Math.abs(secs)
+        const h=Math.floor(abs/3600),m=Math.floor((abs%3600)/60)
+        const utc=`UTC${sign}${h}${m>0?':'+String(m).padStart(2,'0'):''}`
+        rows.push([label,`<span class="mono">${escHtml(val)}s &nbsp;<a href="https://www.timeanddate.com/time/utc-offsets.html" target="_blank" style="font-size:11px;">${utc}</a></span>`])
+      } else rows.push([label,monoCell(val)])
+    } else if(['timezone_name','timezone_base_name','timezone_dst_name'].includes(key)&&val&&val!=='-'){
+      rows.push([label,`<a href="https://www.timeanddate.com/time/zones/${encodeURIComponent(val.toLowerCase())}" target="_blank" class="mono">${escHtml(val)}</a>`])
+    } else rows.push([label,monoCell(val)])
+  }
+  return rows
+}
+
+function renderCollapsePanel(id,headerHtml,bodyHtml,open){return `<div class="collapse-panel${open?' open':''}" id="${id}"><div class="collapse-header" onclick="toggleCollapse('${id}')"><span>${headerHtml}</span><span class="collapse-arrow">&#9654;</span></div><div class="collapse-body">${bodyHtml}</div></div>`}
+
+function renderParamChecks(items){
+  if(!items.length)return '<span style="color:#A19F9D;font-size:12px;">No data.</span>'
+  let html='<table class="desc-table">'
+  for(const item of items){
+    const isWarn=item.status==='warning'
+    const sapLink=`<a href="https://me.sap.com/notes/${encodeURIComponent(item.sapNote)}" target="_blank" class="sap-note">SAP Note ${item.sapNote}</a>`
+    let extra=''
+    if(item._infoText){
+      // always show the descriptive text inline (not just as tooltip)
+      extra=`<div style="margin-top:4px;color:#605E5C;font-size:11px;line-height:1.5;">${escHtml(item._infoText)}</div>`
+    } else if(item.warning){
+      extra=`<span title="${escHtml(item.warning)}" style="cursor:help;margin-left:4px;">⚠️</span>`
+    }
+    html+=`<tr${isWarn?' class="param-row-warn"':''}>
+      <td><code style="font-size:11px;${isWarn?'color:#D46B08;':''}">${escHtml(item.label)}</code></td>
+      <td>
+        <span class="mono" style="${isWarn?'color:#D46B08;':''}">${escHtml(item.currentValue)}</span>
+        <span style="color:#A19F9D;margin:0 6px;">→</span>
+        <span style="color:#605E5C;font-size:11px;">${escHtml(item.expectedValue)}</span>
+        ${sapLink}
+        ${extra}
+      </td>
+    </tr>`
+  }
+  return html+'</table>'
+}
+
+function renderServicesCard(services){
+  if(!services.length)return '<div class="card"><div class="card-title">⚙️ Services</div><div class="card-body"><span style="color:#A19F9D;">No active services.</span></div></div>'
+  let html=`<div class="card"><div class="card-title">⚙️ Services</div><div class="card-body"><table class="data-table"><thead><tr><th>Service</th><th>Port</th><th>Database</th></tr></thead><tbody>`
+  for(const s of services)html+=`<tr><td>${escHtml(s.name)}</td><td><code>${escHtml(String(s.port))}</code></td><td>${escHtml(s.database||'-')}</td></tr>`
+  return html+'</tbody></table></div></div>'
+}
+
+function renderHostPanel(host,panelId){
+  const tcp=checkTcpIpParameters(host.networkMetadata),kern=checkKernelParameters(host.machineMetadata)
+  let html=`<div class="btns-row"><button class="btn-sm" onclick="expandAll('${panelId}')">Expand All</button><button class="btn-sm" onclick="collapseAll('${panelId}')">Collapse All</button></div>`
+  html+=renderServicesCard(host.services)
+  let machBody='';const kernWarn=kern.some(c=>c.warning);const memSwap=host.machineMetadata['mem_swap'];const memWarn=!!(memSwap&&extractRawBytes(memSwap)>SWAP_WARN)
+  for(let gi=0;gi<MACHINE_GROUPS.length;gi++){const g=MACHINE_GROUPS[gi];const rows=renderMetaGroup(host.machineMetadata,g);if(!rows.length)continue;let grpHdr=escHtml(g.title);if(g.title==='Operating System')grpHdr+=` <a href="https://me.sap.com/notes/2235581" target="_blank" class="sap-note" onclick="event.stopPropagation()">SAP Note 2235581</a>`;if(g.title==='Memory'&&memWarn)grpHdr+=' ⚠️';machBody+=renderCollapsePanel(`${panelId}-mach-${gi}`,grpHdr,renderDescTable(rows));if(g.title==='Operating System'){const kernHdr=`Kernel Parameters <a href="https://me.sap.com/notes/2131662" target="_blank" class="sap-note" onclick="event.stopPropagation()">SAP Note 2131662</a>${kernWarn?' ⚠️':''}`;machBody+=renderCollapsePanel(`${panelId}-kern`,kernHdr,renderParamChecks(kern))}}
+  html+=`<div class="card"><div class="card-title">🖥️ Machine</div><div class="card-body">${machBody||'<span style="color:#A19F9D;">No data.</span>'}</div></div>`
+  let netBody='';const tcpWarn=tcp.some(c=>c.warning)
+  for(let gi=0;gi<NETWORK_GROUPS.length;gi++){const g=NETWORK_GROUPS[gi];const rows=renderMetaGroup(host.networkMetadata,g);if(!rows.length)continue;netBody+=renderCollapsePanel(`${panelId}-net-${gi}`,escHtml(g.title),renderDescTable(rows));if(g.title==='Host Network'){const tcpHdr=`TCP/IP Parameters <a href="https://me.sap.com/notes/2382421" target="_blank" class="sap-note" onclick="event.stopPropagation()">SAP Note 2382421</a>${tcpWarn?' ⚠️':''}`;netBody+=renderCollapsePanel(`${panelId}-tcp`,tcpHdr,renderParamChecks(tcp))}}
+  html+=`<div class="card"><div class="card-title">📡 Network</div><div class="card-body">${netBody||'<span style="color:#A19F9D;">No data.</span>'}</div></div>`
+  return html
+}
+
+function renderDashboard(data){
+  const hostVersions=data.hosts.map(h=>({host:h.name,v:h.machineMetadata['build_version']||''})).filter(h=>h.v)
+  const hostOS=data.hosts.map(h=>({host:h.name,v:h.machineMetadata['os_name']||''})).filter(h=>h.v)
+  const hostKernel=data.hosts.map(h=>({host:h.name,v:h.machineMetadata['os_kernel_version']||''})).filter(h=>h.v)
+  const hostInst=data.hosts.map(h=>({host:h.name,v:h.machineMetadata['sapsystem']||''})).filter(h=>h.v)
+  const uniqueVers=[...new Set(hostVersions.map(h=>h.v))];const mixed=uniqueVers.length>1
+  const uniqueOS=[...new Set(hostOS.map(h=>h.v))];const mixedOS=uniqueOS.length>1
+  const uniqueKernel=[...new Set(hostKernel.map(h=>h.v))];const mixedKernel=uniqueKernel.length>1
+  const uniqueInst=[...new Set(hostInst.map(h=>h.v))];const mixedInst=uniqueInst.length>1
+  const sysRows=[]
+  sysRows.push(['System SID',data.systemSID?tag('tag-blue',data.systemSID):'<span style="color:#A19F9D;">-</span>'])
+  sysRows.push(['Instance',mixedInst?tag('tag-warn','Mixed — see below'):escHtml(uniqueInst[0]||'-')])
+  sysRows.push(['HANA Version',mixed?tag('tag-warn','Mixed — see below'):escHtml(uniqueVers[0]||data.hanaVersion||'-')])
+  sysRows.push(['OS',mixedOS?tag('tag-warn','Mixed — see below'):escHtml(uniqueOS[0]||'-')])
+  sysRows.push(['Kernel Version',mixedKernel?tag('tag-warn','Mixed — see below'):escHtml(uniqueKernel[0]||'-')])
+  sysRows.push(['Active Master',data.activeMaster?tag('tag-green',data.activeMaster):'<span style="color:#A19F9D;">-</span>'])
+  sysRows.push(['Tenants',data.tenants.map(t=>tag('tag-purple',t)).join(' ')||'<span style="color:#A19F9D;">-</span>'])
+  const bct=data.backupCatalogTypes||{},allDbs=['SYSTEMDB',...data.tenants]
+  sysRows.push(['Last Backup Type',allDbs.map(db=>`${tag('tag-purple',db)} <span class="mono" style="margin-right:10px;">${escHtml(bct[db]||'-')}</span>`).join('')])
+  let html=`<div class="card"><div class="card-title">📊 System Information</div><div class="card-body"><table class="desc-table">`
+  for(const[l,v]of sysRows)html+=`<tr><td>${escHtml(l)}</td><td>${v}</td></tr>`
+  html+='</table></div></div>'
+
+  if(data.hosts.length>1){
+    html+=`<div class="card"><div class="card-title">🔀 Multiple-Host / Scale-out</div><div class="card-body"><div class="data-table-wrap"><table class="data-table"><thead><tr>
+      <th>Host</th><th>Host Active</th><th>Host Status</th><th>Storage Partition</th>
+      <th>NameServer Config Role</th><th>NameServer Actual Role</th><th>IndexServer Config Role</th>
+      <th>Host Config Roles</th><th>Host Actual Roles</th><th>Worker Config Groups</th><th>Worker Actual Groups</th>
+    </tr></thead><tbody>`
+    for(const h of data.hosts){
+      const hm=h.hostMeta||{};const isAM=h.name===data.activeMaster
+      const nsSvc=h.services.find(s=>s.name==='nameserver')
+      const partition=hm['subpath']||hm['host_config_subpath']||'-'
+      const allMasters=(data.allMasters||'').split(' ').map(m=>m.split(':')[0]).filter(Boolean)
+      const masterIdx=allMasters.indexOf(h.name)
+      const isMasterHost=isAM||masterIdx>=0
+      const masterNum=isAM?1:(masterIdx>=0?masterIdx+1:null)
+      const nsConfigRole=isMasterHost?`master ${masterNum}`:'slave'
+      const nsActualRole=isAM?'master':'slave'
+      const ixConfigRole=hm['host_config_roles']||'-'
+      const masterStyle=isAM?'color:#0078D4;font-weight:600;':''
+      html+=`<tr>
+        <td>${tag(isAM?'tag-green':'tag-cyan',h.name)}</td>
+        <td><span class="badge-success">${escHtml(nsSvc?'yes':'-')}</span></td>
+        <td><span class="badge-success">ok</span></td>
+        <td><span class="mono">${escHtml(partition)}</span></td>
+        <td><span class="mono" style="${masterStyle}">${escHtml(nsConfigRole)}</span></td>
+        <td><span class="mono" style="${masterStyle}">${escHtml(nsActualRole)}</span></td>
+        <td><span class="mono">${escHtml(ixConfigRole)}</span></td>
+        <td><span class="mono">${escHtml(hm['host_config_roles']||'-')}</span></td>
+        <td><span class="mono">${escHtml(hm['host_actual_roles']||'-')}</span></td>
+        <td><span class="mono">${escHtml(hm['worker_config_groups']||'-')}</span></td>
+        <td><span class="mono">${escHtml(hm['worker_actual_groups']||'-')}</span></td>
+      </tr>`
+    }
+    html+='</tbody></table></div></div></div>'
+  }
+
+  if(data.replicationRows.length){
+    const modes=[...new Set(data.replicationRows.map(r=>r.replicationMode))].join(' / ')
+    html+=`<div class="card"><div class="card-title"><span class="badge-proc"></span>System Replication <span class="tag tag-cyan" style="margin-left:6px;">${escHtml(modes)}</span></div><div class="card-body"><div class="data-table-wrap"><table class="data-table"><thead><tr><th>Database</th><th>Primary Host</th><th>Port</th><th>Service</th><th>Vol.</th><th>Site ID</th><th>Site Name</th><th>Secondary Host</th><th>Sec. Site</th><th>Replication Mode</th><th>Operation Mode</th><th>Status</th><th>Fully Synced</th></tr></thead><tbody>`
+    for(const r of data.replicationRows){const modeTag=r.replicationMode==='SYNC'?tag('tag-green',r.replicationMode):r.replicationMode==='ASYNC'?tag('tag-cyan',r.replicationMode):r.replicationMode==='SYNCMEM'?tag('tag-purple',r.replicationMode):tag('tag-orange',r.replicationMode);const opmodeVal=r.operationMode?`<span class="mono">${escHtml(r.operationMode)}</span>`:'<span style="color:#A19F9D;">-</span>';const statusBadge=r.replicationStatus==='ACTIVE'?`<span class="badge-success">${escHtml(r.replicationStatus)}</span>`:`<span class="badge-warning">${escHtml(r.replicationStatus)}</span>`;const syncBadge=r.fullySynced?'<span class="badge-success">Yes</span>':'<span class="badge-warning">No</span>';html+=`<tr><td>${tag('tag-purple',r.database)}</td><td>${escHtml(r.primaryHost)}</td><td><code>${r.primaryPort}</code></td><td>${escHtml(r.serviceName)}</td><td>${escHtml(r.volumeId)}</td><td>${r.primarySiteId}</td><td>${escHtml(r.primarySiteName)}</td><td>${escHtml(r.secondaryHost)}</td><td>${r.secondarySiteId}: ${escHtml(r.secondarySiteName)}</td><td>${modeTag}</td><td>${opmodeVal}</td><td>${statusBadge}</td><td>${syncBadge}</td></tr>`}
+    html+='</tbody></table></div>'
+    // info note when topology contains ~dc_topologies (multi-site perspective blocks)
+    const hasDcTopo=(data.replicationRowsMain&&data.replicationRowsMain.length<data.replicationRows.length)
+    if(hasDcTopo){
+      const totalRows=data.replicationRows.length
+      const mainRows=data.replicationRowsMain.length
+      const extraRows=totalRows-mainRows
+      // collect unique sites from all rows
+      const siteNames={}
+      for(const r of data.replicationRows){siteNames[r.primarySiteId]=r.primarySiteName;siteNames[r.secondarySiteId]=r.secondarySiteName}
+      const siteList=Object.entries(siteNames).sort((a,b)=>parseInt(a[0])-parseInt(b[0])).map(([id,name])=>`Site ${id}: ${name}`).join(', ')
+      // primary site = the one with inDeg 0 in the main block
+      const mainEdges={}
+      for(const r of data.replicationRowsMain){const k=`${r.primarySiteId}->${r.secondarySiteId}`;if(!mainEdges[k])mainEdges[k]={from:r.primarySiteId,to:r.secondarySiteId}}
+      const inDeg={}
+      for(const r of data.replicationRowsMain){if(inDeg[r.primarySiteId]===undefined)inDeg[r.primarySiteId]=0;if(inDeg[r.secondarySiteId]===undefined)inDeg[r.secondarySiteId]=0}
+      for(const e of Object.values(mainEdges))inDeg[e.to]++
+      const primarySiteId=Object.keys(inDeg).find(id=>inDeg[id]===0)
+      const primarySiteName=primarySiteId?siteNames[primarySiteId]:'unknown'
+
+      // detect conflicting edges (takeover scenario): any sub-block edge that is reverse of a main-block edge
+      const mainEdgeKeys=new Set(Object.keys(mainEdges))
+      const allEdgeKeys=new Set()
+      for(const r of data.replicationRows)allEdgeKeys.add(`${r.primarySiteId}->${r.secondarySiteId}`)
+      const hasConflict=[...allEdgeKeys].some(k=>{const[a,b]=k.split('->');return mainEdgeKeys.has(`${b}->${a}`)})
+
+      const conflictNote=hasConflict
+        ?`<br><strong>⚠️ Conflicting edge directions detected:</strong> One or more sub-topology blocks contain <strong>reverse mappings</strong> (e.g. Site 2→1 while the main block shows 1→2). This typically occurs after a <strong>takeover</strong>, where each site reports a different "who is primary" perspective. Combined, these create bidirectional edges (cycles) in the graph — the BFS layout algorithm cannot determine a root site, which is why the canvas would render empty without this workaround.`
+        :`<br>The sub-topology blocks show consistent mapping directions (no conflicting edges detected) — likely a secondary site reporting the same perspective as the primary.`
+
+      html+=`<div style="margin-top:6px;padding:8px 12px;background:#FFF4CE;border:1px solid #FFD335;border-radius:2px;font-size:11px;color:#7A4F00;line-height:1.7;">
+        <strong>ℹ️ Multi-site topology detected (~dc_topologies)</strong><br>
+        This topology.txt was collected from a system with multiple HSR sites and contains <strong>${Object.keys(siteNames).length} site perspectives</strong> embedded as <code>~dc_topologies</code> sub-blocks.<br>
+        <strong>Sites detected:</strong> ${escHtml(siteList)}<br>
+        <strong>Replication table:</strong> Shows <strong>all ${totalRows} rows</strong> from all site perspectives (including ${extraRows} rows from sub-topology blocks).<br>
+        <strong>Replication Visual Overview:</strong> Uses only the <strong>${mainRows} rows from the primary site perspective</strong> (Site ${primarySiteId}: ${escHtml(primarySiteName)}) to avoid rendering cycles caused by bidirectional edges from competing site views.
+        ${conflictNote}
+      </div>`
+    }
+    html+='</div></div>'
+    html+=`<div class="card"><div class="card-title">🗺️ Replication Visual Overview</div><div class="card-body" style="padding:0;position:relative;"><canvas id="topo-canvas" style="width:100%;display:block;"></canvas><div id="topo-overlays" style="position:absolute;top:0;left:0;pointer-events:none;"></div></div></div>`
+  }
+
+  const allWarnings=[]
+  for(const h of data.hosts){
+    const tcpW=checkTcpIpParameters(h.networkMetadata).filter(c=>c.warning)
+    const kernW=checkKernelParameters(h.machineMetadata).filter(c=>c.warning)
+    const swap=h.machineMetadata['mem_swap']
+    if(swap&&extractRawBytes(swap)>SWAP_WARN){const b=extractRawBytes(swap);allWarnings.push({host:h.name,param:'Swap Space',warning:`Swap of ${(b/(1024**3)).toFixed(1)} GB exceeds recommended 2 GB.`,sapNote:'2779331'})}
+    for(const w of[...tcpW,...kernW])allWarnings.push({host:h.name,param:w.label,warning:w.warning,sapNote:w.sapNote})
+  }
+  if(allWarnings.length){html+=`<div class="card warn-card" style="border-color:#FAAD14;"><div class="card-title" style="color:#AD6800;">⚠️ SAP Note Compliance Warnings <span class="tag tag-warn">${allWarnings.length}</span></div><div class="card-body"><div class="data-table-wrap"><table class="data-table"><thead><tr><th>Host</th><th>Parameter</th><th>Warning</th><th>SAP Note</th></tr></thead><tbody>`;for(const w of allWarnings)html+=`<tr><td>${tag('tag-cyan',w.host)}</td><td><code style="font-size:11px;">${escHtml(w.param)}</code></td><td style="color:#AD6800;font-size:11px;">${escHtml(w.warning)}</td><td><a href="https://me.sap.com/notes/${encodeURIComponent(w.sapNote)}" target="_blank" style="font-size:11px;">${escHtml(w.sapNote)}</a></td></tr>`;html+='</tbody></table></div></div></div>'}
+
+  if(mixed&&hostVersions.length){
+    html+=`<div class="card"><div class="card-title">HANA Version per Host ${tag('tag-warn','Mixed versions detected')}</div><div class="card-body"><table class="data-table"><thead><tr><th>Host</th><th>HANA Version</th></tr></thead><tbody>`
+    for(const h of hostVersions){const isOther=h.v!==uniqueVers[0];html+=`<tr><td>${tag(h.host===data.activeMaster?'tag-green':'tag-cyan',h.host)}</td><td><span class="mono" style="${isOther?'color:#D46B08;font-weight:600;':''}">${escHtml(h.v)}</span></td></tr>`}
+    html+='</tbody></table></div></div>'
+  }
+  if(mixedOS&&hostOS.length){
+    html+=`<div class="card"><div class="card-title">OS per Host ${tag('tag-warn','Mixed OS detected')}</div><div class="card-body"><table class="data-table"><thead><tr><th>Host</th><th>OS</th></tr></thead><tbody>`
+    for(const h of hostOS){const isOther=h.v!==uniqueOS[0];html+=`<tr><td>${tag('tag-cyan',h.host)}</td><td><span class="mono" style="${isOther?'color:#D46B08;font-weight:600;':''}">${escHtml(h.v)}</span></td></tr>`}
+    html+='</tbody></table></div></div>'
+  }
+  if(mixedKernel&&hostKernel.length){
+    html+=`<div class="card"><div class="card-title">Kernel Version per Host ${tag('tag-warn','Mixed kernel versions detected')}</div><div class="card-body"><table class="data-table"><thead><tr><th>Host</th><th>Kernel Version</th></tr></thead><tbody>`
+    for(const h of hostKernel){const isOther=h.v!==uniqueKernel[0];html+=`<tr><td>${tag('tag-cyan',h.host)}</td><td><span class="mono" style="${isOther?'color:#D46B08;font-weight:600;':''}">${escHtml(h.v)}</span></td></tr>`}
+    html+='</tbody></table></div></div>'
+  }
+  if(mixedInst&&hostInst.length){
+    html+=`<div class="card"><div class="card-title">Instance per Host ${tag('tag-warn','Mixed instances detected')}</div><div class="card-body"><table class="data-table"><thead><tr><th>Host</th><th>Instance</th></tr></thead><tbody>`
+    for(const h of hostInst){const isOther=h.v!==uniqueInst[0];html+=`<tr><td>${tag('tag-cyan',h.host)}</td><td><span class="mono" style="${isOther?'color:#D46B08;font-weight:600;':''}">${escHtml(h.v)}</span></td></tr>`}
+    html+='</tbody></table></div></div>'
+  }
+  return html
+}
+
+function renderTreeNode(node,depth){const hasChildren=node.children&&node.children.length>0;const id='tn-'+node.key;return `<div class="tree-node" id="${id}"><div class="tree-node-label" onclick="toggleTree('${id}')" style="padding-left:${depth*14}px"><span class="tree-toggle">${hasChildren?'&#9654;':''}</span><span class="tree-text">${escHtml(node.title)}</span></div>${hasChildren?`<div class="tree-children collapsed">${node.children.map(c=>renderTreeNode(c,depth+1)).join('')}</div>`:''}</div>`}
+function toggleTree(id){const el=document.getElementById(id);if(!el)return;const ch=el.querySelector(':scope > .tree-children');if(!ch)return;ch.classList.toggle('collapsed');const arrow=el.querySelector(':scope > .tree-node-label .tree-toggle');if(arrow)arrow.style.transform=ch.classList.contains('collapsed')?'':'rotate(90deg)'}
+function applyTreeSearch(text){const lower=text.toLowerCase().trim();document.querySelectorAll('#rawTree .tree-node').forEach(node=>{const lbl=node.querySelector(':scope > .tree-node-label .tree-text');if(!lbl)return;if(!lbl.getAttribute('data-orig'))lbl.setAttribute('data-orig',lbl.textContent);lbl.innerHTML=escHtml(lbl.getAttribute('data-orig'))});if(!lower){document.querySelectorAll('#rawTree .tree-node').forEach(n=>n.style.display='');document.querySelectorAll('#rawTree .tree-children').forEach(c=>c.classList.add('collapsed'));return}const matchSet=new Set();document.querySelectorAll('#rawTree .tree-node').forEach(node=>{const lbl=node.querySelector(':scope > .tree-node-label .tree-text');if(!lbl)return;const orig=lbl.getAttribute('data-orig')||'';if(orig.toLowerCase().includes(lower))matchSet.add(node.id)});const visibleSet=new Set(matchSet);matchSet.forEach(id=>{let el=document.getElementById(id);while(el){el=el.parentElement?.closest('.tree-node');if(el)visibleSet.add(el.id)}});document.querySelectorAll('#rawTree .tree-node').forEach(node=>{if(!visibleSet.has(node.id)){node.style.display='none';return}node.style.display='';const ch=node.querySelector(':scope > .tree-children');if(ch)ch.classList.remove('collapsed');const lbl=node.querySelector(':scope > .tree-node-label .tree-text');if(lbl&&matchSet.has(node.id)){const orig=lbl.getAttribute('data-orig')||'';const idx=orig.toLowerCase().indexOf(lower);if(idx>=0)lbl.innerHTML=escHtml(orig.substring(0,idx))+`<mark class="hl">${escHtml(orig.substring(idx,idx+lower.length))}</mark>`+escHtml(orig.substring(idx+lower.length))}})}
+
+function toggleCollapse(id){const el=document.getElementById(id);if(el)el.classList.toggle('open')}
+
+function switchNsPort(cid,port){
+  const tabsEl=document.getElementById(cid+'-tabs')
+  if(tabsEl) tabsEl.querySelectorAll('button[data-port]').forEach(b=>{
+    const a=b.dataset.port===port
+    b.style.color=a?'#0078D4':'#605E5C';b.style.borderBottom=a?'2px solid #0078D4':'2px solid transparent'
+    b.style.fontWeight=a?'600':'normal';b.style.background=a?'#EFF6FC':'transparent'
+  })
+  const contentEl=document.getElementById(cid+'-content')
+  if(!contentEl)return
+  const d=(window._nsData||{})[cid];if(!d)return
+
+  // init page offset per port
+  if(!d._portOffset)d._portOffset={}
+  if(d._portOffset[port]===undefined)d._portOffset[port]=0  // 0 = latest
+
+  renderNsPortContent(cid,port)
+}
+
+function nsPageRows(cid,port){
+  const d=window._nsData[cid];if(!d)return[]
+  const all=d._allByPort[port]||[];const PAGE=500
+  const offset=d._portOffset[port]||0
+  const end=all.length-offset
+  const start=Math.max(0,end-PAGE)
+  return all.slice(start,end)
+}
+
+function renderNsPortContent(cid,port){
+  const d=window._nsData[cid];if(!d)return
+  const contentEl=document.getElementById(cid+'-content');if(!contentEl)return
+  const all=d._allByPort[port]||[];const PAGE=500
+  const offset=d._portOffset[port]||0
+  const end=all.length-offset;const start=Math.max(0,end-PAGE)
+  const rows=all.slice(start,end)
+  const total=all.length
+  const headers=d.headers,iHost=d.iHost,iPort=d.iPort,iTime=d.iTime
+  const dispHeaders=headers.map(h=>h.replace(/\s*\[.*?\]/,'').trim())
+  const innerId=cid+'-'+port.replace(/[^a-z0-9]/gi,'-')
+
+  function fmtVal(v){if(v===null||v===undefined)return '';const n=parseFloat(v);return isNaN(n)?String(v):n.toLocaleString()}
+  function fmtTime(ts){if(ts===null||ts===undefined)return '-';const n=parseFloat(ts);if(isNaN(n)||n<=0)return '-';return new Date(n*1000).toLocaleString()}
+
+  const canPrev=end>PAGE;const canNext=offset>0
+  const fromRow=start+1;const toRow=end
+
+  let html=`
+  <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:11px;color:#605E5C;border-bottom:1px solid #EDEBE9;background:#F8F8F7;flex-wrap:wrap;">
+    <span>Rows <strong>${fromRow.toLocaleString()}–${toRow.toLocaleString()}</strong> of <strong>${total.toLocaleString()}</strong></span>
+    <button class="btn-sm" ${canPrev?'':'disabled style="opacity:0.4;cursor:default;"'} onclick="nsPagePrev('${cid}','${port}')">◀ Previous 500</button>
+    <button class="btn-sm" ${canNext?'':'disabled style="opacity:0.4;cursor:default;"'} onclick="nsPageNext('${cid}','${port}')">Next 500 ▶</button>
+  </div>
+  <div id="${innerId}-itabs" style="display:flex;border-bottom:1px solid #EDEBE9;background:#fff;padding:0 12px;">
+    <button data-inner="chart-cpu"  onclick="switchNsInner('${innerId}','chart-cpu')"  style="display:inline-flex;align-items:center;height:30px;padding:0 12px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:11px;color:#605E5C;cursor:pointer;">📈 Chart - CPU</button>
+    <button data-inner="chart-mem"  onclick="switchNsInner('${innerId}','chart-mem')"  style="display:inline-flex;align-items:center;height:30px;padding:0 12px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:11px;color:#605E5C;cursor:pointer;">📈 Chart - Memory</button>
+    <button data-inner="chart-sql"  onclick="switchNsInner('${innerId}','chart-sql')"  style="display:inline-flex;align-items:center;height:30px;padding:0 12px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:11px;color:#605E5C;cursor:pointer;">📈 Chart - SQL Statements</button>
+    <button data-inner="table"      onclick="switchNsInner('${innerId}','table')"      style="display:inline-flex;align-items:center;height:30px;padding:0 12px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:11px;color:#605E5C;cursor:pointer;">📋 Table</button>
+  </div>
+  <!-- shared time controls (used by all chart tabs) -->
+  <div id="${innerId}-timecontrols" style="display:none;padding:8px 8px 0 8px;">
+    <div style="display:flex;align-items:center;gap:10px;font-size:11px;color:#605E5C;margin-bottom:4px;flex-wrap:wrap;">
+      <span>Window:</span>
+      <select id="${innerId}-winsel" onchange="redrawNsChart('${innerId}','${cid}')" style="height:24px;padding:0 6px;border:1px solid #EDEBE9;border-radius:2px;font-family:inherit;font-size:11px;">
+        <option value="1800">30 min</option>
+        <option value="3600" selected>1 hour</option>
+        <option value="5400">1.5 hours</option>
+        <option value="7200">2 hours</option>
+      </select>
+      <input type="range" id="${innerId}-slider" min="0" max="100" value="100" style="width:280px;vertical-align:middle;" oninput="redrawNsChart('${innerId}','${cid}')">
+      <strong id="${innerId}-win-label" style="font-size:11px;color:#323130;"></strong>
+    </div>
+  </div>
+  <div id="${innerId}-chart-cpu" style="display:none;padding:0 8px 8px 8px;">
+    <canvas id="${innerId}-canvas-cpu" style="width:100%;height:220px;display:block;"></canvas>
+    <div style="font-size:12px;color:#605E5C;margin-top:4px;">
+      <span style="color:#0078D4;font-size:14px;">━</span> indexserverCpu &nbsp;&nbsp;
+      <span style="color:#D46B08;font-size:14px;">━</span> indexserverCpuSys
+    </div>
+  </div>
+  <div id="${innerId}-chart-mem" style="display:none;padding:0 8px 8px 8px;">
+    <canvas id="${innerId}-canvas-mem" style="width:100%;height:220px;display:block;"></canvas>
+    <div style="font-size:12px;color:#605E5C;margin-top:4px;">
+      <span style="color:#389E0D;font-size:14px;">━</span> indexserverMemUsed &nbsp;&nbsp;
+      <span style="color:#A19F9D;font-size:14px;">━</span> indexserverMemLimit
+    </div>
+  </div>
+  <div id="${innerId}-chart-sql" style="display:none;padding:0 8px 8px 8px;">
+    <canvas id="${innerId}-canvas-sql" style="width:100%;height:220px;display:block;"></canvas>
+    <div style="font-size:12px;color:#605E5C;margin-top:4px;">
+      <span style="color:#722ED1;font-size:14px;">━</span> sqlStatements
+    </div>
+  </div>
+  <div id="${innerId}-table" style="display:none;overflow-x:auto;max-height:calc(100vh - 340px);overflow-y:auto;">
+    <table class="data-table" style="white-space:nowrap;width:auto;min-width:100%;">
+    <thead style="position:sticky;top:0;z-index:5;"><tr><th>Time</th>`
+  for(let i=0;i<headers.length;i++){if(i===iHost||i===iPort||i===iTime)continue;html+=`<th title="${escHtml(headers[i])}">${escHtml(dispHeaders[i])}</th>`}
+  html+=`</tr></thead><tbody>`
+  for(const r of rows){
+    html+=`<tr><td><span class="mono" style="font-size:11px;">${escHtml(fmtTime(r.time))}</span></td>`
+    for(let i=0;i<headers.length;i++){if(i===iHost||i===iPort||i===iTime)continue;html+=`<td><span class="mono">${escHtml(fmtVal(r.row[i]))}</span></td>`}
+    html+=`</tr>`
+  }
+  html+=`</tbody></table></div>`
+  contentEl.innerHTML=html
+
+  // store current rows for chart — keyed by innerId (not port) to avoid cross-host collision
+  window._nsData[cid]._portRows[innerId]=rows
+
+  // restore previously active chart tab, default to chart-cpu
+  const activeTab=(d._activeTab&&d._activeTab[port])||'chart-cpu'
+  switchNsInner(innerId,activeTab)
+}
+
+function nsPagePrev(cid,port){
+  const d=window._nsData[cid];if(!d)return
+  const all=d._allByPort[port]||[];const PAGE=500
+  const offset=d._portOffset[port]||0
+  const end=all.length-offset;const newEnd=Math.max(PAGE,end-PAGE)
+  d._portOffset[port]=all.length-newEnd
+  renderNsPortContent(cid,port)
+}
+
+function nsPageNext(cid,port){
+  const d=window._nsData[cid];if(!d)return
+  if(!d._portOffset)d._portOffset={}
+  d._portOffset[port]=Math.max(0,(d._portOffset[port]||0)-500)
+  renderNsPortContent(cid,port)
+}
+
+function switchNsInner(innerId,tab){
+  // persist active tab per port so paging restores it
+  for(const cid of Object.keys(window._nsData||{})){
+    const d=window._nsData[cid];if(!d._portRows)continue
+    if(d._portRows[innerId]){
+      if(!d._activeTab)d._activeTab={}
+      // derive port from innerId: innerId = cid + '-' + port-safe
+      for(const p of Object.keys(d._allByPort)){
+        if(cid+'-'+p.replace(/[^a-z0-9]/gi,'-')===innerId){d._activeTab[p]=tab;break}
+      }
+      break
+    }
+  }
+  const itabs=document.getElementById(innerId+'-itabs')
+  if(itabs) itabs.querySelectorAll('button[data-inner]').forEach(b=>{
+    const a=b.dataset.inner===tab
+    b.style.color=a?'#0078D4':'#605E5C';b.style.borderBottom=a?'2px solid #0078D4':'2px solid transparent'
+    b.style.fontWeight=a?'600':'normal';b.style.background=a?'#EFF6FC':'transparent'
+  })
+  const isChart=tab.startsWith('chart-')
+  const timeControls=document.getElementById(innerId+'-timecontrols')
+  if(timeControls)timeControls.style.display=isChart?'block':'none'
+  // hide all chart canvases and table
+  for(const t of['chart-cpu','chart-mem','chart-sql','table']){
+    const el=document.getElementById(innerId+'-'+t)
+    if(el)el.style.display='none'
+  }
+  const target=document.getElementById(innerId+'-'+tab)
+  if(target)target.style.display='block'
+  if(isChart) requestAnimationFrame(()=>{
+    for(const cid of Object.keys(window._nsData||{})){
+      const d=window._nsData[cid];if(!d._portRows)continue
+      if(d._portRows[innerId]){drawNsChart(innerId,cid,tab);return}
+    }
+  })
+}
+
+function redrawNsChart(innerId,cid){
+  // find which chart tab is currently visible and redraw it
+  for(const t of['chart-cpu','chart-mem','chart-sql']){
+    const el=document.getElementById(innerId+'-'+t)
+    if(el&&el.style.display!=='none'){drawNsChart(innerId,cid,t);return}
+  }
+}
+
+function drawNsChart(innerId,cid,chartType){
+  if(!chartType)chartType='chart-cpu'
+  const canvasId=innerId+'-canvas-'+chartType.replace('chart-','')
+  const canvas=document.getElementById(canvasId);if(!canvas)return
+  const d=(window._nsData||{})[cid];if(!d)return
+  const rows=d._portRows[innerId];if(!rows||!rows.length)return
+
+  // define series per chart type
+  const SERIES={
+    'chart-cpu':[
+      {col:'indexserverCpu',    color:'#0078D4', label:'indexserverCpu'},
+      {col:'indexserverCpuSys', color:'#D46B08', label:'indexserverCpuSys'},
+    ],
+    'chart-mem':[
+      {col:'indexserverMemUsed',  color:'#389E0D', label:'indexserverMemUsed'},
+      {col:'indexserverMemLimit', color:'#A19F9D', label:'indexserverMemLimit'},
+    ],
+    'chart-sql':[
+      {col:'sqlStatements', color:'#722ED1', label:'sqlStatements'},
+    ],
+  }
+  const series=SERIES[chartType]||SERIES['chart-cpu']
+  const colIndices=series.map(s=>({...s,idx:d.COL[s.col]??-1})).filter(s=>s.idx>=0)
+  if(!colIndices.length)return
+
+  const isMem=chartType==='chart-mem'
+
+  const selEl=document.getElementById(innerId+'-winsel')
+  const WINDOW_SECS=selEl?parseInt(selEl.value):3600
+  const slider=document.getElementById(innerId+'-slider')
+  const pct=slider?parseFloat(slider.value)/100:1
+
+  const times=rows.map(r=>parseFloat(r.time)).filter(t=>!isNaN(t))
+  if(!times.length)return
+  const tMin=times[0],tMax=times[times.length-1]
+  const tEnd=tMin+pct*(tMax-tMin)
+  const tStart=Math.max(tMin,tEnd-WINDOW_SECS)
+  const tEndC=Math.min(tMax,tStart+WINDOW_SECS)
+
+  const lbl=document.getElementById(innerId+'-win-label')
+  if(lbl) lbl.textContent=`${new Date(tStart*1000).toLocaleString()} – ${new Date(tEndC*1000).toLocaleString()}`
+
+  const visible=rows.filter(r=>{const t=parseFloat(r.time);return t>=tStart&&t<=tEndC})
+  if(!visible.length)return
+
+  canvas.width=canvas.offsetWidth||800;canvas.height=220
+  const W=canvas.width,H=canvas.height
+  const PAD={top:16,right:20,bottom:30,left:isMem?72:46}
+  const cw=W-PAD.left-PAD.right,ch=H-PAD.top-PAD.bottom
+  const ctx=canvas.getContext('2d');ctx.clearRect(0,0,W,H)
+
+  const allVals=colIndices.flatMap(s=>visible.map(r=>parseFloat(r.row[s.idx])).filter(v=>!isNaN(v)&&v>=0))
+  if(!allVals.length)return
+  const vMax=Math.max(...allVals,1),vMin=0
+  const tx=t=>PAD.left+(t-tStart)/(tEndC-tStart)*cw
+  const ty=v=>PAD.top+(1-(v-vMin)/(vMax-vMin))*ch
+
+  function fmtYLabel(v){if(isMem){if(v>=1073741824)return(v/1073741824).toFixed(1)+'G';if(v>=1048576)return(v/1048576).toFixed(1)+'M';if(v>=1024)return(v/1024).toFixed(1)+'K';return v}return v.toFixed(v<10?1:0)}
+
+  // grid + y-labels
+  ctx.strokeStyle='#EDEBE9';ctx.lineWidth=1
+  for(let i=0;i<=5;i++){
+    const v=vMin+(vMax-vMin)*i/5,y=ty(v)
+    ctx.beginPath();ctx.moveTo(PAD.left,y);ctx.lineTo(PAD.left+cw,y);ctx.stroke()
+    ctx.fillStyle='#A19F9D';ctx.font='10px Segoe UI,sans-serif';ctx.textAlign='right';ctx.textBaseline='middle'
+    ctx.fillText(fmtYLabel(v),PAD.left-4,y)
+  }
+  // x-labels
+  ctx.fillStyle='#A19F9D';ctx.font='9px Segoe UI,sans-serif';ctx.textAlign='center';ctx.textBaseline='top'
+  for(let i=0;i<=6;i++){
+    const t=tStart+(tEndC-tStart)*i/6
+    ctx.fillText(new Date(t*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}),tx(t),PAD.top+ch+4)
+  }
+  // lines
+  for(const s of colIndices){
+    ctx.strokeStyle=s.color;ctx.lineWidth=1.5;ctx.beginPath();let first=true
+    for(const r of visible){
+      const t=parseFloat(r.time),v=parseFloat(r.row[s.idx])
+      if(isNaN(t)||isNaN(v)||v<0)continue
+      first?ctx.moveTo(tx(t),ty(v)):ctx.lineTo(tx(t),ty(v));first=false
+    }
+    ctx.stroke()
+  }
+}
+
+function expandAll(panelId){document.querySelectorAll(`[id^="${panelId}-"]`).forEach(el=>{if(el.classList.contains('collapse-panel'))el.classList.add('open')})}
+function collapseAll(panelId){document.querySelectorAll(`[id^="${panelId}-"]`).forEach(el=>{if(el.classList.contains('collapse-panel'))el.classList.remove('open')})}
+
+function renderVersionHistory(text){
+  const lines=text.split('\n').map(l=>l.trim()).filter(l=>l)
+  if(lines.length<2)return `<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>versionhistory.csv is empty or invalid.</span></div>`
+  const headers=lines[0].split(';');const rows=lines.slice(1).map(l=>l.split(';'))
+  let html=`<div class="card"><div class="card-title">📋 Version History <span style="font-weight:400;font-size:11px;color:#605E5C;">SYS/global/hdb/versionhistory.csv</span></div><div class="card-body"><div class="data-table-wrap"><table class="data-table"><thead><tr>`
+  for(const h of headers)html+=`<th>${escHtml(h)}</th>`
+  html+=`</tr></thead><tbody>`
+  for(const row of rows){html+=`<tr>`;for(let i=0;i<headers.length;i++){const val=row[i]||'';if(headers[i]==='version')html+=`<td>${tag('tag-blue',val)}</td>`;else if(headers[i]==='branch')html+=`<td>${tag('tag-cyan',val)}</td>`;else html+=`<td><span class="mono">${escHtml(val)}</span></td>`}html+=`</tr>`}
+  html+=`</tbody></table></div></div></div>`
+  return html
+}
+
+
+function parseRefIni(text){
+  // returns { sectionName -> { paramKey -> {shortDesc,fullDesc,type,unit,range,change,defaultValue} } }
+  const result={}
+  const lines=text.split('\n').map(l=>l.replace(/\r$/,''))
+  let curSection=null
+  let pendingMeta={shortDesc:[],fullDesc:[],type:'',unit:'',range:'',change:'',inFull:false}
+
+  function resetMeta(){return{shortDesc:[],fullDesc:[],type:'',unit:'',range:'',change:'',inFull:false}}
+
+  for(const line of lines){
+    const t=line.trim()
+    // section header
+    if(t.startsWith('[')&&t.endsWith(']')){curSection=t.slice(1,-1);if(!result[curSection])result[curSection]={};pendingMeta=resetMeta();continue}
+    // comment lines — parse meta tags
+    if(t.startsWith('#')){
+      const c=t.replace(/^#\s?/,'')
+      if(c.startsWith('.short_desc')){pendingMeta.inFull=false;continue}
+      if(c.startsWith('.full_desc')){pendingMeta.inFull=true;continue}
+      if(c.startsWith('.type ')){pendingMeta.type=c.replace('.type ','').trim();pendingMeta.inFull=false;continue}
+      if(c.startsWith('.unit ')){pendingMeta.unit=c.replace('.unit ','').trim();pendingMeta.inFull=false;continue}
+      if(c.startsWith('.range ')){pendingMeta.range=c.replace('.range ','').trim();pendingMeta.inFull=false;continue}
+      if(c.startsWith('.change ')){pendingMeta.change=c.replace('.change ','').trim();pendingMeta.inFull=false;continue}
+      if(c.startsWith('.')){pendingMeta.inFull=false;continue}
+      // accumulate short_desc (first non-tag line after #)
+      if(!pendingMeta.inFull&&pendingMeta.shortDesc.length===0&&c.trim())pendingMeta.shortDesc.push(c.trim())
+      // accumulate full_desc
+      if(pendingMeta.inFull)pendingMeta.fullDesc.push(c)
+      continue
+    }
+    // blank line resets full_desc accumulation but keeps meta until we hit a key=value
+    if(!t){pendingMeta.inFull=false;continue}
+    // key = value line
+    const eq=t.indexOf('=')
+    if(eq!==-1&&curSection){
+      const key=t.substring(0,eq).trim()
+      const defVal=t.substring(eq+1).trim()
+      // clean trailing empty lines from fullDesc
+      while(pendingMeta.fullDesc.length&&!pendingMeta.fullDesc[pendingMeta.fullDesc.length-1].trim())pendingMeta.fullDesc.pop()
+      result[curSection][key]={
+        shortDesc:pendingMeta.shortDesc.join(' '),
+        fullDesc:pendingMeta.fullDesc.join('\n').trim(),
+        type:pendingMeta.type,
+        unit:pendingMeta.unit,
+        range:pendingMeta.range,
+        change:pendingMeta.change,
+        defaultValue:defVal
+      }
+      pendingMeta=resetMeta()
+    }
+  }
+  return result
+}
+
+function renderIniFile(filename,text){
+  const lines=text.split('\n').map(l=>l.replace(/\r$/,''))
+  const ref=(configRefData[filename])||{}
+  const hasAnyRef=Object.keys(ref).length>0
+
+  // parse all sections first
+  const sections=[]
+  let curSection=null,curRows=[]
+  for(const line of lines){
+    const t=line.trim()
+    if(!t||t.startsWith('#'))continue
+    if(t.startsWith('[')&&t.endsWith(']')){
+      if(curSection!==null)sections.push({name:curSection,rows:curRows})
+      curSection=t.slice(1,-1);curRows=[]
+    } else if(curSection!==null){
+      const eq=t.indexOf('=')
+      if(eq!==-1)curRows.push([t.substring(0,eq).trim(),t.substring(eq+1).trim()])
+    }
+  }
+  if(curSection!==null)sections.push({name:curSection,rows:curRows})
+
+  const refLabel=hasAnyRef
+    ?'<span style="font-size:10px;font-weight:400;color:#389E0D;margin-left:6px;">✓ reference data available</span>'
+    :'<span style="font-size:10px;font-weight:400;color:#A19F9D;margin-left:6px;">no reference data</span>'
+
+  let html=`<div class="card" style="margin-bottom:18px;">
+    <div class="card-title">📄 ${escHtml(filename)} ${refLabel}</div>
+    <div class="card-body" style="padding:0;overflow-x:auto;">
+    <table class="data-table" style="table-layout:auto;width:${hasAnyRef?'100%':'auto'};min-width:400px;">
+    <colgroup>
+      <col style="white-space:nowrap;">
+      <col style="white-space:nowrap;">
+      ${hasAnyRef?'<col style="white-space:nowrap;"><col style="width:70px;"><col style="width:70px;"><col style="width:90px;"><col style="width:70px;"><col>':''}
+    </colgroup>
+    <thead><tr>
+      <th style="white-space:nowrap;">Parameter</th><th style="white-space:nowrap;">Value</th>
+      ${hasAnyRef?'<th style="white-space:nowrap;">Default</th><th>Type</th><th>Unit</th><th>Range</th><th>Change</th><th>Description</th>':''}
+    </tr></thead><tbody>`
+
+  for(const sec of sections){
+    // section header row
+    html+=`<tr><td colspan="${hasAnyRef?8:2}" style="background:#EFF6FF;color:#0078D4;font-weight:600;font-size:11px;padding:5px 12px;border-bottom:1px solid #BAD7FF;">[${escHtml(sec.name)}]</td></tr>`
+    for(const[k,v]of sec.rows){
+      const m=ref[sec.name]?.[k]
+      const isModified=m&&v.trim()!==m.defaultValue.trim()
+      const valStyle=isModified?'color:#D46B08;font-weight:600;':''
+      if(hasAnyRef){
+        html+=`<tr>
+          <td style="white-space:nowrap;"><span class="mono" style="font-weight:600;">${escHtml(k)}</span></td>
+          <td style="white-space:nowrap;"><span class="mono" style="${valStyle}">${escHtml(v)}</span></td>
+          <td style="white-space:nowrap;"><span class="mono" style="color:#A19F9D;">${escHtml(m?.defaultValue||'-')}</span></td>
+          <td>${m?.type?`<span class="tag tag-blue" style="white-space:nowrap;">${escHtml(m.type)}</span>`:'-'}</td>
+          <td>${m?.unit?`<span class="mono">${escHtml(m.unit)}</span>`:'-'}</td>
+          <td><span class="mono">${escHtml(m?.range||'-')}</span></td>
+          <td>${m?.change?`<span class="tag ${m.change==='online'?'tag-green':m.change==='offline'?'tag-orange':'tag-cyan'}" style="white-space:nowrap;">${escHtml(m.change)}</span>`:'-'}</td>
+          <td style="font-size:11px;color:#605E5C;white-space:normal;min-width:200px;">${m?.shortDesc?`<strong>${escHtml(m.shortDesc)}</strong>`:''}${m?.fullDesc?`<br><span style="color:#A19F9D;white-space:pre-wrap;">${escHtml(m.fullDesc)}</span>`:''}</td>
+        </tr>`
+      } else {
+        html+=`<tr>
+          <td style="white-space:nowrap;"><span class="mono" style="font-weight:600;">${escHtml(k)}</span></td>
+          <td style="white-space:nowrap;word-break:break-all;"><span class="mono" style="${valStyle}">${escHtml(v)}</span></td>
+        </tr>`
+      }
+    }
+  }
+  html+=`</tbody></table></div></div>`
+  return html
+}
+
+// ============================================================
+// CANVAS
+// ============================================================
+function drawTopology(data){
+  const canvas=document.getElementById('topo-canvas');if(!canvas)return
+  canvas._topoData=data;canvas.width=canvas.offsetWidth||900;canvas.height=200
+  const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height)
+  const rows=data.replicationRowsMain||data.replicationRows||[],hosts=data.hosts||[],hasHSR=rows.length>0
+  const siteMap={}
+  for(const r of rows){if(!siteMap[r.primarySiteId])siteMap[r.primarySiteId]={id:r.primarySiteId,name:r.primarySiteName,hosts:new Set()};if(!siteMap[r.secondarySiteId])siteMap[r.secondarySiteId]={id:r.secondarySiteId,name:r.secondarySiteName,hosts:new Set()};siteMap[r.primarySiteId].hosts.add(r.primaryHost);siteMap[r.secondarySiteId].hosts.add(r.secondaryHost)}
+  if(!hasHSR&&hosts.length)siteMap[1]={id:1,name:data.systemSID||'PRIMARY',hosts:new Set(hosts.map(h=>h.name))}
+  const sites=Object.values(siteMap).sort((a,b)=>a.id-b.id)
+  const edgeMap={}
+  for(const r of rows){const k=`${r.primarySiteId}->${r.secondarySiteId}`;if(!edgeMap[k])edgeMap[k]={from:r.primarySiteId,to:r.secondarySiteId,mode:r.replicationMode,opmode:r.operationMode||''}}
+  const edges=Object.values(edgeMap)
+  const W=canvas.width,PAD=40,COL_GAP=110,ROW_GAP=30,HOST_W=110,HOST_H=60,SITE_PAD=16,SITE_TITLE_H=28
+  function siteBoxSize(site){const n=site.hosts.size||1,cols2=Math.ceil(Math.sqrt(n)),rows2=Math.ceil(n/cols2);return{w:cols2*(HOST_W+10)+SITE_PAD*2-10,h:rows2*(HOST_H+10)+SITE_PAD*2+SITE_TITLE_H-10}}
+  const inDeg={};for(const s of sites)inDeg[s.id]=0;for(const e of edges)inDeg[e.to]++
+  const roots=sites.filter(s=>inDeg[s.id]===0)
+  const colLevel={};for(const s of sites)colLevel[s.id]=0
+  const bfsQ=[...(roots.length?roots:[sites[0]]).map(s=>s.id)],bfsVis=new Set(bfsQ)
+  while(bfsQ.length){const id=bfsQ.shift();for(const e of edges){if(e.from!==id)continue;colLevel[e.to]=Math.max(colLevel[e.to]||0,colLevel[id]+1);if(!bfsVis.has(e.to)){bfsVis.add(e.to);bfsQ.push(e.to)}}}
+  const maxCol=Math.max(...sites.map(s=>colLevel[s.id]))
+  const columns=[];for(let c=0;c<=maxCol;c++)columns.push(sites.filter(s=>colLevel[s.id]===c).sort((a,b)=>a.id-b.id))
+  const colWidths=columns.map(col=>Math.max(...col.map(s=>siteBoxSize(s).w)))
+  const colHeights=columns.map(col=>col.reduce((a,s)=>a+siteBoxSize(s).h+ROW_GAP,-ROW_GAP))
+  const maxColH=Math.max(...colHeights)
+  canvas.height=Math.max(maxColH+PAD*2+50,180);ctx.clearRect(0,0,canvas.width,canvas.height)
+  const totalW=colWidths.reduce((a,w)=>a+w+COL_GAP,-COL_GAP),startX=Math.max(PAD,(W-totalW)/2)
+  const posMap={};let cx=startX
+  for(let c=0;c<=maxCol;c++){const col=columns[c],colH=colHeights[c];let cy=PAD+(maxColH-colH)/2;for(const s of col){const sz=siteBoxSize(s);posMap[s.id]={x:cx+(colWidths[c]-sz.w)/2,y:cy,...sz};cy+=sz.h+ROW_GAP}cx+=colWidths[c]+COL_GAP}
+  const MODE_COLOR={SYNC:'#389E0D',ASYNC:'#1677FF',SYNCMEM:'#722ED1',PRIMARY:'#0078D4'}
+  function siteCenter(p){return{x:p.x+p.w/2,y:p.y+p.h/2}}
+  function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.lineTo(x+w-r,y);c.arcTo(x+w,y,x+w,y+r,r);c.lineTo(x+w,y+h-r);c.arcTo(x+w,y+h,x+w-r,y+h,r);c.lineTo(x+r,y+h);c.arcTo(x,y+h,x,y+h-r,r);c.lineTo(x,y+r);c.arcTo(x,y,x+r,y,r);c.closePath()}
+  function boxEdgePoint(box,cx,cy,tx,ty){const dx=tx-cx,dy=ty-cy;if(Math.abs(dx)<0.001&&Math.abs(dy)<0.001)return{x:cx,y:cy};const sX=dx!==0?(box.w/2)/Math.abs(dx):Infinity,sY=dy!==0?(box.h/2)/Math.abs(dy):Infinity,scale=Math.min(sX,sY);return{x:cx+dx*scale,y:cy+dy*scale}}
+  function drawArrow(x1,y1,x2,y2,color,label){const dx=x2-x1,dy=y2-y1,len=Math.sqrt(dx*dx+dy*dy);if(len<1)return;const ux=dx/len,uy=dy/len,margin=18,sx=x1+ux*margin,sy=y1+uy*margin,ex=x2-ux*margin,ey=y2-uy*margin;ctx.save();ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(ex,ey);ctx.stroke();const aLen=12,aW=6;ctx.beginPath();ctx.moveTo(ex,ey);ctx.lineTo(ex-ux*aLen+uy*aW,ey-uy*aLen-ux*aW);ctx.lineTo(ex-ux*aLen-uy*aW,ey-uy*aLen+ux*aW);ctx.closePath();ctx.fill();if(label){const mx=(sx+ex)/2,my=(sy+ey)/2,perpX=-uy*18,perpY=ux*18,lns=label.split('\n'),lineH=13;ctx.font='bold 10px Segoe UI,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';const tw=Math.max(...lns.map(l=>ctx.measureText(l).width))+12,th=lns.length*lineH+6;ctx.fillStyle='#fff';ctx.strokeStyle=color;ctx.lineWidth=1.5;roundRect(ctx,mx+perpX-tw/2,my+perpY-th/2,tw,th,4);ctx.fill();ctx.stroke();ctx.fillStyle=color;lns.forEach((ln,i)=>{const ly=my+perpY-((lns.length-1)*lineH/2)+i*lineH;ctx.fillText(ln,mx+perpX,ly)})}ctx.restore()}
+  for(const e of edges){const p=posMap[e.from],q=posMap[e.to];if(!p||!q)continue;const cp=siteCenter(p),cq=siteCenter(q),pt=boxEdgePoint(p,cp.x,cp.y,cq.x,cq.y),qt=boxEdgePoint(q,cq.x,cq.y,cp.x,cp.y),color=MODE_COLOR[e.mode]||'#A19F9D',lbl=e.opmode?`${e.mode}\n${e.opmode}`:e.mode;drawArrow(pt.x,pt.y,qt.x,qt.y,color,lbl)}
+  const overlayItems=[]
+  function drawHostBox(c,x,y,w,h,name,accent){c.save();c.fillStyle='#FFFFFF';c.strokeStyle='#EDEBE9';c.lineWidth=1;roundRect(c,x,y,w,h,5);c.fill();c.stroke();c.strokeStyle=accent;c.fillStyle=accent+'22';c.lineWidth=1.5;roundRect(c,x+8,y+(h-22)/2,22,22,3);c.fill();c.stroke();c.strokeStyle=accent;c.lineWidth=1;for(let i=1;i<=3;i++){const ly=y+(h-22)/2+(22/4)*i;c.beginPath();c.moveTo(x+12,ly);c.lineTo(x+26,ly);c.stroke()}c.fillStyle='#201F1E';c.font='600 10px Consolas,monospace';c.textAlign='left';c.textBaseline='middle';let lbl=name;while(c.measureText(lbl).width>w-38&&lbl.length>4)lbl=lbl.slice(0,-1);if(lbl!==name)lbl+='…';c.fillText(lbl,x+34,y+h/2);c.restore()}
+  for(const site of sites){const p=posMap[site.id];if(!p)continue;const isPrimary=inDeg[site.id]===0;const borderColor=isPrimary?'#0078D4':(MODE_COLOR[edges.find(e=>e.to===site.id)?.mode]||'#A19F9D');ctx.save();ctx.fillStyle=isPrimary?'#EFF6FF':'#F9F0FF';ctx.strokeStyle=borderColor;ctx.lineWidth=2;roundRect(ctx,p.x,p.y,p.w,p.h,8);ctx.fill();ctx.stroke();ctx.fillStyle=borderColor;ctx.fillRect(p.x,p.y,p.w,SITE_TITLE_H);ctx.fillStyle='#fff';ctx.font='bold 12px Segoe UI,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(`Site ${site.id}: ${site.name}`,p.x+p.w/2,p.y+SITE_TITLE_H/2);const hostArr=[...site.hosts],cols=Math.max(1,Math.ceil(Math.sqrt(hostArr.length)));hostArr.forEach((hN,idx)=>{const col=idx%cols,row2=Math.floor(idx/cols),hx=p.x+SITE_PAD+col*(HOST_W+10),hy=p.y+SITE_TITLE_H+SITE_PAD+row2*(HOST_H+10);drawHostBox(ctx,hx,hy,HOST_W,HOST_H,hN,borderColor);overlayItems.push({x:hx,y:hy,w:HOST_W,h:HOST_H,label:hN})});ctx.restore()}
+  // Legend
+  const modes=[...new Set(edges.map(e=>e.mode))];if(!modes.length)modes.push('PRIMARY')
+  const MODE_DESC={SYNC:'SYNC — synchronous (zero data loss)',ASYNC:'ASYNC — asynchronous (minimal overhead)',SYNCMEM:'SYNCMEM — sync memory, async disk',PRIMARY:'PRIMARY site'}
+  const legendItems=modes.map(m=>({color:MODE_COLOR[m]||'#A19F9D',label:MODE_DESC[m]||m}))
+  const lx=12,ly=canvas.height-14-legendItems.length*18
+  ctx.save();ctx.fillStyle='rgba(255,255,255,0.88)';ctx.strokeStyle='#EDEBE9';ctx.lineWidth=1
+  roundRect(ctx,lx-6,ly-8,240,legendItems.length*18+16,5);ctx.fill();ctx.stroke()
+  legendItems.forEach((item,i)=>{
+    const iy=ly+i*18+2
+    ctx.strokeStyle=item.color;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(lx,iy+6);ctx.lineTo(lx+16,iy+6);ctx.stroke()
+    ctx.fillStyle=item.color;ctx.beginPath();ctx.moveTo(lx+16,iy+6);ctx.lineTo(lx+10,iy+3);ctx.lineTo(lx+10,iy+9);ctx.closePath();ctx.fill()
+    ctx.fillStyle='#323130';ctx.font='10px Segoe UI,sans-serif';ctx.textAlign='left';ctx.textBaseline='middle'
+    ctx.fillText(item.label,lx+22,iy+7)
+  })
+  ctx.restore()
+
+  const overlayDiv=document.getElementById('topo-overlays')
+  if(overlayDiv){const sX=canvas.offsetWidth>0?canvas.width/canvas.offsetWidth:1,sY=canvas.offsetHeight>0?canvas.height/canvas.offsetHeight:1;overlayDiv.innerHTML='';overlayDiv.style.width=canvas.offsetWidth+'px';overlayDiv.style.height=canvas.offsetHeight+'px';for(const item of overlayItems){const span=document.createElement('span');span.textContent=item.label;span.style.cssText=`position:absolute;left:${(item.x+34)/sX}px;top:${(item.y+item.h/2-6)/sY}px;width:${(item.w-38)/sX}px;font:600 10px Consolas,monospace;color:transparent;user-select:text;cursor:text;white-space:nowrap;overflow:hidden;pointer-events:all;`;overlayDiv.appendChild(span)}}
+}
+window.addEventListener('resize',()=>{const canvas=document.getElementById('topo-canvas');if(canvas&&canvas._topoData)drawTopology(canvas._topoData)})
+
+// ============================================================
+// RUNTIME DUMPS
+// ============================================================
+function parseRteDumpFilename(fname){
+  // split at '.rtedump.' to separate left (service_host.port) from right (datetime.seq.reason.trc)
+  const idx=fname.indexOf('.rtedump.')
+  if(idx===-1)return null
+  const left=fname.substring(0,idx)
+  const right=fname.substring(idx+9)  // skip '.rtedump.'
+
+  // left: <service>_<virtualhost>.<port>
+  const usIdx=left.indexOf('_')
+  if(usIdx===-1)return null
+  const serviceName=left.substring(0,usIdx)
+  const hostPort=left.substring(usIdx+1)
+  const dotIdx=hostPort.lastIndexOf('.')
+  const virtualHost=dotIdx===-1?hostPort:hostPort.substring(0,dotIdx)
+  const port=dotIdx===-1?'':hostPort.substring(dotIdx+1)
+
+  // right: <datetime>.<seq>.<reason>.trc — remove trailing .trc first
+  const remainder=right.endsWith('.trc')?right.slice(0,-4):right
+  const parts=remainder.split('.')
+  if(parts.length<3)return null
+  const datetime=parts[0]
+  const seq=parts[1]
+  const reason=parts.slice(2).join('.')
+
+  return{filename:fname,serviceName,virtualHost,port,datetime,reason,seq}
+}
+
+function renderRteDumpKnowledge(){
+  const links=[
+    {
+      title:'SAP HANA SQL Reference Guide for SAP HANA Platform',
+      section:'Monitoring Views',
+      url:'https://help.sap.com/docs/SAP_HANA_PLATFORM/4fe29514fd584807ac9f2a04f6754767/d3c10d23e8334a35afa8d9bdbc102366.html?locale=en-US'
+    },
+    {
+      title:'SAP HANA Cloud, SAP HANA Database SQL Reference Guide',
+      section:'Monitoring Views',
+      url:'https://help.sap.com/docs/hana-cloud-database/sap-hana-cloud-sap-hana-database-sql-reference-guide/monitoring-views?locale=en-US'
+    },
+  ]
+
+  let html=`<div class="card"><div class="card-title">📚 Knowledge — Runtime Dumps</div><div class="card-body">
+  <p style="font-size:12px;color:#605E5C;margin-bottom:14px;">Reference documentation and resources for SAP HANA Runtime Dumps and Monitoring Views.</p>
+  <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;">`
+
+  for(const l of links){
+    html+=`<li style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid #EDEBE9;border-radius:2px;background:#FAFAFA;">
+      <span style="font-size:16px;flex-shrink:0;">🔗</span>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:#323130;">${escHtml(l.title)}</div>
+        <div style="font-size:11px;color:#605E5C;margin:2px 0 6px 0;">${escHtml(l.section)}</div>
+        <a href="${escHtml(l.url)}" target="_blank" style="font-size:11px;color:#0078D4;word-break:break-all;">${escHtml(l.url)}</a>
+      </div>
+    </li>`
+  }
+
+  html+=`</ul></div></div>`
+  return html
+}
+
+function renderRteDumps(dumps,scannedPaths){
+  const count=dumps.length
+  const pathList=scannedPaths.length
+    ?scannedPaths.map(p=>`<code>${escHtml(p)}</code>`).join(', ')
+    :'<span style="color:#A19F9D;">none</span>'
+  let html=`<div style="margin-bottom:10px;position:relative;">
+  <input id="rte-search-input" type="text" placeholder="🔍 Search across all open dump tabs… (double-click result to jump)"
+    oninput="rteDumpSearch(this.value)"
+    style="width:100%;height:28px;padding:0 8px;border:1px solid #EDEBE9;border-radius:2px;font-family:inherit;font-size:12px;outline:none;"
+    onfocus="this.style.borderColor='#0078D4'" onblur="this.style.borderColor='#EDEBE9'">
+  <div id="rte-search-results" style="position:absolute;left:0;right:0;z-index:50;"></div>
+  </div>
+  <div class="card">
+  <div class="card-title">💥 Runtime Dumps
+    <span style="font-weight:400;font-size:11px;color:#605E5C;margin-left:6px;">${count} dump${count!==1?'s':''} found</span>
+  </div>
+  <div style="padding:6px 12px 8px 12px;font-size:11px;color:#605E5C;border-bottom:1px solid #EDEBE9;background:#F8F8F7;">
+    Scanned: ${pathList}
+  </div>
+  <div style="overflow-x:auto;max-height:calc(100vh - 200px);overflow-y:auto;">
+  <table class="data-table" style="white-space:nowrap;width:auto;min-width:100%;">
+  <thead style="position:sticky;top:0;z-index:5;"><tr>
+    <th>Date/Time</th>
+    <th>Service</th>
+    <th>Virtual Host</th>
+    <th>Port</th>
+    <th>Reason</th>
+    <th>Tenant</th>
+    <th>File</th>
+  </tr></thead><tbody>`
+
+  // group by virtualHost — insert a separator row when host changes
+  let lastHost=null
+  for(const d of dumps){
+    let dtDisplay=d.datetime
+    const dtm=d.datetime.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/)
+    if(dtm)dtDisplay=`${dtm[1]}-${dtm[2]}-${dtm[3]} ${dtm[4]}:${dtm[5]}:${dtm[6]}`
+    const tenantCell=d.tenant?tag('tag-purple',d.tenant):'<span style="color:#A19F9D;">SYSTEMDB</span>'
+    const approxPathLen=(loadedFolderName?loadedFolderName.length+1:0)+(d.scannedPath?d.scannedPath.length+1:0)+d.filename.length
+    const pathWarn=approxPathLen>210?`<span title="Estimated path length ~${approxPathLen} chars — may exceed Windows 255 char limit. Use 'Load runtime dump only' to open directly." style="cursor:help;margin-left:4px;">⚠️</span>`  :''
+
+    if(d.virtualHost!==lastHost){
+      lastHost=d.virtualHost
+      html+=`<tr><td colspan="7" style="background:#F3F2F1;color:#605E5C;font-size:11px;font-weight:600;padding:5px 12px;border-top:2px solid #EDEBE9;border-bottom:1px solid #EDEBE9;">
+        🖥️ ${escHtml(d.virtualHost)}
+      </td></tr>`
+    }
+
+    html+=`<tr style="cursor:pointer;" onclick="rteDumpOpenTab(${d._idx})" title="Click to open dump in new tab">
+      <td><span class="mono">${escHtml(dtDisplay)}</span></td>
+      <td>${tag('tag-cyan',d.serviceName)}</td>
+      <td><span class="mono">${escHtml(d.virtualHost)}</span></td>
+      <td><code>${escHtml(d.port)}</code></td>
+      <td>${tag('tag-red',d.reason)}</td>
+      <td>${tenantCell}</td>
+      <td><span class="mono" style="font-size:10px;color:#605E5C;">${escHtml(d.filename)}</span>${pathWarn}</td>
+    </tr>`
+  }
+  html+=`</tbody></table></div></div>`
+  return html
+}
+
+async function rteDumpOpenTab(idx){
+  const d=rteDumpHandles[parseInt(idx)]
+  if(!d)return
+
+  const tabId='rte-dump-'+idx
+  const tabBar=document.getElementById('rte-tabbar')
+  const tabContent=document.getElementById('rte-tabcontent')
+  if(!tabBar||!tabContent)return
+
+  // if tab already exists just switch to it
+  if(tabBar.querySelector(`[data-rteid="${tabId}"]`)){
+    rteTabSwitch(tabId)
+    return
+  }
+
+  // format label
+  let dtDisplay=d.datetime
+  const dtm=d.datetime.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/)
+  if(dtm)dtDisplay=`${dtm[2]}-${dtm[3]} ${dtm[4]}:${dtm[5]}`
+  const label=`${d.serviceName} · ${d.reason.length>20?d.reason.substring(0,20)+'…':d.reason} · ${dtDisplay}`
+
+  // build tab button with close
+  const btn=document.createElement('button')
+  btn.dataset.rteid=tabId
+  btn.style.cssText='display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 10px 0 14px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:11px;color:#605E5C;cursor:pointer;white-space:nowrap;max-width:280px;'
+  const labelSpan=document.createElement('span')
+  labelSpan.title=d.filename
+  labelSpan.style.cssText='overflow:hidden;text-overflow:ellipsis;'
+  labelSpan.textContent=label
+  const closeBtn=document.createElement('span')
+  closeBtn.textContent='×'
+  closeBtn.style.cssText='font-size:14px;line-height:1;opacity:0.5;padding:0 2px;'
+  closeBtn.onclick=(e)=>{
+    e.stopPropagation()
+    btn.remove()
+    const pnl=tabContent.querySelector(`[data-rtepanel="${tabId}"]`)
+    if(pnl)pnl.remove()
+    // switch back to overview
+    const firstBtn=tabBar.querySelector('button[data-rteid="overview"]')
+    if(firstBtn)firstBtn.click()
+  }
+  btn.appendChild(labelSpan)
+  btn.appendChild(closeBtn)
+  btn.onclick=()=>rteTabSwitch(tabId)
+  tabBar.appendChild(btn)
+
+  // build panel
+  const panel=document.createElement('div')
+  panel.dataset.rtepanel=tabId
+  panel.style.cssText='display:none;overflow-y:auto;height:100%;'
+  panel.innerHTML='<div style="padding:16px;color:#A19F9D;font-size:12px;">Loading…</div>'
+  tabContent.appendChild(panel)
+
+  rteTabSwitch(tabId)
+
+  try{
+    const file=await d.handle.getFile()
+    const text=await file.text()
+    panel.innerHTML=renderRteDumpFileContent(text,d.filename)
+  }catch(e){
+    const relPath=(loadedFolderName?loadedFolderName+'/':'')+
+                  (d.scannedPath?d.scannedPath+'/':'')+d.filename
+    const pathLen=relPath.length
+    const isPathTooLong=e.name==='NotFoundError'&&pathLen>210
+    const isPermission=e.name==='NotFoundError'||e.name==='NotAllowedError'||e.name==='SecurityError'
+    let msg
+    if(isPathTooLong){
+      msg=`<strong>Path too long (~${pathLen} relative chars)</strong> — Windows has a limit of 255 characters. The full path to this file likely exceeds that limit.<br><br>
+        <code style="font-size:10px;word-break:break-all;">${escHtml(relPath)}</code><br><br>
+        <button class="btn-sm" onclick="rteDumpOpenViaPickerInTab(${d._idx})">📂 Pick file manually (opens with correct name)</button>
+        &nbsp; or enable long path support in Windows: <code>HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem\\LongPathsEnabled = 1</code>`
+    } else if(isPermission){
+      msg=`Could not read <strong>${escHtml(d.filename)}</strong> — the browser lost access to the directory. Please reload the FSID folder using <strong>Load FSID</strong>.`
+    } else {
+      msg=`Error: ${escHtml(String(e))}`
+    }
+    panel.innerHTML=`<div style="padding:16px;"><div class="not-found-msg" style="flex-direction:column;align-items:flex-start;gap:8px;"><span class="nf-icon">⚠️</span><span style="line-height:1.6;">${msg}</span></div></div>`
+  }
+}
+
+async function rteDumpOpenViaPickerInTab(idx){
+  // user picks the file manually (workaround for long path) — use real filename from scan as label
+  const d=rteDumpHandles[parseInt(idx)]
+  if(!d)return
+  let fileHandle
+  try{
+    ;[fileHandle]=await window.showOpenFilePicker({
+      id:'rte-longpath',
+      types:[{description:'Runtime Dump',accept:{'text/plain':['.trc','.txt']}}],
+      multiple:false,
+      ...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})
+    })
+  }catch(e){if(e.name!=='AbortError')alert('Error: '+e.message);return}
+  _lastPickedHandle=fileHandle
+  const file=await fileHandle.getFile()
+  const text=await file.text()
+  // use the real scanned filename as label, not the 8.3 short name
+  const realName=d.filename
+  const tabId='rte-dump-'+idx
+  const tabBar=document.getElementById('rte-tabbar')
+  const tabContent=document.getElementById('rte-tabcontent')
+  if(!tabBar||!tabContent)return
+  // replace the error panel content with the real dump
+  const existingPanel=tabContent.querySelector(`[data-rtepanel="${tabId}"]`)
+  if(existingPanel){
+    existingPanel.innerHTML=renderRteDumpFileContent(text,realName)
+    rteTabSwitch(tabId)
+    return
+  }
+  // tab button
+  let dtDisplay=d.datetime
+  const dtm=d.datetime.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/)
+  if(dtm)dtDisplay=`${dtm[2]}-${dtm[3]} ${dtm[4]}:${dtm[5]}`
+  const label=`${d.serviceName} · ${d.reason.length>20?d.reason.substring(0,20)+'…':d.reason} · ${dtDisplay}`
+  const btn=document.createElement('button')
+  btn.dataset.rteid=tabId
+  btn.style.cssText='display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 10px 0 14px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:11px;color:#605E5C;cursor:pointer;white-space:nowrap;max-width:280px;'
+  const labelSpan=document.createElement('span')
+  labelSpan.title=realName
+  labelSpan.style.cssText='overflow:hidden;text-overflow:ellipsis;'
+  labelSpan.textContent=label
+  const closeX=document.createElement('span')
+  closeX.textContent='×'
+  closeX.style.cssText='font-size:14px;line-height:1;opacity:0.5;padding:0 2px;'
+  closeX.onclick=(e)=>{e.stopPropagation();btn.remove();const p=tabContent.querySelector(`[data-rtepanel="${tabId}"]`);if(p)p.remove();tabBar.querySelector('[data-rteid="overview"]')?.click()}
+  btn.appendChild(labelSpan);btn.appendChild(closeX)
+  btn.onclick=()=>rteTabSwitch(tabId)
+  tabBar.appendChild(btn)
+  const pnl=document.createElement('div')
+  pnl.dataset.rtepanel=tabId
+  pnl.style.cssText='display:none;overflow-y:auto;'
+  pnl.innerHTML=renderRteDumpFileContent(text,realName)
+  tabContent.appendChild(pnl)
+  rteTabSwitch(tabId)
+}
+
+async function rteDumpLoadSingle(){
+  let fileHandle
+  try{
+    ;[fileHandle]=await window.showOpenFilePicker({
+      id:'rte-single',
+      types:[{description:'Runtime Dump',accept:{'text/plain':['.trc','.txt']}}],
+      multiple:false,
+      ...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})
+    })
+  }catch(e){if(e.name!=='AbortError')alert('Error: '+e.message);return}
+  _lastPickedHandle=fileHandle
+  const file=await fileHandle.getFile()
+  const text=await file.text()
+  const fname=file.name
+
+  // navigate to rtedumps panel (creates a minimal session if none exists)
+  if(!activeFsidId){
+    const sid=newSessionId()
+    const color=FSID_COLORS[fsidSessions.length%FSID_COLORS.length]
+    fsidSessions.push({id:sid,label:'📄 '+fname,color,captureInfo:'',loadedFiles:{},loadedFolderName:'',versionHistoryHandle:null,configFileHandles:[],configRefHandles:{},configRefData:{},telemetryHandle:null,nsHistoryHandles:[],rteDumpHandles:[],rteDumpScannedPaths:[],topoData:null})
+    activeFsidId=sid
+    renderNavTree()
+  }
+  activateNavItem(activeFsidId,'rtedumps')
+  await new Promise(r=>setTimeout(r,0))
+
+  const tabBar=document.getElementById('rte-tabbar')
+  const tabContent=document.getElementById('rte-tabcontent')
+  if(!tabBar||!tabContent)return
+
+  const tabId='rte-single-'+fname.replace(/[^a-z0-9]/gi,'-')
+
+  if(tabBar.querySelector(`[data-rteid="${tabId}"]`)){rteTabSwitch(tabId);return}
+
+  const btn=document.createElement('button')
+  btn.dataset.rteid=tabId
+  btn.style.cssText='display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 10px 0 14px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:11px;color:#605E5C;cursor:pointer;white-space:nowrap;max-width:260px;'
+  const labelSpan=document.createElement('span')
+  labelSpan.title=fname
+  labelSpan.style.cssText='overflow:hidden;text-overflow:ellipsis;'
+  labelSpan.textContent='📄 '+fname
+  const closeX=document.createElement('span')
+  closeX.textContent='×'
+  closeX.style.cssText='font-size:14px;line-height:1;opacity:0.5;padding:0 2px;'
+  closeX.onclick=(e)=>{
+    e.stopPropagation();btn.remove()
+    const p=tabContent.querySelector(`[data-rtepanel="${tabId}"]`)
+    if(p)p.remove()
+    const ob=tabBar.querySelector('[data-rteid="overview"]')
+    if(ob)ob.click()
+  }
+  btn.appendChild(labelSpan);btn.appendChild(closeX)
+  btn.onclick=()=>rteTabSwitch(tabId)
+  tabBar.appendChild(btn)
+
+  const pnl=document.createElement('div')
+  pnl.dataset.rtepanel=tabId
+  pnl.style.cssText='display:none;overflow-y:auto;'
+  pnl.innerHTML=renderRteDumpFileContent(text,fname)
+  tabContent.appendChild(pnl)
+  rteTabSwitch(tabId)
+}
+
+// ── Runtime Dump Search ───────────────────────────────────────────────────
+// called from the search input in renderRteDumps
+function rteDumpSearch(query){
+  const q=query.trim().toLowerCase()
+  const resultsDiv=document.getElementById('rte-search-results')
+  if(!resultsDiv)return
+  if(!q){resultsDiv.innerHTML='';return}
+
+  // search in all loaded dump text — we search over filename, reason, serviceName, virtualHost
+  // for deeper search we also search the already-rendered tab panels
+  const hits=[]
+
+  // quick metadata search over all handles
+  for(const d of rteDumpHandles){
+    const haystack=(d.filename+' '+d.serviceName+' '+d.reason+' '+d.virtualHost+' '+d.datetime).toLowerCase()
+    if(haystack.includes(q)){
+      hits.push({type:'meta',d,match:null})
+    }
+  }
+
+  // search inside open tab panels
+  for(const panel of document.querySelectorAll('#rte-tabcontent [data-rtepanel]')){
+    const pid=panel.dataset.rtepanel
+    if(pid==='overview')continue
+    // walk all text nodes
+    const walker=document.createTreeWalker(panel,NodeFilter.SHOW_TEXT)
+    let node,lineHits=[]
+    while((node=walker.nextNode())){
+      const txt=node.textContent
+      if(txt.toLowerCase().includes(q)&&txt.trim().length>2){
+        // find nearest named ancestor (collapse-header span or th/td)
+        let el=node.parentElement
+        while(el&&el!==panel&&!el.matches('.collapse-header,.collapse-panel')){el=el.parentElement}
+        const sectionHeader=el&&el.matches('.collapse-panel')
+          ?el.querySelector(':scope > .collapse-header')
+          :null
+        const sectionLabel=sectionHeader?sectionHeader.textContent.trim().substring(0,60):''
+        const context=txt.trim().substring(0,100)
+        lineHits.push({panelId:pid,sectionEl:el,sectionLabel,context})
+      }
+    }
+    // deduplicate by sectionEl
+    const seen=new Set()
+    for(const h of lineHits){
+      const key=h.sectionLabel+h.context.substring(0,30)
+      if(!seen.has(key)){seen.add(key);hits.push({type:'content',...h})}
+    }
+  }
+
+  if(!hits.length){resultsDiv.innerHTML='<div style="padding:6px 8px;color:#A19F9D;font-size:11px;">No results</div>';return}
+
+  let html='<div style="max-height:320px;overflow-y:auto;border:1px solid #EDEBE9;border-radius:2px;background:#fff;">'
+  for(let i=0;i<Math.min(hits.length,100);i++){
+    const h=hits[i]
+    if(h.type==='meta'){
+      let dt=h.d.datetime
+      const m=dt.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/)
+      if(m)dt=`${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}`
+      html+=`<div style="padding:5px 10px;border-bottom:1px solid #F3F2F1;cursor:pointer;font-size:11px;"
+        title="Double-click to open dump"
+        ondblclick="rteDumpOpenTab(${h.d._idx})">
+        <span style="color:#0078D4;font-weight:600;">${escHtml(h.d.serviceName)}</span>
+        <span style="color:#605E5C;margin:0 6px;">·</span>
+        <span style="color:#CF1322;">${escHtml(h.d.reason)}</span>
+        <span style="color:#605E5C;margin:0 6px;">·</span>
+        <span class="mono" style="color:#605E5C;">${escHtml(dt)}</span>
+        <span style="font-size:10px;color:#A19F9D;margin-left:6px;">(metadata)</span>
+      </div>`
+    } else {
+      // highlight match in context
+      const ctx=h.context
+      const lo=ctx.toLowerCase()
+      const idx2=lo.indexOf(q)
+      let display=escHtml(ctx)
+      if(idx2>=0){
+        const pre=escHtml(ctx.substring(0,idx2))
+        const match=escHtml(ctx.substring(idx2,idx2+q.length))
+        const post=escHtml(ctx.substring(idx2+q.length))
+        display=`${pre}<mark style="background:#FFF176;padding:0;">${match}</mark>${post}`
+      }
+      html+=`<div style="padding:5px 10px;border-bottom:1px solid #F3F2F1;cursor:pointer;font-size:11px;"
+        title="Double-click to jump to section"
+        ondblclick="rteDumpJumpTo('${escHtml(h.panelId)}','${escHtml(h.sectionLabel.replace(/'/g,"\\'"))}')">
+        <div style="color:#605E5C;font-size:10px;margin-bottom:2px;font-family:Consolas,monospace;">${escHtml(h.sectionLabel||h.panelId)}</div>
+        <span class="mono" style="color:#323130;">${display}</span>
+      </div>`
+    }
+  }
+  if(hits.length>100)html+=`<div style="padding:4px 10px;font-size:10px;color:#A19F9D;">${hits.length-100} more results…</div>`
+  html+='</div>'
+  resultsDiv.innerHTML=html
+}
+
+function rteDumpTabSearch(uid,query,resId){
+  const q=query.trim().toLowerCase()
+  const resultsDiv=document.getElementById(resId)
+  if(!resultsDiv)return
+  if(!q){resultsDiv.innerHTML='';return}
+
+  // find the panel that contains this search bar (parent with data-rtepanel)
+  const searchInput=document.getElementById(`rte-ts-${uid}`)
+  if(!searchInput)return
+  let panel=searchInput.parentElement
+  while(panel&&!panel.dataset.rtepanel)panel=panel.parentElement
+  if(!panel)return
+
+  const hits=[]
+  const seen=new Set()
+  const walker=document.createTreeWalker(panel,NodeFilter.SHOW_TEXT)
+  let node
+  while((node=walker.nextNode())){
+    const txt=node.textContent
+    if(!txt.toLowerCase().includes(q)||txt.trim().length<3)continue
+    // find nearest collapse-panel ancestor
+    let el=node.parentElement
+    while(el&&el!==panel&&!el.classList.contains('collapse-panel'))el=el.parentElement
+    if(!el||el===panel)continue
+    const hdr=el.querySelector(':scope > .collapse-header')
+    const sectionLabel=hdr?hdr.textContent.trim().substring(0,80):''
+    const context=txt.trim().substring(0,120)
+    const key=sectionLabel+context.substring(0,40)
+    if(!seen.has(key)){
+      seen.add(key)
+      hits.push({el,sectionLabel,context})
+    }
+  }
+
+  if(!hits.length){resultsDiv.innerHTML='<div style="border:1px solid #EDEBE9;border-radius:2px;background:#fff;padding:6px 8px;font-size:11px;color:#A19F9D;">No results</div>';return}
+
+  let html='<div style="max-height:280px;overflow-y:auto;border:1px solid #EDEBE9;border-radius:2px;background:#fff;">'
+  const show=Math.min(hits.length,80)
+  for(let i=0;i<show;i++){
+    const h=hits[i]
+    const ctx=h.context
+    const lo=ctx.toLowerCase()
+    const idx2=lo.indexOf(q)
+    let display=escHtml(ctx)
+    if(idx2>=0){
+      display=escHtml(ctx.substring(0,idx2))
+        +`<mark style="background:#FFF176;padding:0;">${escHtml(ctx.substring(idx2,idx2+q.length))}</mark>`
+        +escHtml(ctx.substring(idx2+q.length))
+    }
+    // store section label on element for jump
+    const elId=h.el.id||(`rte-hit-${uid}-${i}`)
+    if(!h.el.id)h.el.id=elId
+    html+=`<div style="padding:5px 10px;border-bottom:1px solid #F3F2F1;cursor:pointer;font-size:11px;"
+      title="Double-click to jump"
+      ondblclick="rteDumpTabJump('${elId}','${escHtml(q.replace(/'/g,"\\'"))}')">
+      <div style="font-family:Consolas,monospace;font-size:10px;color:#605E5C;margin-bottom:2px;">${escHtml(h.sectionLabel)}</div>
+      <span class="mono" style="color:#323130;">${display}</span>
+    </div>`
+  }
+  if(hits.length>show)html+=`<div style="padding:4px 10px;font-size:10px;color:#A19F9D;">${hits.length-show} more…</div>`
+  html+='</div>'
+  resultsDiv.innerHTML=html
+}
+
+function rteDumpTabJump(elId,query){
+  const el=document.getElementById(elId)
+  if(!el)return
+  // open all ancestor collapse-panels up to the tab panel root
+  let ancestor=el
+  while(ancestor){
+    if(ancestor.classList&&ancestor.classList.contains('collapse-panel'))
+      ancestor.classList.add('open')
+    if(ancestor.dataset&&ancestor.dataset.rtepanel)break
+    ancestor=ancestor.parentElement
+  }
+  el.classList.add('open')
+  setTimeout(()=>{
+    el.scrollIntoView({block:'start',behavior:'smooth'})
+    el.style.outline='2px solid #0078D4'
+    setTimeout(()=>el.style.outline='',20000)
+    // highlight matching text inside the element
+    if(query){
+      const addedMarks=[]
+      const q=query.toLowerCase()
+      const walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT)
+      const nodes=[]
+      let n
+      while((n=walker.nextNode())){
+        if(n.textContent.toLowerCase().includes(q))nodes.push(n)
+      }
+      for(const textNode of nodes){
+        const txt=textNode.textContent
+        const lo=txt.toLowerCase()
+        const idx=lo.indexOf(q)
+        if(idx<0)continue
+        const parent=textNode.parentNode
+        if(!parent)continue
+        const before=document.createTextNode(txt.substring(0,idx))
+        const mark=document.createElement('mark')
+        mark.style.cssText='background:#FFF176;padding:0;border-radius:2px;'
+        mark.textContent=txt.substring(idx,idx+q.length)
+        const after=document.createTextNode(txt.substring(idx+q.length))
+        parent.insertBefore(before,textNode)
+        parent.insertBefore(mark,textNode)
+        parent.insertBefore(after,textNode)
+        parent.removeChild(textNode)
+        addedMarks.push(mark)
+      }
+      // remove highlights after 4s
+      setTimeout(()=>{
+        for(const m of addedMarks){
+          const p=m.parentNode
+          if(p){p.replaceChild(document.createTextNode(m.textContent),m);p.normalize()}
+        }
+      },20000)
+    }
+  },30)
+}
+
+function rteTabSwitch(id){
+  const tabBar=document.getElementById('rte-tabbar')
+  const tabContent=document.getElementById('rte-tabcontent')
+  if(!tabBar||!tabContent)return
+  tabBar.querySelectorAll('button[data-rteid]').forEach(b=>{
+    const a=b.dataset.rteid===id
+    b.style.color=a?'#0078D4':'#605E5C'
+    b.style.borderBottom=a?'2px solid #0078D4':'2px solid transparent'
+    b.style.fontWeight=a?'600':'normal'
+    b.style.background=a?'#EFF6FC':'transparent'
+  })
+  tabContent.querySelectorAll('[data-rtepanel]').forEach(p=>p.style.display='none')
+  const active=tabContent.querySelector(`[data-rtepanel="${id}"]`)
+  if(active)active.style.display='block'
+}
+
+function rteDumpJumpTo(panelId,sectionLabel){
+  const tabBar=document.getElementById('rte-tabbar')
+  const tabContent=document.getElementById('rte-tabcontent')
+  if(!tabBar||!tabContent)return
+  // switch to the tab
+  const tabBtn=tabBar.querySelector(`[data-rteid="${panelId}"]`)
+  if(tabBtn)tabBtn.click()
+  // find the collapse-panel whose header contains the sectionLabel
+  const panel=tabContent.querySelector(`[data-rtepanel="${panelId}"]`)
+  if(!panel)return
+  // search for matching header
+  for(const cp of panel.querySelectorAll('.collapse-panel')){
+    const hdr=cp.querySelector(':scope > .collapse-header')
+    if(hdr&&hdr.textContent.trim().includes(sectionLabel.substring(0,40))){
+      // open it if not already
+      if(!cp.classList.contains('open'))cp.classList.add('open')
+      setTimeout(()=>cp.scrollIntoView({block:'start',behavior:'smooth'}),50)
+      // flash highlight
+      cp.style.outline='2px solid #0078D4'
+      setTimeout(()=>cp.style.outline='',1500)
+      return
+    }
+  }
+}
+
+function parseRteSemiCsvLine(line){
+  // parse ;"value";"val2";123; — handles quoted and unquoted
+  const result=[]
+  let i=0
+  while(i<line.length){
+    if(line[i]==='"'){
+      i++
+      let val='',escaped=false
+      while(i<line.length){
+        if(escaped){val+=line[i];escaped=false}
+        else if(line[i]==='\\'){escaped=true}
+        else if(line[i]==='"'){i++;break}
+        else val+=line[i]
+        i++
+      }
+      result.push(val)
+      if(line[i]===';')i++
+    } else {
+      const end=line.indexOf(';',i)
+      if(end===-1){result.push(line.substring(i));break}
+      result.push(line.substring(i,end))
+      i=end+1
+    }
+  }
+  return result
+}
+
+function renderRteDumpFileContent(text,filename){
+  // unique prefix per render call to avoid ID collisions across tabs
+  const uid='r'+Math.random().toString(36).slice(2,8)
+  const rawLines=text.split('\n').map(l=>l.replace(/\r$/,''))
+
+  // Real top-level section header: starts at col 0 with [UPPERCASE_NAME]
+  // but NOT [OK] (which is a section footer)
+  function isSectionStart(line){
+    return /^\[([A-Z][A-Z_0-9]*)\]/.test(line)&&!/^\[OK[\] ]/.test(line)
+  }
+
+  // Split into preLines (before first section) + sections[]
+  const sections=[]
+  let curSec=null
+  const preLines=[]
+  for(const line of rawLines){
+    if(isSectionStart(line)){
+      if(curSec)sections.push(curSec)
+      const m=line.match(/^\[([A-Z][A-Z_0-9]*)\]/)
+      curSec={name:m[1],headerLine:line,lines:[]}
+    } else if(!curSec){
+      preLines.push(line)
+    } else {
+      curSec.lines.push(line)
+    }
+  }
+  if(curSec)sections.push(curSec)
+
+  let html=''
+
+  // ── 1) RAW HEADER BLOCK: preLines + [BUILD] section ────────────────────
+  const buildSec=sections.find(s=>s.name==='BUILD')
+  const rawHeaderLines=[...preLines]
+  if(buildSec){rawHeaderLines.push(buildSec.headerLine,...buildSec.lines)}
+  if(rawHeaderLines.some(l=>l.trim())){
+    html+=`<div style="background:#F8F8F7;border-bottom:1px solid #EDEBE9;padding:10px 14px;">
+    <pre style="font-family:'Consolas','Courier New',monospace;font-size:11px;color:#323130;margin:0;white-space:pre-wrap;word-break:break-all;">${escHtml(rawHeaderLines.join('\n'))}</pre>
+    </div>`
+  }
+
+  // ── 2) COLLAPSIBLE SECTIONS ──────────────────────────────────────────────
+  const tocItems=[]
+  const blockDivs=[]
+  let blockIdx=0
+  const mkid=()=>`${uid}-${blockIdx++}`
+
+  for(const sec of sections){
+    if(sec.name==='BUILD')continue  // already rendered in raw header
+
+    const bid=mkid()
+
+    if(sec.name==='STATISTICS'){
+      // ── STATISTICS: parse M_xxx table sub-blocks ──
+      // split section content into sub-blocks by empty line
+      const subBlocks=[]
+      let cur=[]
+      for(const l of sec.lines){
+        if(l.trim()===''){if(cur.length)subBlocks.push(cur);cur=[]}
+        else cur.push(l)
+      }
+      if(cur.length)subBlocks.push(cur)
+
+      const statsToc=[]
+      const statsDivs=[]
+
+      for(const block of subBlocks){
+        if(!block.length)continue
+        const firstLine=block[0].trim()
+        // skip [OK]/-- footer blocks
+        if(/^\[OK\]/.test(firstLine)||firstLine==='--')continue
+
+        const footerIdx=block.findIndex((l,i)=>i>0&&l.trim().startsWith('('))
+        const tableHeader=firstLine
+        const colLine=block.length>1?block[1].trim():''
+        const dataEnd=footerIdx>=0?footerIdx:block.length
+        const dataLines=block.slice(2,dataEnd)
+        const footerLine=footerIdx>=0?block[footerIdx].trim():''
+        const tableName=tableHeader.split('[')[0].trim()
+        const fmatch=footerLine.match(/,\s*(\d+)\s*rows?\s+in\s+([\d.]+us)/)
+        const isTableBlock=colLine.startsWith('"')||colLine.startsWith("'")
+        const sbid=mkid()
+
+        if(!isTableBlock){
+          const rawContent=block.slice(1,dataEnd).join('\n')
+          statsToc.push({id:sbid,name:tableName,rows:-1})
+          statsDivs.push(`<div class="collapse-panel" id="${sbid}">
+            <div class="collapse-header" onclick="toggleCollapse('${sbid}')" style="font-family:'Consolas','Courier New',monospace;font-size:11px;">
+              <span style="color:#323130;">${escHtml(tableHeader)}</span>
+              <span class="collapse-arrow">&#9654;</span>
+            </div>
+            <div class="collapse-body">
+              <pre style="font-family:'Consolas','Courier New',monospace;font-size:11px;color:#323130;margin:0;padding:8px;white-space:pre-wrap;word-break:break-all;max-height:400px;overflow-y:auto;">${escHtml(rawContent)}</pre>
+            </div></div>`)
+          continue
+        }
+
+        // parse table
+        const cols=parseRteSemiCsvLine(colLine)
+        const colWidths=cols.map(c=>Math.min(80,c.replace(/\s*\[.*?\]/,'').trim().length))
+        const parsedRows=[]
+        for(const dl of dataLines){
+          if(!dl.trim())continue
+          const vals=parseRteSemiCsvLine(dl.trim())
+          parsedRows.push(vals)
+          for(let ci=0;ci<cols.length;ci++){const len=Math.min(80,(vals[ci]??'').length);if(len>colWidths[ci])colWidths[ci]=len}
+        }
+        const PX=7.5
+        let tbl=`<div style="overflow-x:auto;max-height:360px;overflow-y:auto;"><table class="data-table" style="table-layout:auto;width:auto;"><thead style="position:sticky;top:0;z-index:3;"><tr>`
+        for(let ci=0;ci<cols.length;ci++){
+          tbl+=`<th title="${escHtml(cols[ci])}" style="min-width:${Math.round(colWidths[ci]*PX)}px;">${escHtml(cols[ci].replace(/\s*\[.*?\]/,'').trim())}</th>`
+        }
+        tbl+=`</tr></thead><tbody>`
+        if(!parsedRows.length){
+          tbl+=`<tr><td colspan="${cols.length}" style="color:#A19F9D;text-align:center;font-style:italic;">No data</td></tr>`
+        } else {
+          for(const vals of parsedRows){
+            tbl+=`<tr>`
+            for(let ci=0;ci<cols.length;ci++){
+              const v=vals[ci]??''
+              const isNum=v!==''&&!isNaN(Number(v))&&v.trim()!==''
+              const display=v.length>80?v.substring(0,80)+'…':v
+              const titleAttr=v.length>80?` title="${escHtml(v)}"`:''
+              tbl+=`<td style="${isNum?'text-align:right;':''}"${titleAttr}><span class="mono">${escHtml(display)}</span></td>`
+            }
+            tbl+=`</tr>`
+          }
+        }
+        tbl+=`</tbody></table></div>`
+        if(footerLine)tbl+=`<div style="font-size:10px;color:#A19F9D;padding:3px 10px;">${escHtml(footerLine)}</div>`
+
+        const rowBadge=fmatch&&parseInt(fmatch[1])>0
+          ?`<span style="margin-left:8px;font-size:10px;background:#EFF6FF;color:#0078D4;border:1px solid #BAD7FF;border-radius:2px;padding:1px 6px;">${fmatch[1]} rows</span>`
+          :`<span style="margin-left:8px;font-size:10px;color:#A19F9D;">0 rows</span>`
+        statsToc.push({id:sbid,name:tableName,rows:fmatch?parseInt(fmatch[1]):0})
+        statsDivs.push(`<div class="collapse-panel" id="${sbid}">
+          <div class="collapse-header" onclick="toggleCollapse('${sbid}')" style="font-family:'Consolas','Courier New',monospace;font-size:11px;">
+            <span style="color:#323130;">${escHtml(tableHeader)}${rowBadge}</span>
+            <span class="collapse-arrow">&#9654;</span>
+          </div>
+          <div class="collapse-body" style="padding:0;">${tbl}</div></div>`)
+      }
+
+      // statistics inner content: just the sub-blocks, no TOC
+      const statsInner=`<div style="padding:8px;">${statsDivs.join('')}</div>`
+
+      tocItems.push({id:bid,name:'STATISTICS'})
+      blockDivs.push(`<div class="collapse-panel" id="${bid}">
+        <div class="collapse-header" onclick="toggleCollapse('${bid}')" style="font-family:'Consolas','Courier New',monospace;font-size:11px;">
+          <span style="color:#323130;font-weight:600;">${escHtml(sec.headerLine)}</span>
+          <span class="collapse-arrow">&#9654;</span>
+        </div>
+        <div class="collapse-body" style="padding:0;">${statsInner}</div></div>`)
+
+    } else {
+      // ── OTHER SECTIONS: raw collapsible ──
+      const rawContent=sec.lines.join('\n')
+      tocItems.push({id:bid,name:sec.name})
+      blockDivs.push(`<div class="collapse-panel" id="${bid}">
+        <div class="collapse-header" onclick="toggleCollapse('${bid}')" style="font-family:'Consolas','Courier New',monospace;font-size:11px;">
+          <span style="color:#323130;font-weight:600;">${escHtml(sec.headerLine)}</span>
+          <span class="collapse-arrow">&#9654;</span>
+        </div>
+        <div class="collapse-body">
+          <pre style="font-family:'Consolas','Courier New',monospace;font-size:11px;color:#323130;margin:0;padding:8px 14px;white-space:pre-wrap;word-break:break-all;max-height:500px;overflow-y:auto;">${escHtml(rawContent)}</pre>
+        </div></div>`)
+    }
+  }
+
+  // ── search bar (per-tab, searches within this dump's rendered content) ──
+  const searchBarId=`rte-ts-${uid}`
+  const searchResId=`rte-tr-${uid}`
+  const searchBar=`<div style="padding:8px 8px 4px 8px;position:relative;">
+    <input id="${searchBarId}" type="text" placeholder="🔍 Search in this dump… (double-click result to jump)"
+      oninput="rteDumpTabSearch('${uid}',this.value,'${searchResId}')"
+      style="width:100%;height:26px;padding:0 8px;border:1px solid #EDEBE9;border-radius:2px;font-family:'Consolas','Courier New',monospace;font-size:11px;outline:none;"
+      onfocus="this.style.borderColor='#0078D4'" onblur="this.style.borderColor='#EDEBE9'">
+    <div id="${searchResId}" style="position:absolute;left:8px;right:8px;z-index:50;"></div>
+  </div>`
+
+  html=searchBar+html
+  html+=`<div style="padding:8px;">${blockDivs.join('')}</div>`
+  return html
+}
+
+// ============================================================
+// STATE + APP LOGIC
+// ============================================================
+// ── Multi-FSID Session Management ─────────────────────────────────────────
+const FSID_COLORS = ['#0078D4','#107C10','#D83B01','#8764B8','#038387','#CA5010','#0099BC','#7A7574']
+let fsidSessions = []       // [{id, label, color, captureInfo, loadedFiles, loadedFolderName, versionHistoryHandle, configFileHandles, configRefHandles, configRefData, telemetryHandle, nsHistoryHandles, rteDumpHandles, rteDumpScannedPaths, topoData}]
+const HANA_INI_FILES=['global.ini','indexserver.ini','nameserver.ini','daemon.ini','webdispatcher.ini',
+  'xsengine.ini','esserver.ini','dpserver.ini','statisticsserver.ini','xscontroller.ini',
+  'preprocessor.ini','scriptserver.ini','compileserver.ini','rowstoremerger.ini',
+  'alertserver.ini','sapcontrol.ini','executor.ini','mergedog.ini','pythonsupport.ini',
+  'backint.ini','traceanalyzer.ini','hdbalert.ini','auditlog.ini','inifile_checker.ini']
+let activeFsidId = null     // id of the currently viewed session
+let activePanel  = null     // 'topology' | 'versionhistory' | ... for the active session
+let traceExplState = null   // {sid, serverIdx, stack:[{name,handle}], entries:[...]}
+let _lastPickedHandle = null  // last FileSystemHandle used in any picker — passed as startIn
+
+// ── ctx-menu state ─────────────────────────────────────────────────────────
+let ctxTargetId = null
+
+// ── back-compat: these globals point into the active session ───────────────
+function sess(id){ return fsidSessions.find(s=>s.id===id)||null }
+function activeSess(){ return sess(activeFsidId) }
+
+// keep old global names as getters so all existing render/parse code works unchanged
+function get_loadedFiles(){ const s=activeSess(); return s?s.loadedFiles:{} }
+function get_loadedFolderName(){ const s=activeSess(); return s?s.loadedFolderName:'' }
+function get_rteDumpHandles(){ const s=activeSess(); return s?s.rteDumpHandles:[] }
+function get_rteDumpScannedPaths(){ const s=activeSess(); return s?s.rteDumpScannedPaths:[] }
+// topoData still used by canvas resize handler — proxy through active session
+Object.defineProperty(window,'topoData',{get(){const s=activeSess();return s?s.topoData:null},set(v){const s=activeSess();if(s)s.topoData=v}})
+// legacy: loadedFolderName referenced in rteDumpOpenTab for path-length calc
+Object.defineProperty(window,'loadedFolderName',{get(){return get_loadedFolderName()},set(v){const s=activeSess();if(s)s.loadedFolderName=v}})
+Object.defineProperty(window,'loadedFiles',{get(){return get_loadedFiles()},set(v){const s=activeSess();if(s)s.loadedFiles=v}})
+Object.defineProperty(window,'rteDumpHandles',{get(){return get_rteDumpHandles()},set(v){const s=activeSess();if(s)s.rteDumpHandles=v}})
+Object.defineProperty(window,'rteDumpScannedPaths',{get(){return get_rteDumpScannedPaths()},set(v){const s=activeSess();if(s)s.rteDumpScannedPaths=v}})
+// legacy panel-key vars used in activateNav
+Object.defineProperty(window,'versionHistoryHandle',{get(){const s=activeSess();return s?s.versionHistoryHandle:null},set(v){const s=activeSess();if(s)s.versionHistoryHandle=v}})
+Object.defineProperty(window,'configFileHandles',{get(){const s=activeSess();return s?s.configFileHandles:[]},set(v){const s=activeSess();if(s)s.configFileHandles=v}})
+Object.defineProperty(window,'configRefHandles',{get(){const s=activeSess();return s?s.configRefHandles:{}},set(v){const s=activeSess();if(s)s.configRefHandles=v}})
+Object.defineProperty(window,'configRefData',{get(){const s=activeSess();return s?s.configRefData:{}},set(v){const s=activeSess();if(s)s.configRefData=v}})
+Object.defineProperty(window,'telemetryHandle',{get(){const s=activeSess();return s?s.telemetryHandle:null},set(v){const s=activeSess();if(s)s.telemetryHandle=v}})
+Object.defineProperty(window,'nsHistoryHandles',{get(){const s=activeSess();return s?s.nsHistoryHandles:[]},set(v){const s=activeSess();if(s)s.nsHistoryHandles=v}})
+
+function newSessionId(){ return 'fsid-'+(Date.now()%1e9)+'-'+Math.floor(Math.random()*9999) }
+// topoData is now a property on each session (defined via Object.defineProperty above)
+
+async function loadFSIDFolder(){
+  try{
+    const dirHandle=await window.showDirectoryPicker({mode:'read',id:'load-fsid',...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})})
+    _lastPickedHandle=dirHandle
+    const sid=newSessionId()
+    const color=FSID_COLORS[fsidSessions.length%FSID_COLORS.length]
+    const s={
+      id:sid, label:dirHandle.name, color, captureInfo:'',
+      loadedFiles:{}, loadedFolderName:dirHandle.name,
+      versionHistoryHandle:null, configDirHandle:null, _configScanned:false, configFileHandles:[], configRefHandles:{}, configRefData:{},
+      telemetryHandle:null, nsHistoryHandles:[], availabilityHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[],
+      hostsFileHandle:null,
+      topoData:null, traceExplorerData:null
+    }
+    activeFsidId=sid
+    // switch proxy to new session before any reads
+    for await(const[name,handle]of dirHandle.entries()){if(handle.kind==='file')s.loadedFiles[name.toLowerCase()]=handle}
+    try{
+      const sys=await dirHandle.getDirectoryHandle('SYS')
+      const global=await sys.getDirectoryHandle('global')
+      const hdb=await global.getDirectoryHandle('hdb')
+      try{s.versionHistoryHandle=await hdb.getFileHandle('versionhistory.csv')}catch(e){s.versionHistoryHandle=null}
+      try{
+        const custom=await hdb.getDirectoryHandle('custom')
+        s.configDirHandle=await custom.getDirectoryHandle('config')
+      }catch(e){}
+      try{
+        const exe=await sys.getDirectoryHandle('exe')
+        const hdbExe=await exe.getDirectoryHandle('hdb')
+        const refConfig=await hdbExe.getDirectoryHandle('config')
+        const _rf=new Set()
+        try{for await(const[name,handle]of refConfig.entries()){if(handle.kind==='file'&&name.endsWith('.ini')){s.configRefHandles[name]=handle;_rf.add(name)}}}catch(e){}
+        for(const fn of HANA_INI_FILES){if(!_rf.has(fn)){try{s.configRefHandles[fn]=await refConfig.getFileHandle(fn)}catch(e){}}}
+      }catch(e){}
+    }catch(e){}
+    try{const etcDir=await dirHandle.getDirectoryHandle('etc');s.hostsFileHandle=await etcDir.getFileHandle('hosts')}catch(e){}
+    s.telemetryHandle=s.loadedFiles['telemetrydata.csv']||null
+    try{
+      for await(const[n1,h1]of dirHandle.entries()){
+        if(h1.kind!=='directory'||!/^HDB\d\d$/.test(n1))continue
+        for await(const[n2,h2]of h1.entries()){
+          if(h2.kind!=='directory')continue
+          try{
+            const trace=await h2.getDirectoryHandle('trace')
+            try{const fh=await trace.getFileHandle('nameserver_history.trc');s.nsHistoryHandles.push({hostName:n2,handle:fh})}catch(e){}
+            for await(const[fn,fh2]of trace.entries()){if(fh2.kind==='file'&&fn.startsWith('system_availability_')&&fn.endsWith('.trc')){s.availabilityHandles.push({hostName:n2,handle:fh2});break}}
+          }catch(e){}
+        }
+      }
+      s.nsHistoryHandles.sort((a,b)=>a.hostName.localeCompare(b.hostName))
+      s.availabilityHandles.sort((a,b)=>a.hostName.localeCompare(b.hostName))
+    }catch(e){s.nsHistoryHandles=[];s.availabilityHandles=[]}
+    try{
+      for await(const[n1,h1]of dirHandle.entries()){
+        if(h1.kind!=='directory'||!/^HDB\d\d$/.test(n1))continue
+        for await(const[n2,h2]of h1.entries()){
+          if(h2.kind!=='directory')continue
+          try{
+            const trace=await h2.getDirectoryHandle('trace')
+            const tracePath=`${n1}/${n2}/trace`
+            let foundHere=false
+            for await(const[fname,fh]of trace.entries()){
+              if(fh.kind==='file'&&fname.includes('.rtedump.')){
+                const parsed=parseRteDumpFilename(fname)
+                if(parsed){s.rteDumpHandles.push({...parsed,handle:fh,scannedPath:tracePath});foundHere=true}
+              } else if(fh.kind==='directory'&&fname.startsWith('DB_')){
+                const tenantTracePath=`${tracePath}/${fname}`
+                let foundTenant=false
+                try{
+                  for await(const[tf,th]of fh.entries()){
+                    if(th.kind==='file'&&tf.includes('.rtedump.')){
+                      const parsed=parseRteDumpFilename(tf)
+                      if(parsed){s.rteDumpHandles.push({...parsed,handle:th,tenant:fname.replace(/^DB_/,''),scannedPath:tenantTracePath});foundTenant=true}
+                    }
+                  }
+                }catch(e){}
+                if(foundTenant)s.rteDumpScannedPaths.push(tenantTracePath)
+              }
+            }
+            if(foundHere)s.rteDumpScannedPaths.push(tracePath)
+          }catch(e){}
+        }
+      }
+      s.rteDumpScannedPaths=[...new Set(s.rteDumpScannedPaths)]
+      s.rteDumpHandles.sort((a,b)=>{
+        const host=a.virtualHost.localeCompare(b.virtualHost)
+        if(host!==0)return host
+        const svc=a.serviceName.localeCompare(b.serviceName)
+        if(svc!==0)return svc
+        return b.datetime.localeCompare(a.datetime)
+      })
+      s.rteDumpHandles.forEach((d,i)=>d._idx=i)
+    }catch(e){s.rteDumpHandles=[]}
+    // parse capture info from log.txt
+    try{
+      const logHandle=s.loadedFiles['log.txt']
+      if(logHandle){
+        const logFile=await logHandle.getFile()
+        const logText=await logFile.text()
+        const lines=logText.split('\n')
+        const writingLine=lines.find(l=>l.trim().startsWith('Writing to file'))
+        if(writingLine){
+          const m=writingLine.match(/fullsysteminfodump_[^_]+_[^_]+_(.+?)_(\d{4})_(\d{2})_(\d{2})_(\d{2})_(\d{2})_(\d{2})\.(zip|tar)/)
+          if(m){
+            const server=m[1]
+            const dt=`${m[2]}-${m[3]}-${m[4]} ${m[5]}:${m[6]}:${m[7]} UTC`
+            s.captureInfo=`captured on ${server} at ${dt}`
+          }
+        }
+      }
+    }catch(e){}
+    // trace explorer: server dirs in HDB<instance>
+    try{
+      for await(const[n1,h1]of dirHandle.entries()){
+        if(h1.kind!=='directory'||!/^HDB\d\d$/.test(n1))continue
+        const servers=[]
+        for await(const[n2,h2]of h1.entries()){if(h2.kind==='directory')servers.push({name:n2,handle:h2})}
+        servers.sort((a,b)=>a.name.localeCompare(b.name))
+        if(servers.length){s.traceExplorerData={instanceDir:n1,servers};break}
+      }
+    }catch(e){}
+    fsidSessions.push(s)
+    // reset rtedumps panel so it rebuilds with new FSID data
+    document.getElementById('panel-rtedumps').innerHTML=''
+    renderNavTree()
+    activateNavItem(sid,'topology')
+  }catch(err){if(err.name!=='AbortError')alert('Error loading folder: '+err.message)}
+}
+
+function convertTopologyJsonToText(json){
+  const root=json.topology||json
+  const lines=["''"]
+  const PAD2_KEYS=new Set(['sapsystem'])
+  const parentStack=[]
+  function formatValue(key,value){
+    if(typeof value!=='number')return value
+    if(PAD2_KEYS.has(key))return String(value).padStart(2,'0')
+    if(parentStack.length>=2&&parentStack[parentStack.length-1]==='instance'&&parentStack[parentStack.length-2]==='datacenters')return String(value).padStart(2,'0')
+    return value
+  }
+  function walk(obj,indent){
+    if(obj===null||obj===undefined)return
+    const pad=' '.repeat(indent)
+    if(Array.isArray(obj)){
+      obj.forEach((v,i)=>{
+        if(v===null)return
+        if(typeof v==='object'){lines.push(`${pad}${i}`);walk(v,indent+2)}
+        else lines.push(`${pad}${i}=${formatValue(String(i),v)}`)
+      })
+      return
+    }
+    for(const[key,value]of Object.entries(obj)){
+      if(value===null||value===undefined){lines.push(`${pad}${key}`);continue}
+      if(typeof value==='object'&&!Array.isArray(value)){
+        lines.push(`${pad}${key}`);parentStack.push(key);walk(value,indent+2);parentStack.pop()
+      }else if(Array.isArray(value)){
+        lines.push(`${pad}${key}`);parentStack.push(key);walk(value,indent+2);parentStack.pop()
+      }else{
+        lines.push(`${pad}${key}=${formatValue(key,value)}`)
+      }
+    }
+  }
+  walk(root,2)
+  return lines.join('\n')
+}
+
+function loadTopologyFile(){
+  document.getElementById('topoFileInput').click()
+}
+
+// ── topoFileInput handler ─────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded',()=>{
+  document.getElementById('topoFileInput').addEventListener('change',function(e){
+    const file=e.target.files[0];if(!file)return
+    const reader=new FileReader()
+    reader.onload=ev=>{
+      let content=ev.target.result
+      try{
+        if(file.name.endsWith('.json')||content.trimStart().startsWith('{')){
+          const json=JSON.parse(content)
+          content=convertTopologyJsonToText(json)
+        }
+        // create a minimal topo-only session
+        const sid=newSessionId()
+        const color=FSID_COLORS[fsidSessions.length%FSID_COLORS.length]
+        const s={
+          id:sid, label:'📄 '+file.name, color, captureInfo:'',
+          loadedFiles:{}, loadedFolderName:'',
+          versionHistoryHandle:null, configFileHandles:[], configRefHandles:{}, configRefData:{},
+          telemetryHandle:null, nsHistoryHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[],
+          topoData:null
+        }
+        fsidSessions.push(s)
+        activeFsidId=sid
+        document.getElementById('panel-rtedumps').innerHTML=''
+        const data=parseTopology(content)
+        s.topoData=data
+        renderNavTree()
+        // render topology immediately
+        const panel=document.getElementById('panel-topology')
+        document.getElementById('empty').style.display='none'
+        document.querySelectorAll('.content-panel').forEach(p=>p.classList.remove('active'))
+        panel.classList.add('active')
+        renderTopologyApp(data,panel)
+        // mark topology sub-item active
+        const navBody=document.getElementById('navTreeBody')
+        navBody.querySelectorAll('.fsid-sub-item').forEach(i=>i.classList.remove('active'))
+        const grp=navBody.querySelector(`.fsid-group[data-sid="${sid}"]`)
+        if(grp){const sub=grp.querySelector('[data-panel="topology"]');if(sub)sub.classList.add('active')}
+      }catch(err){alert('Error parsing topology file: '+err)}
+    }
+    reader.readAsText(file)
+    this.value=''
+  })
+  // close context menu on outside click
+  document.addEventListener('click',()=>hideFsidCtxMenu())
+})
+
+// ── Nav Tree (Multi-FSID accordion) ──────────────────────────────────────
+function renderNavTree(){
+  const body=document.getElementById('navTreeBody')
+  body.innerHTML=''
+  if(!fsidSessions.length){
+    const ph=document.createElement('div')
+    ph.className='nav-item disabled'
+    ph.innerHTML='<span class="nav-icon">📂</span>No data loaded'
+    body.appendChild(ph)
+    return
+  }
+  for(const s of fsidSessions){
+    if(s.hsiParentId) continue  // child FSID — rendered inside HSI accordion
+    body.appendChild(buildFsidGroup(s))
+  }
+}
+
+function buildFsidGroup(s){
+  if(s.type==='hsi') return buildHsiNavGroup(s)
+  const hasTopology='topology.txt' in s.loadedFiles
+  const grp=document.createElement('div')
+  grp.className='fsid-group open'
+  grp.dataset.sid=s.id
+
+  // ── header ──
+  const hdr=document.createElement('div')
+  hdr.className='fsid-group-header'
+  hdr.style.borderLeftColor=s.color
+  hdr.innerHTML=`<span class="fsid-group-arrow">▶</span><span class="fsid-group-label" title="${escHtml(s.label)}">${escHtml(s.label)}<span class="fsid-group-subtitle">${escHtml(s.captureInfo)}</span></span>`
+  hdr.onclick=()=>{
+    grp.classList.toggle('open')
+    hdr.classList.toggle('active-group',grp.classList.contains('open'))
+  }
+  hdr.oncontextmenu=(e)=>{
+    e.preventDefault()
+    showFsidCtxMenu(s.id,e.clientX,e.clientY)
+  }
+  grp.appendChild(hdr)
+
+  // ── sub-items ──
+  const children=document.createElement('div')
+  children.className='fsid-group-children'
+  const items=[
+    {icon:'🗺️',label:'Topology',panel:'topology',disabled:false},
+    {icon:'📋',label:'Version History',panel:'versionhistory',disabled:false},
+    {icon:'⚙️',label:'Configuration',panel:'configuration',disabled:false},
+    ...(s.hostsFileHandle ? [{icon:'🌐',label:'HOSTS',panel:'hosts',disabled:false}] : []),
+    {icon:'📡',label:'Telemetry Data',panel:'telemetry',disabled:false},
+    {icon:'📈',label:'Nameserver History',panel:'nshistory',disabled:false},
+    ...(s.availabilityHandles?.length ? [{icon:'🟢',label:'Availability',panel:'availability',disabled:false}] : []),
+    {icon:'💥',label:'Runtime Dumps',panel:'rtedumps',disabled:false},
+    {icon:'📂',label:'Trace Explorer',panel:'traceexplorer',disabled:false},
+  ]
+  for(const it of items){
+    const sub=document.createElement('div')
+    sub.className='fsid-sub-item'+(it.disabled?' disabled':'')
+    sub.dataset.panel=it.panel
+    sub.innerHTML=`<span style="font-size:13px;">${it.icon}</span>${it.label}`
+    if(!it.disabled) sub.onclick=()=>activateNavItem(s.id,it.panel)
+    children.appendChild(sub)
+  }
+  grp.appendChild(children)
+  return grp
+}
+
+function activateNavItem(sid,panelKey){
+  // Save trace explorer scroll position — only when trace explorer is the active panel
+  if(activePanel==='traceexplorer' && traceExplState && traceExplState.sid===activeFsidId){
+    const list=document.querySelector('#panel-traceexplorer .trace-list')
+    if(list) traceExplState.scrollTop=list.scrollTop
+  }
+  // HSI sessions have their own activation flow
+  const s=sess(sid)
+  if(s&&s.type==='hsi'){
+    const tabs=hsiGetTabList(s)
+    if(tabs.length)activateHsiTab(sid,tabs[0].id,null)
+    return
+  }
+  // switch active session
+  if(activeFsidId!==sid){
+    activeFsidId=sid
+    // clear panels that hold session-specific content
+    document.getElementById('panel-topology').innerHTML=''
+    document.getElementById('panel-versionhistory').innerHTML=''
+    document.getElementById('panel-configuration').innerHTML=''
+    document.getElementById('panel-telemetry').innerHTML=''
+    document.getElementById('panel-nshistory').innerHTML=''
+    document.getElementById('panel-availability').innerHTML=''
+    document.getElementById('panel-rtedumps').innerHTML=''
+    document.getElementById('panel-hosts').innerHTML=''
+    document.getElementById('panel-traceexplorer').innerHTML=''
+  }
+  activePanel=panelKey
+  // highlight in nav
+  document.getElementById('navTreeBody').querySelectorAll('.fsid-sub-item').forEach(i=>i.classList.remove('active'))
+  const grp=document.getElementById('navTreeBody').querySelector(`.fsid-group[data-sid="${sid}"]`)
+  if(grp){
+    const sub=grp.querySelector(`[data-panel="${panelKey}"]`)
+    if(sub){
+      sub.classList.add('active')
+      sub.style.borderLeftColor=fsidSessions.find(s=>s.id===sid)?.color||'#0078D4'
+    }
+    // ensure group is open
+    if(!grp.classList.contains('open'))grp.classList.add('open')
+  }
+  // render content
+  activateNav(null,panelKey)
+}
+
+// ── Context menu ──────────────────────────────────────────────────────────
+function showFsidCtxMenu(sid,x,y){
+  ctxTargetId=sid
+  const m=document.getElementById('fsid-ctx-menu')
+  m.style.display='block'
+  m.style.left=x+'px'
+  m.style.top=y+'px'
+  // keep in viewport
+  requestAnimationFrame(()=>{
+    const r=m.getBoundingClientRect()
+    if(r.right>window.innerWidth)m.style.left=(x-r.width)+'px'
+    if(r.bottom>window.innerHeight)m.style.top=(y-r.height)+'px'
+  })
+}
+function hideFsidCtxMenu(){
+  document.getElementById('fsid-ctx-menu').style.display='none'
+  ctxTargetId=null
+}
+function fsidCtxRename(){
+  const s=sess(ctxTargetId);if(!s){hideFsidCtxMenu();return}
+  const newName=prompt('Rename FSID entry:',s.label)
+  if(newName&&newName.trim()){s.label=newName.trim();renderNavTree()}
+  hideFsidCtxMenu()
+}
+function fsidCtxRemove(){
+  const s=sess(ctxTargetId);if(!s){hideFsidCtxMenu();return}
+  if(!confirm(`Remove "${s.label}" from the list?`)){hideFsidCtxMenu();return}
+  // also remove child FSID sessions if this is an HSI session
+  const toRemove=new Set([ctxTargetId])
+  if(s.type==='hsi') fsidSessions.filter(x=>x.hsiParentId===ctxTargetId).forEach(x=>toRemove.add(x.id))
+  fsidSessions=fsidSessions.filter(x=>!toRemove.has(x.id))
+  if(toRemove.has(activeFsidId)){
+    activeFsidId=fsidSessions.length?fsidSessions[fsidSessions.length-1].id:null
+    ;['panel-topology','panel-versionhistory','panel-configuration','panel-telemetry','panel-nshistory','panel-availability','panel-rtedumps','panel-hosts','panel-traceexplorer','panel-hsi'].forEach(id=>{const el=document.getElementById(id);if(el){el.innerHTML='';el.style.display='';el.classList.remove('active')}})
+    document.getElementById('empty').style.display=fsidSessions.length?'none':'flex'
+  }
+  hideFsidCtxMenu()
+  renderNavTree()
+  if(activeFsidId)activateNavItem(activeFsidId,'topology')
+}
+
+// ── activateNav: renders content for the active session ───────────────────
+async function activateNav(clickedItem,panelKey){
+  // hide HSI panel when switching to a regular FSID panel
+  const hsiPanel=document.getElementById('panel-hsi')
+  if(hsiPanel){hsiPanel.style.display='none';hsiPanel.classList.remove('active')}
+  document.getElementById('empty').style.display='none'
+  document.querySelectorAll('.content-panel').forEach(p=>{p.classList.remove('active');p.style.display=''})
+
+  if(panelKey==='topology'){
+    const panel=document.getElementById('panel-topology')
+    panel.classList.add('active')
+    const s=activeSess()
+    // if we already have parsed topoData for this session, reuse it
+    if(s&&s.topoData){renderTopologyApp(s.topoData,panel);return}
+    if(!s||!('topology.txt' in s.loadedFiles)){
+      panel.innerHTML='<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No <strong>topology.txt</strong> found in this FSID folder.</span></div>'
+      return
+    }
+    panel.innerHTML='<div style="padding:16px;color:#A19F9D;font-size:12px;">Loading topology.txt…</div>'
+    try{
+      const file=await s.loadedFiles['topology.txt'].getFile()
+      const content=await file.text()
+      const data=parseTopology(content)
+      s.topoData=data
+      renderTopologyApp(data,panel)
+    }catch(e){panel.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`}
+  }
+
+  if(panelKey==='versionhistory'){
+    const panel=document.getElementById('panel-versionhistory')
+    panel.classList.add('active')
+    panel.innerHTML='<div style="padding:16px;"></div>'
+    const wrap=panel.firstChild
+    const s=activeSess()
+    if(!s?.versionHistoryHandle){wrap.innerHTML='<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No <strong>versionhistory.csv</strong> found at <code>SYS/global/hdb/versionhistory.csv</code>.</span></div>';return}
+    try{const file=await s.versionHistoryHandle.getFile();const text=await file.text();wrap.innerHTML=renderVersionHistory(text)}
+    catch(e){wrap.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`}
+  }
+
+  if(panelKey==='configuration'){
+    const panel=document.getElementById('panel-configuration')
+    panel.classList.add('active')
+    panel.innerHTML='<div style="padding:16px;"></div>'
+    const wrap=panel.firstChild
+    const s=activeSess()
+    if(!s?.configDirHandle){
+      wrap.innerHTML='<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No <strong>config</strong> directory found at <code>SYS/global/hdb/custom/config/</code>.</span></div>'
+      return
+    }
+    if(!s.configViewMode) s.configViewMode='pure'
+    // If already loaded, render directly
+    if(s.configFileHandles.length){
+      wrap.innerHTML='<div style="color:#A19F9D;font-size:12px;">Loading…</div>'
+      await renderConfigContent(s,wrap)
+      return
+    }
+    wrap.innerHTML=`<div class="not-found-msg" style="flex-direction:column;align-items:flex-start;gap:12px;">
+      <div style="display:flex;align-items:center;gap:10px;"><span class="nf-icon">📁</span><span>No <strong>.ini files</strong> loaded yet.<br><span style="font-size:11px;color:#605E5C;">Select the <code>config/</code> folder to load configuration files.</span></span></div>
+      <button onclick="configPickFolder()" style="padding:6px 14px;background:#0078D4;color:#fff;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;">📁 Select <code style="background:transparent;font-size:11px;">config/</code> folder…</button>
+    </div>`
+    configPickFolder()
+  }
+
+  if(panelKey==='hosts'){
+    const panel=document.getElementById('panel-hosts')
+    panel.classList.add('active')
+    panel.innerHTML='<div style="padding:16px;"></div>'
+    const wrap=panel.firstChild
+    const s=activeSess()
+    if(!s?.hostsFileHandle){
+      wrap.innerHTML='<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No <strong>hosts</strong> file found at <code>etc/hosts</code>.</span></div>'
+      return
+    }
+    try{
+      const file=await s.hostsFileHandle.getFile()
+      const text=await file.text()
+      wrap.innerHTML=`<div class="card"><div class="card-title">🌐 etc/hosts</div><div class="card-body"><pre style="margin:0;padding:0;white-space:pre;font-family:monospace;font-size:0.92em;line-height:1.4;color:#000;overflow-x:auto;">${escHtml(text)}</pre></div></div>`
+    }catch(e){
+      wrap.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`
+    }
+  }
+
+  if(panelKey==='telemetry'){
+    const panel=document.getElementById('panel-telemetry')
+    panel.classList.add('active')
+    panel.innerHTML='<div style="padding:16px;"></div>'
+    const wrap=panel.firstChild
+    const s=activeSess()
+    if(!s?.telemetryHandle){
+      wrap.innerHTML='<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No <strong>telemetryData.csv</strong> found in this FSID folder.</span></div>'
+      return
+    }
+    try{
+      const file=await s.telemetryHandle.getFile()
+      const text=await file.text()
+      wrap.innerHTML=renderTelemetry(text)
+    }catch(e){wrap.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`}
+  }
+
+  if(panelKey==='nshistory'){
+    const panel=document.getElementById('panel-nshistory')
+    panel.classList.add('active')
+    panel.innerHTML=''
+    const s=activeSess()
+    if(!s?.nsHistoryHandles?.length){
+      panel.innerHTML='<div class="not-found-msg" style="margin:16px;"><span class="nf-icon">⚠️</span><span>No <strong>nameserver_history.trc</strong> found at <code>HDB&lt;inst&gt;/&lt;host&gt;/trace/</code>.</span></div>'
+      return
+    }
+    const tabBar=document.createElement('div')
+    tabBar.style.cssText='display:flex;border-bottom:1px solid #EDEBE9;background:#F3F2F1;padding:0 12px;overflow-x:auto;white-space:nowrap;position:sticky;top:0;z-index:10;'
+    panel.appendChild(tabBar)
+    const contentDiv=document.createElement('div')
+    contentDiv.style.cssText='padding:16px;'
+    panel.appendChild(contentDiv)
+    function switchNsTab(hostName){
+      tabBar.querySelectorAll('button').forEach(b=>{
+        const a=b.dataset.host===hostName
+        b.style.color=a?'#0078D4':'#605E5C'
+        b.style.borderBottom=a?'2px solid #0078D4':'2px solid transparent'
+        b.style.fontWeight=a?'600':'normal'
+        b.style.background=a?'#EFF6FC':'transparent'
+      })
+    }
+    for(const{hostName,handle}of s.nsHistoryHandles){
+      const btn=document.createElement('button')
+      btn.dataset.host=hostName
+      btn.style.cssText='display:inline-flex;align-items:center;gap:5px;height:36px;padding:0 14px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:12px;color:#605E5C;cursor:pointer;white-space:nowrap;'
+      btn.innerHTML=`🖥️ ${escHtml(hostName)}`
+      btn.onclick=async()=>{
+        switchNsTab(hostName)
+        contentDiv.innerHTML='<div style="color:#A19F9D;font-size:12px;">Loading…</div>'
+        try{
+          const file=await handle.getFile()
+          const txt=await file.text()
+          contentDiv.innerHTML=renderNsHistory(txt,hostName)
+          const firstBtn=contentDiv.querySelector('[id$="-tabs"] button')
+          if(firstBtn)firstBtn.click()
+        }catch(e){contentDiv.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`}
+      }
+      tabBar.appendChild(btn)
+    }
+    tabBar.querySelector('button').click()
+  }
+
+  if(panelKey==='availability'){
+    const panel=document.getElementById('panel-availability')
+    panel.classList.add('active')
+    panel.innerHTML=''
+    const s=activeSess()
+    if(!s?.availabilityHandles?.length){
+      panel.innerHTML='<div class="not-found-msg" style="margin:16px;"><span class="nf-icon">⚠️</span><span>No <strong>system_availability_*.trc</strong> found at <code>HDB&lt;inst&gt;/&lt;host&gt;/trace/</code>.</span></div>'
+      return
+    }
+    const tabBar=document.createElement('div')
+    tabBar.style.cssText='display:flex;border-bottom:1px solid #EDEBE9;background:#F3F2F1;padding:0 12px;overflow-x:auto;white-space:nowrap;position:sticky;top:0;z-index:10;'
+    panel.appendChild(tabBar)
+    const contentDiv=document.createElement('div')
+    contentDiv.style.cssText='padding:16px;'
+    panel.appendChild(contentDiv)
+    const showHost=async(idx)=>{
+      tabBar.querySelectorAll('button').forEach((b,i)=>{b.style.fontWeight=i===idx?'600':'400';b.style.borderBottom=i===idx?'2px solid #0078D4':'2px solid transparent';b.style.color=i===idx?'#0078D4':'#605E5C'})
+      contentDiv.innerHTML='<div style="color:#A19F9D;font-size:12px;">Loading…</div>'
+      const {hostName,handle}=s.availabilityHandles[idx]
+      try{
+        const file=await handle.getFile()
+        contentDiv.innerHTML=renderAvailability(await file.text(),hostName,file.name)
+      }catch(e){contentDiv.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`}
+    }
+    s.availabilityHandles.forEach(({hostName},idx)=>{
+      const btn=document.createElement('button')
+      btn.style.cssText='height:34px;padding:0 14px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:12px;color:#605E5C;cursor:pointer;white-space:nowrap;margin-bottom:-1px;'
+      btn.textContent=hostName
+      btn.onclick=()=>showHost(idx)
+      tabBar.appendChild(btn)
+    })
+    await showHost(0)
+  }
+
+  if(panelKey==='rtedumps'){
+    panel.innerHTML=''
+    const topRow=document.createElement('div')
+    topRow.style.cssText='display:flex;align-items:center;border-bottom:1px solid #EDEBE9;background:#F3F2F1;flex-shrink:0;'
+    const tabBar=document.createElement('div')
+    tabBar.id='rte-tabbar'
+    tabBar.style.cssText='display:flex;flex:1;padding:0 12px;overflow-x:auto;white-space:nowrap;'
+    topRow.appendChild(tabBar)
+    panel.appendChild(topRow)
+    const tabContent=document.createElement('div')
+    tabContent.id='rte-tabcontent'
+    tabContent.style.cssText='flex:1;overflow-y:auto;'
+    panel.appendChild(tabContent)
+    const s=activeSess()
+    const dumps=s?.rteDumpHandles||[]
+    const scanned=s?.rteDumpScannedPaths||[]
+    if(dumps.length){
+      const overviewBtn=document.createElement('button')
+      overviewBtn.dataset.rteid='overview'
+      overviewBtn.style.cssText='display:inline-flex;align-items:center;gap:5px;height:36px;padding:0 14px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:12px;color:#605E5C;cursor:pointer;white-space:nowrap;'
+      overviewBtn.innerHTML='💥 Overview'
+      overviewBtn.onclick=()=>rteTabSwitch('overview')
+      tabBar.appendChild(overviewBtn)
+      const overviewPanel=document.createElement('div')
+      overviewPanel.dataset.rtepanel='overview'
+      overviewPanel.style.cssText='padding:16px;'
+      overviewPanel.innerHTML=renderRteDumps(dumps,scanned)
+      tabContent.appendChild(overviewPanel)
+      const knowledgeBtn=document.createElement('button')
+      knowledgeBtn.dataset.rteid='knowledge'
+      knowledgeBtn.style.cssText='display:inline-flex;align-items:center;gap:5px;height:36px;padding:0 14px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:12px;color:#605E5C;cursor:pointer;white-space:nowrap;'
+      knowledgeBtn.innerHTML='📚 Knowledge'
+      knowledgeBtn.onclick=()=>rteTabSwitch('knowledge')
+      tabBar.appendChild(knowledgeBtn)
+      const knowledgePanel=document.createElement('div')
+      knowledgePanel.dataset.rtepanel='knowledge'
+      knowledgePanel.style.cssText='display:none;padding:16px;'
+      knowledgePanel.innerHTML=renderRteDumpKnowledge()
+      tabContent.appendChild(knowledgePanel)
+      rteTabSwitch('overview')
+    } else {
+      const infoPanel=document.createElement('div')
+      infoPanel.dataset.rtepanel='overview'
+      infoPanel.style.display='block'
+      const pathList=scanned.length?scanned.map(p=>`<code>${escHtml(p)}</code>`).join(', '):'<em>no FSID loaded</em>'
+      infoPanel.innerHTML=`<div class="not-found-msg" style="margin:16px;"><span class="nf-icon">⚠️</span><span>No runtime dump files found. Scanned: ${pathList} &nbsp;— use <strong>Load dump file</strong> to open a single file.</span></div>`
+      tabContent.appendChild(infoPanel)
+      const knowledgeBtn=document.createElement('button')
+      knowledgeBtn.dataset.rteid='knowledge'
+      knowledgeBtn.style.cssText='display:inline-flex;align-items:center;gap:5px;height:36px;padding:0 14px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:12px;color:#605E5C;cursor:pointer;white-space:nowrap;'
+      knowledgeBtn.innerHTML='📚 Knowledge'
+      knowledgeBtn.onclick=()=>rteTabSwitch('knowledge')
+      tabBar.appendChild(knowledgeBtn)
+      const knowledgePanel=document.createElement('div')
+      knowledgePanel.dataset.rtepanel='knowledge'
+      knowledgePanel.style.cssText='display:none;padding:16px;'
+      knowledgePanel.innerHTML=renderRteDumpKnowledge()
+      tabContent.appendChild(knowledgePanel)
+    }
+  }
+
+  if(panelKey==='traceexplorer'){
+    const panel=document.getElementById('panel-traceexplorer')
+    panel.classList.add('active')
+    const s=activeSess()
+    if(!s?.traceExplorerData){
+      panel.innerHTML='<div class="not-found-msg" style="margin:16px;"><span class="nf-icon">⚠️</span><span>No <strong>HDB&lt;instance&gt;</strong> directory found in this FSID folder.</span></div>'
+      return
+    }
+    if(s.traceExplState){
+      // Restore saved state for this session
+      traceExplState=s.traceExplState
+      traceExplState._pendingScrollRestore=traceExplState.scrollTop||0
+      traceRender(panel,s)
+    } else {
+      traceExplState={sid:s.id,serverIdx:0,stack:[],entries:[],viewingFile:null,sortCol:'name',sortDir:'asc',scrollTop:0}
+      s.traceExplState=traceExplState
+      traceRender(panel,s)
+    }
+  }
+}
+
+// ── Trace Explorer helpers ─────────────────────────────────────────────────
+function formatBytes(b){
+  if(b==null)return ''
+  if(b<1024)return b+' B'
+  if(b<1048576)return (b/1024).toFixed(1)+' KB'
+  if(b<1073741824)return (b/1048576).toFixed(1)+' MB'
+  return (b/1073741824).toFixed(2)+' GB'
+}
+
+function traceFileIcon(name){
+  const ext=name.split('.').pop().toLowerCase()
+  if(['trc','log','txt','out','err'].includes(ext))return '📄'
+  if(['gz','zip','tar','bz2'].includes(ext))return '🗜️'
+  if(['py','sh','sql','js'].includes(ext))return '📝'
+  if(['csv','tsv'].includes(ext))return '📊'
+  if(['json','xml','ini','cfg'].includes(ext))return '⚙️'
+  return '📄'
+}
+
+async function traceRender(panel,s){
+  const data=s.traceExplorerData
+  if(!data)return
+  panel.innerHTML=''
+
+  // ── tab bar ──
+  const tabBar=document.createElement('div')
+  tabBar.style.cssText='display:flex;border-bottom:1px solid #EDEBE9;background:#F3F2F1;padding:0 12px;overflow-x:auto;white-space:nowrap;flex-shrink:0;'
+  panel.appendChild(tabBar)
+
+  data.servers.forEach((srv,idx)=>{
+    const btn=document.createElement('button')
+    btn.style.cssText='display:inline-flex;align-items:center;gap:5px;height:36px;padding:0 14px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:12px;cursor:pointer;white-space:nowrap;'
+    btn.textContent=srv.name
+    btn.dataset.idx=idx
+    if(idx===traceExplState.serverIdx){
+      btn.style.color='#0078D4'; btn.style.fontWeight='700'; btn.style.borderBottomColor='#0078D4'
+    } else {
+      btn.style.color='#605E5C'
+    }
+    btn.onclick=()=>traceSelectServer(idx)
+    tabBar.appendChild(btn)
+  })
+
+  // ── breadcrumb ──
+  const bc=document.createElement('div')
+  bc.id='trace-breadcrumb'
+  bc.className='trace-breadcrumb'
+  panel.appendChild(bc)
+
+  // ── file list ──
+  const list=document.createElement('div')
+  list.id='trace-list'
+  list.className='trace-list'
+  panel.appendChild(list)
+
+  await traceLoadDir()
+}
+
+async function traceSelectServer(idx){
+  if(!traceExplState)return
+  traceExplState.serverIdx=idx
+  traceExplState.stack=[]
+  traceExplState.viewingFile=null
+  const panel=document.getElementById('panel-traceexplorer')
+  const s=sess(traceExplState.sid)
+  if(s) await traceRender(panel,s)
+}
+
+async function traceLoadDir(){
+  if(!traceExplState)return
+  const s=sess(traceExplState.sid)
+  if(!s?.traceExplorerData)return
+  if(traceExplState.viewingFile){await traceShowFileView(s);return}
+  const data=s.traceExplorerData
+  const srv=data.servers[traceExplState.serverIdx]
+
+  let handle=srv.handle
+  for(const frame of traceExplState.stack){handle=frame.handle}
+
+  const dirs=[], files=[]
+  try{
+    for await(const[name,h]of handle.entries()){
+      if(h.kind==='directory')dirs.push({name,handle:h,isDir:true,size:null,lastModified:null})
+      else files.push({name,handle:h,isDir:false,size:null,lastModified:null})
+    }
+  }catch(e){
+    document.getElementById('trace-list').innerHTML=`<div style="padding:16px;color:#A19F9D;font-size:12px;">Error: ${escHtml(String(e))}</div>`
+    return
+  }
+  // load file metadata concurrently
+  await Promise.all(files.map(async f=>{
+    try{const file=await f.handle.getFile();f.size=file.size;f.lastModified=file.lastModified}catch(e){}
+  }))
+  traceExplState.entries=[...dirs,...files]
+
+  // breadcrumb
+  const bc=document.getElementById('trace-breadcrumb')
+  if(bc){
+    let html=`<span class="trace-crumb-root">${escHtml(data.instanceDir)}</span>`
+    html+=`<span class="trace-crumb-sep">/</span><span class="trace-crumb-root">${escHtml(srv.name)}</span>`
+    traceExplState.stack.forEach((frame,depth)=>{
+      html+=`<span class="trace-crumb-sep">/</span>`
+      if(depth<traceExplState.stack.length-1){
+        html+=`<a class="trace-crumb-link" href="#" onclick="traceNavigateUp(${depth+1});return false;">${escHtml(frame.name)}</a>`
+      } else {
+        html+=`<span class="trace-crumb-cur">${escHtml(frame.name)}</span>`
+      }
+    })
+    bc.innerHTML=html
+  }
+  traceRenderDirList()
+}
+
+function traceRenderDirList(){
+  const list=document.getElementById('trace-list')
+  if(!list)return
+  list.innerHTML=''
+
+  if(traceExplState.stack.length>0){
+    const up=document.createElement('div')
+    up.className='trace-entry'
+    up.innerHTML=`<span class="trace-icon">⬆️</span><span class="trace-name">..</span>`
+    up.onclick=()=>traceNavigateUp(traceExplState.stack.length-1)
+    list.appendChild(up)
+  }
+
+  if(traceExplState.entries.length===0){
+    list.innerHTML+='<div style="padding:16px;color:#A19F9D;font-size:12px;font-style:italic;">Empty directory</div>'
+    return
+  }
+
+  // column header
+  const sc=traceExplState.sortCol, sd=traceExplState.sortDir, arr=sd==='asc'?' ▲':' ▼'
+  const hdr=document.createElement('div')
+  hdr.className='trace-header'
+  hdr.innerHTML=
+    `<span></span>`+
+    `<span class="trace-header-cell" onclick="traceSort('name')">Name${sc==='name'?arr:''}</span>`+
+    `<span class="trace-header-cell" onclick="traceSort('modified')">Date Modified${sc==='modified'?arr:''}</span>`+
+    `<span class="trace-header-cell" style="text-align:right;" onclick="traceSort('size')">Size${sc==='size'?arr:''}</span>`
+  list.appendChild(hdr)
+
+  // sort: dirs always first, then files
+  const sorted=[
+    ...[...traceExplState.entries.filter(e=>e.isDir)].sort((a,b)=>traceSortCmp(a,b,sc,sd)),
+    ...[...traceExplState.entries.filter(e=>!e.isDir)].sort((a,b)=>traceSortCmp(a,b,sc,sd))
+  ]
+
+  sorted.forEach(e=>{
+    const row=document.createElement('div')
+    row.className='trace-entry has-cols'
+    const mod=e.lastModified?new Date(e.lastModified).toLocaleString('de-DE',{year:'2-digit',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):''
+    row.innerHTML=
+      `<span class="trace-icon">${e.isDir?'📁':traceFileIcon(e.name)}</span>`+
+      `<span class="trace-name">${escHtml(e.name)}</span>`+
+      `<span class="trace-col-modified">${mod}</span>`+
+      `<span class="trace-col-size">${e.isDir?'':formatBytes(e.size)}</span>`
+    const origIdx=traceExplState.entries.indexOf(e)
+    row.onclick=()=>e.isDir?traceNavigateInto(origIdx):traceOpenFile(origIdx)
+    list.appendChild(row)
+  })
+  if(traceExplState._pendingScrollRestore!=null){
+    const sv=traceExplState._pendingScrollRestore
+    traceExplState._pendingScrollRestore=null
+    requestAnimationFrame(()=>{list.scrollTop=sv})
+  }
+}
+
+function traceSortCmp(a,b,col,dir){
+  const d=dir==='asc'?1:-1
+  if(col==='name') return d*a.name.localeCompare(b.name)
+  if(col==='modified') return d*((a.lastModified||0)-(b.lastModified||0))
+  if(col==='size') return d*((a.size||0)-(b.size||0))
+  return 0
+}
+
+function traceSort(col){
+  if(!traceExplState)return
+  traceExplState.sortDir=traceExplState.sortCol===col&&traceExplState.sortDir==='asc'?'desc':'asc'
+  traceExplState.sortCol=col
+  traceRenderDirList()
+}
+
+async function traceNavigateInto(idx){
+  if(!traceExplState)return
+  const e=traceExplState.entries[idx]
+  if(!e||!e.isDir)return
+  traceExplState.stack.push({name:e.name,handle:e.handle})
+  await traceLoadDir()
+}
+
+async function traceNavigateUp(depth){
+  if(!traceExplState)return
+  traceExplState.viewingFile=null
+  traceExplState.stack=traceExplState.stack.slice(0,depth)
+  await traceLoadDir()
+}
+
+async function traceOpenFile(idx){
+  if(!traceExplState)return
+  const e=traceExplState.entries[idx]
+  if(!e||e.isDir)return
+  traceExplState.viewingFile={name:e.name,handle:e.handle,offset:0,fileSize:0}
+  await traceLoadDir()
+}
+
+async function traceCloseFile(){
+  if(!traceExplState)return
+  traceExplState.viewingFile=null
+  await traceLoadDir()
+}
+
+async function traceShowFileView(s){
+  const data=s.traceExplorerData
+  const srv=data.servers[traceExplState.serverIdx]
+  const vf=traceExplState.viewingFile
+  const bc=document.getElementById('trace-breadcrumb')
+  if(bc){
+    let html=`<span class="trace-crumb-root">${escHtml(data.instanceDir)}</span>`
+    html+=`<span class="trace-crumb-sep">/</span><span class="trace-crumb-root">${escHtml(srv.name)}</span>`
+    traceExplState.stack.forEach((frame,depth)=>{
+      html+=`<span class="trace-crumb-sep">/</span>`
+      html+=`<a class="trace-crumb-link" href="#" onclick="traceNavigateUp(${depth+1});return false;">${escHtml(frame.name)}</a>`
+    })
+    html+=`<span class="trace-crumb-sep">/</span>`
+    html+=`<span class="trace-crumb-cur" style="user-select:text;cursor:text;" title="Click to select">${escHtml(vf.name)}</span>`
+    bc.innerHTML=html
+  }
+  const list=document.getElementById('trace-list')
+  if(!list)return
+  list.innerHTML=''
+  const up=document.createElement('div')
+  up.className='trace-entry'
+  up.innerHTML=`<span class="trace-icon">⬆️</span><span class="trace-name">..</span>`
+  up.onclick=()=>traceCloseFile()
+  list.appendChild(up)
+  try{
+    const file=await vf.handle.getFile()
+    vf.fileSize=file.size
+    const MAX=5*1024*1024
+    const end=Math.min(MAX,file.size)
+    const text=await file.slice(0,end).text()
+    vf.offset=end
+    const MAX_LINE=5000
+    let rawLines=text.split('\n')
+    traceExplState._partialLine=end<file.size?(rawLines.pop()||''):''
+    let truncatedCount=0
+    const safeLines=rawLines.map(l=>{if(l.length>MAX_LINE){truncatedCount++;return l.slice(0,MAX_LINE)+' … [line truncated]'}return l})
+    const lineCount=safeLines.length
+    const showNums=lineCount<=80000
+    traceExplState._lineCount=lineCount
+    traceExplState._showNums=showNums
+    const wrapper=document.createElement('div')
+    wrapper.id='trace-file-wrap'
+    wrapper.style.cssText='display:flex;flex-direction:column;overflow-x:auto;margin:8px 14px;padding:8px 0;background:#F8F8F7;border:1px solid #EDEBE9;border-radius:2px;'
+    for(let s=0;s<safeLines.length;s+=_TRACE_CHUNK){wrapper.appendChild(traceCreateChunk(safeLines.slice(s,s+_TRACE_CHUNK),s,showNums))}
+    if(truncatedCount){
+      const warn=document.createElement('div')
+      warn.style.cssText='margin:4px 14px;padding:4px 10px;background:#FFFBE6;border:1px solid #FFE58F;border-radius:2px;font-size:11px;color:#AD6800;'
+      warn.textContent=`⚠ ${truncatedCount} line(s) truncated to ${MAX_LINE} characters`
+      list.appendChild(warn)
+    }
+    list.appendChild(wrapper)
+    if(end<file.size) traceAddLoadMoreBtn(list,file.size)
+    if(traceExplState._pendingScrollRestore!=null){
+      const sv=traceExplState._pendingScrollRestore
+      traceExplState._pendingScrollRestore=null
+      requestAnimationFrame(()=>{list.scrollTop=sv})
+    }
+  }catch(e){
+    list.innerHTML+=`<div style="padding:16px;color:#A19F9D;font-size:12px;">Cannot read file: ${escHtml(String(e))}</div>`
+  }
+}
+
+function traceAddLoadMoreBtn(list,fileSize){
+  const vf=traceExplState.viewingFile
+  const remaining=fileSize-vf.offset
+  const btn=document.createElement('button')
+  btn.id='trace-load-more-btn'
+  btn.style.cssText='display:block;margin:8px 14px 16px;padding:5px 14px;background:#EFF6FC;border:1px solid #0078D4;border-radius:2px;font-family:inherit;font-size:11px;color:#0078D4;cursor:pointer;'
+  btn.textContent=`Load next 5 MB  (${formatBytes(remaining)} remaining)`
+  btn.onclick=async()=>{btn.disabled=true;btn.textContent='Loading…';await traceAppendChunk()}
+  list.appendChild(btn)
+}
+
+const _TRACE_CHUNK=500
+const _TRACE_LH=16
+function traceCreateChunk(lines,startIdx,showNums){
+  const cv=document.createElement('div')
+  cv.style.cssText=`content-visibility:auto;contain-intrinsic-block-size:${lines.length*_TRACE_LH}px;display:flex;`
+  if(showNums){
+    const nums=document.createElement('pre')
+    nums.style.cssText='flex-shrink:0;text-align:right;padding:0 8px 0 10px;margin:0;font-family:Consolas,monospace;font-size:11px;line-height:1.35;color:#A19F9D;background:#F3F2F1;border-right:1px solid #EDEBE9;user-select:none;-webkit-user-select:none;overflow:hidden;min-width:3.5em;'
+    nums.textContent=Array.from({length:lines.length},(_,i)=>startIdx+i+1).join('\n')
+    cv.appendChild(nums)
+  }
+  const pre=document.createElement('pre')
+  pre.style.cssText='flex:1;margin:0;padding:0 10px;font-family:Consolas,monospace;font-size:11px;line-height:1.35;white-space:pre;color:#000;'
+  pre.textContent=lines.join('\n')
+  cv.appendChild(pre)
+  return cv
+}
+
+async function traceAppendChunk(){
+  const vf=traceExplState.viewingFile
+  if(!vf)return
+  try{
+    const file=await vf.handle.getFile()
+    const MAX=5*1024*1024
+    const end=Math.min(vf.offset+MAX,file.size)
+    const text=await file.slice(vf.offset,end).text()
+    vf.offset=end
+    const MAX_LINE=5000
+    const combined=(traceExplState._partialLine||'')+text
+    traceExplState._partialLine=''
+    let rawLines=combined.split('\n')
+    if(end<file.size){traceExplState._partialLine=rawLines.pop()||''}
+    const safeLines=rawLines.map(l=>{if(l.length>MAX_LINE)return l.slice(0,MAX_LINE)+' … [line truncated]';return l})
+    const prevCount=traceExplState._lineCount||0
+    traceExplState._lineCount=prevCount+safeLines.length
+    const wrap=document.getElementById('trace-file-wrap')
+    if(wrap){const showNums=traceExplState._showNums||false;for(let s=0;s<safeLines.length;s+=_TRACE_CHUNK){wrap.appendChild(traceCreateChunk(safeLines.slice(s,s+_TRACE_CHUNK),prevCount+s,showNums))}}
+    const btn=document.getElementById('trace-load-more-btn')
+    if(btn){
+      if(end>=file.size){btn.remove()}
+      else{btn.disabled=false;btn.textContent=`Load next 5 MB  (${formatBytes(file.size-end)} remaining)`}
+    }
+  }catch(e){}
+}
+
+async function scanConfigDir(s){
+  const configDir=s.configDirHandle
+  if(!configDir)return
+  s.configFileHandles=[]
+  const _subdirNames=[],_subdirSet=new Set(),_direct=new Set()
+  try{for await(const[n,h]of configDir.entries()){if(h.kind==='file'&&n.endsWith('.ini')){s.configFileHandles.push({name:n,handle:h});_direct.add(n)}else if(h.kind==='directory'){_subdirNames.push(n);_subdirSet.add(n)}}}catch(e){}
+  for(const fn of HANA_INI_FILES){if(!_direct.has(fn)){try{const fh=await configDir.getFileHandle(fn);s.configFileHandles.push({name:fn,handle:fh})}catch(e){}}}
+  if(!_subdirSet.has('SYSTEMDB'))_subdirNames.push('SYSTEMDB')
+  const _sm=s.label.match(/^(?:fullsysteminfodump_)?([A-Z][A-Z0-9]{1,})_/i)||s.label.match(/^([A-Z][A-Z0-9]{1,2})$/i)
+  if(_sm){const sid=_sm[1].toUpperCase();if(sid!=='SYSTEMDB'){const g='DB_'+sid;if(!_subdirSet.has(g))_subdirNames.push(g)}}
+  for(const sub of _subdirNames){
+    try{
+      const subH=await configDir.getDirectoryHandle(sub),sf=new Set()
+      try{for await(const[fn,fh]of subH.entries()){if(fh.kind==='file'&&fn.endsWith('.ini')){s.configFileHandles.push({name:fn,handle:fh,tenant:sub});sf.add(fn)}}}catch(e){}
+      for(const fn of HANA_INI_FILES){if(!sf.has(fn)){try{const fh=await subH.getFileHandle(fn);s.configFileHandles.push({name:fn,handle:fh,tenant:sub})}catch(e){}}}
+    }catch(e){}
+  }
+  const _sk=new Set();s.configFileHandles=s.configFileHandles.filter(h=>{const k=(h.tenant||'')+'/'+h.name;return _sk.has(k)?false:(_sk.add(k),true)})
+  s.configFileHandles.sort((a,b)=>a.name.localeCompare(b.name))
+}
+
+async function renderConfigContent(s, wrap){
+  if(typeof BUNDLED_CONFIG_INI!=='undefined'&&!s._configRefLoaded){
+    s.configRefData={}
+    for(const [name,text] of Object.entries(BUNDLED_CONFIG_INI)){
+      s.configRefData[name]=parseRefIni(text)
+    }
+    s._configRefLoaded=true
+  } else if(Object.keys(s.configRefHandles||{}).length>0&&!s._configRefLoaded){
+    s.configRefData={}
+    for(const[name,handle]of Object.entries(s.configRefHandles)){
+      try{const f=await handle.getFile();s.configRefData[name]=parseRefIni(await f.text())}catch(e){}
+    }
+    s._configRefLoaded=true
+  }
+  const hasRef=Object.keys(s.configRefData||{}).length>0
+  const mode=s.configViewMode||'pure'
+  const tenantName=s.configFileHandles[0]?.tenant
+  const tenantHint=tenantName?` &nbsp;·&nbsp; <strong>${escHtml(tenantName)}</strong>`:''
+  const btnStyle=(active)=>`padding:5px 14px;border:none;background:${active?'#0078D4':'#fff'};color:${active?'#fff':'#323130'};cursor:pointer;font-family:inherit;font-size:12px;`
+  const parts=[]
+  parts.push(`<div style="margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+    <div style="display:flex;border:1px solid #EDEBE9;border-radius:2px;overflow:hidden;">
+      <button onclick="configToggleView('pure')" style="${btnStyle(mode==='pure')}">Pure</button>
+      <button onclick="configToggleView('explained')" style="${btnStyle(mode==='explained')}border-left:1px solid #EDEBE9;">Explained</button>
+    </div>
+    ${mode==='explained'&&hasRef?`<span style="font-size:12px;color:#605E5C;">📚 <a href="https://help.sap.com/docs/SAP_HANA_PLATFORM/009e68bc5f3c440cb31823a3ec4bb95b/4b4d88980622427ab2d6ca8c05448166.html?locale=en-US" target="_blank" style="color:#0078D4;text-decoration:underline;">SAP HANA Parameter Reference</a>${tenantHint}</span>`:''}
+  </div>`)
+  if(mode==='explained'){
+    if(!hasRef){
+      parts.push(`<div style="margin:24px 0;padding:20px;background:#F3F2F1;border:1px solid #EDEBE9;border-radius:4px;text-align:center;">
+        <div style="color:#605E5C;font-size:13px;margin-bottom:12px;">No reference data available. Select a reference folder to enable the Explained view.</div>
+        <button onclick="configPickRefFolder()" style="padding:7px 16px;background:#0078D4;color:#fff;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:13px;">📁 Load reference folder…</button>
+      </div>`)
+    } else {
+      for(const{name,handle,content}of s.configFileHandles){
+        try{const text=content!==undefined?content:(await (await handle.getFile()).text());parts.push(renderIniFile(name,text))}catch(e){}
+      }
+    }
+  } else {
+    for(const{name,handle,content}of s.configFileHandles){
+      try{
+        const text=content!==undefined?content:(await (await handle.getFile()).text())
+        parts.push(`<div class="card" style="margin-bottom:18px;"><div class="card-title">📄 ${escHtml(name)}</div><div class="card-body" style="padding:0;overflow-x:auto;"><pre style="margin:0;padding:10px 12px;font-family:Consolas,monospace;font-size:11px;line-height:1.4;white-space:pre;color:#323130;">${escHtml(text)}</pre></div></div>`)
+      }catch(e){}
+    }
+  }
+  wrap.innerHTML=parts.join('')
+}
+
+async function configToggleView(mode){
+  const s=activeSess()
+  if(!s) return
+  s.configViewMode=mode
+  const wrap=document.querySelector('#panel-configuration > div')
+  if(!wrap) return
+  wrap.innerHTML='<div style="color:#A19F9D;font-size:12px;">Loading…</div>'
+  await renderConfigContent(s,wrap)
+}
+
+async function hsiConfigToggleView(mode,sid,tabId,dbName){
+  const s=sess(sid)
+  if(!s) return
+  s.configViewMode=mode
+  await activateHsiTab(sid,tabId,dbName)
+}
+
+async function configPickRefFolder(){
+  const s=activeSess()
+  if(!s) return
+  let dirHandle
+  try{
+    dirHandle=await window.showDirectoryPicker({mode:'read',id:'config-ref',...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})})
+  }catch(e){ if(e.name!=='AbortError') console.error(e); return }
+  _lastPickedHandle=dirHandle
+  s.configRefHandles={}
+  for await(const [name,handle] of dirHandle.entries()){
+    if(handle.kind==='file'&&name.endsWith('.ini')) s.configRefHandles[name]=handle
+  }
+  s._configRefLoaded=false
+  s.configViewMode='explained'
+  const wrap=document.querySelector('#panel-configuration > div')
+  if(!wrap) return
+  wrap.innerHTML='<div style="color:#A19F9D;font-size:12px;">Loading…</div>'
+  await renderConfigContent(s,wrap)
+}
+
+async function configPickFolder(){
+  const s=activeSess()
+  if(!s) return
+  let dirHandle
+  try{
+    dirHandle=await window.showDirectoryPicker({mode:'read',id:'config-folder',...(s.configDirHandle?{startIn:s.configDirHandle}:(_lastPickedHandle?{startIn:_lastPickedHandle}:{}))})
+  }catch(e){ if(e.name!=='AbortError') console.error(e); return }
+  _lastPickedHandle=dirHandle
+  // Replace configDirHandle with the fresh user-picked handle and re-scan
+  s.configDirHandle=dirHandle
+  s.configFileHandles=[]
+  s._configScanned=false
+  const wrap=document.querySelector('#panel-configuration > div')
+  if(!wrap) return
+  wrap.innerHTML='<div style="color:#A19F9D;font-size:12px;">Loading…</div>'
+  await scanConfigDir(s)
+  s._configScanned=true
+  if(!s.configFileHandles.length){
+    wrap.innerHTML='<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No <strong>.ini files</strong> found in the selected folder.</span></div>'
+    return
+  }
+  if(!s.configViewMode) s.configViewMode='pure'
+  await renderConfigContent(s,wrap)
+}
+
+async function hsiPermUpload(btn){
+  let fh
+  try{
+    ;[fh]=await window.showOpenFilePicker({
+      id:'hsi-ref-file',
+      types:[{description:'Log file',accept:{'text/plain':['.log','.txt']}}],
+      multiple:false,
+      ...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})
+    })
+    _lastPickedHandle=fh
+  }catch(e){if(e.name!=='AbortError')alert('Error: '+e.message);return}
+  try{
+    const f=await fh.getFile()
+    const text=await f.text()
+    const container=btn.closest('.hsi-content-area')
+    if(!container)return
+
+    const refSections=parsePermSections(text)
+    const refMap=new Map(refSections.map(s=>[s.path,s]))
+
+    // Fill existing captured sections
+    const refCols=container.querySelectorAll('.hsi-ref-section[data-ref-path]')
+    const capturedPaths=new Set()
+    refCols.forEach(col=>{
+      const path=col.getAttribute('data-ref-path')
+      capturedPaths.add(path)
+      col.innerHTML=refMap.has(path)
+        ?renderPermContentLines(refMap.get(path).lines)
+        :'<div class="hsi-perm-ref-empty" style="color:#A19F9D;">Path not in reference file</div>'
+    })
+
+    // Add sections only in reference (not in captured)
+    const TOP_BTN=`<a href="#hsi-top" style="font-size:0.76em;text-decoration:none;color:#6c757d;padding:2px 8px;border:1px solid #dee2e6;border-radius:12px;white-space:nowrap;flex-shrink:0;" title="Top">▲ TOP</a>`
+    for(const sec of refSections){
+      if(capturedPaths.has(sec.path))continue
+      const wrap=document.createElement('div')
+      wrap.innerHTML=`<div class="hsi-h4">${TOP_BTN} ls -lah ${escHtml(sec.path)} <span style="font-size:0.75em;background:#fff3cd;color:#856404;padding:1px 7px;border-radius:4px;margin-left:6px;">Reference only</span></div>
+        <div class="hsi-perm-split">
+          <div class="hsi-perm-col"><div class="hsi-log-block"><div class="hsi-perm-ref-empty" style="color:#A19F9D;">Not in captured data</div></div></div>
+          <div class="hsi-perm-col"><div class="hsi-log-block">${renderPermContentLines(sec.lines)}</div></div>
+        </div>`
+      container.appendChild(wrap)
+    }
+
+    btn.textContent='📄 '+f.name
+    btn.style.background='#198754'
+  }catch(e){alert('Error loading file: '+e.message)}
+}
+
+function renderAvailability(text,hostName,filename){
+  const lines=text.split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim())
+  if(lines.length<2)return '<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>File is empty or has no data.</span></div>'
+  const headers=lines[0].split(';')
+  const rows=lines.slice(1).map(l=>l.split(';'))
+  const COL={}
+  headers.forEach((h,i)=>COL[h.trim()]=i)
+  const STATUS_COLS=new Set(['system_status','host_status'])
+  const ACTIVE_COLS=new Set(['system_active','host_active','service_active','database_active','is_origin'])
+  function statusTag(val){
+    const v=(val||'').toLowerCase()
+    if(v==='ok') return tag('tag-green',val)
+    if(v==='warning') return tag('tag-warn',val)
+    if(v==='error') return tag('tag-red',val)
+    if(v==='unknown') return tag('tag-orange',val)
+    if(v==='') return ''
+    return `<span class="mono">${escHtml(val)}</span>`
+  }
+  function activeTag(val){
+    const v=(val||'').toLowerCase()
+    if(v==='true'||v==='1') return tag('tag-green',val)
+    if(v==='false'||v==='0') return `<span class="mono" style="color:#A19F9D;">${escHtml(val)}</span>`
+    if(v==='') return ''
+    return `<span class="mono">${escHtml(val)}</span>`
+  }
+  function eventTag(val){
+    const v=(val||'').toLowerCase()
+    if(v==='ping') return `<span class="mono" style="color:#A19F9D;">${escHtml(val)}</span>`
+    if(v.includes('start')) return tag('tag-green',val)
+    if(v.includes('stop')) return tag('tag-orange',val)
+    if(v.includes('error')||v.includes('fail')||v.includes('crash')) return tag('tag-red',val)
+    if(v==='') return ''
+    return tag('tag-blue',val)
+  }
+  const tbodyId='avail-body-'+hostName.replace(/[^a-z0-9]/gi,'-')
+  const hideCount=rows.filter(r=>(r[COL['event_name']]||'').toLowerCase()==='ping'&&(r[COL['system_status']]||'').toLowerCase()==='ok'&&(r[COL['host_status']]||'').toLowerCase()==='ok').length
+  let html=`<div class="card"><div class="card-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">🟢 System Availability <span style="font-weight:400;font-size:11px;color:#605E5C;">${escHtml(hostName)} &nbsp;|&nbsp; ${rows.length} rows &nbsp;|&nbsp; ${escHtml(filename)}</span>
+  <button id="${tbodyId}-btn" onclick="toggleAvailOk('${tbodyId}')" style="margin-left:auto;padding:2px 10px;border:1px solid #EDEBE9;border-radius:2px;background:#F3F2F1;font-family:inherit;font-size:11px;cursor:pointer;">🙈 Hide ping/ok rows (${hideCount})</button>
+  </div>
+  <div style="overflow-x:auto;max-height:calc(100vh - 160px);overflow-y:auto;">
+  <table class="data-table" style="white-space:nowrap;width:auto;min-width:100%;">
+  <thead style="position:sticky;top:0;z-index:5;"><tr>`
+  for(const h of headers) html+=`<th>${escHtml(h)}</th>`
+  html+=`</tr></thead><tbody id="${tbodyId}">`
+  for(const row of rows){
+    const evtName=(row[COL['event_name']]||'').toLowerCase()
+    const sysStatus=(row[COL['system_status']]||'').toLowerCase()
+    const hostStatus=(row[COL['host_status']]||'').toLowerCase()
+    const isPing=evtName==='ping'
+    const isHideable=isPing&&sysStatus==='ok'&&hostStatus==='ok'
+    html+=`<tr${isHideable?' data-hideable="1"':''}${isPing?' style="opacity:0.45;"':''}>`
+    for(let i=0;i<headers.length;i++){
+      const colName=headers[i].trim()
+      const val=row[i]??''
+      let cell
+      if(STATUS_COLS.has(colName)) cell=statusTag(val)
+      else if(ACTIVE_COLS.has(colName)) cell=activeTag(val)
+      else if(colName==='event_name') cell=eventTag(val)
+      else if(colName==='error_message'&&val) cell=`<span class="mono" style="color:#CF1322;">${escHtml(val)}</span>`
+      else cell=val?`<span class="mono">${escHtml(val)}</span>`:''
+      html+=`<td>${cell}</td>`
+    }
+    html+=`</tr>`
+  }
+  html+=`</tbody></table></div></div>`
+  return html
+}
+
+function toggleAvailOk(tbodyId){
+  const tbody=document.getElementById(tbodyId)
+  const btn=document.getElementById(tbodyId+'-btn')
+  if(!tbody||!btn) return
+  const hiding=btn.dataset.hiding!=='1'
+  btn.dataset.hiding=hiding?'1':''
+  const hideCount=tbody.querySelectorAll('tr[data-hideable="1"]').length
+  btn.textContent=hiding?`👁 Show ping/ok rows (${hideCount})`:`🙈 Hide ping/ok rows (${hideCount})`
+  tbody.querySelectorAll('tr[data-hideable="1"]').forEach(tr=>{tr.style.display=hiding?'none':''})
+}
+
+function renderNsHistory(text,hostName){
+  const lines=text.split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim())
+  if(lines.length<2)return '<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>nameserver_history.trc is empty.</span></div>'
+
+  const headers=lines[0].split(';')
+  const COL={}
+  headers.forEach((h,i)=>COL[h.replace(/\s*\[.*?\]/,'').trim()]=i)
+  const iHost=COL['host'],iPort=COL['port'],iTime=COL['time']
+
+  const rawLines=lines.slice(1).map(l=>l.split(';'))
+
+  const rowTypes=rawLines.map(p=>{
+    const host=(p[iHost]||'').trim()
+    const port=(p[iPort]||'').trim()
+    const time=(p[iTime]||'').trim()
+    if(host&&!/^[\d><]/.test(host))return 'host'
+    if(port&&/^[\d><]/.test(port))return 'service'
+    if(time)return 'time'
+    return 'other'
+  })
+
+  const prev=new Array(headers.length).fill(null)
+  const resolved=rawLines.map(p=>p.map((v,i)=>{
+    if(!v||v==='')return prev[i]
+    if(v.startsWith('>')){const n=parseFloat(v.slice(1));const r=prev[i]!==null?prev[i]+n:n;prev[i]=r;return r}
+    if(v.startsWith('<')){const n=parseFloat(v.slice(1));const r=prev[i]!==null?prev[i]-n:n;prev[i]=r;return r}
+    const n=parseFloat(v);if(!isNaN(n)){prev[i]=n;return n}
+    prev[i]=v;return v
+  }))
+
+  // build byPort: port -> [{time, row}] sorted by time asc, max 500 per port
+  const PAGE=500
+  const byPort={}
+  let curTime=null
+  for(let i=0;i<resolved.length;i++){
+    const type=rowTypes[i],row=resolved[i]
+    if(type==='host'||type==='time') curTime=row[iTime]
+    else if(type==='service'&&curTime!==null){
+      const rawPort=(rawLines[i][iPort]||'').replace(/[><]/g,'').trim()
+      if(!byPort[rawPort])byPort[rawPort]=[]
+      byPort[rawPort].push({time:curTime,row})
+    }
+  }
+  // sort all ports by time — no truncation here, paging handles it
+  for(const p of Object.keys(byPort)) byPort[p].sort((a,b)=>parseFloat(a.time)-parseFloat(b.time))
+
+  const portServiceMap={}
+  if(topoData){
+    const hostObj=topoData.hosts.find(h=>h.name===hostName)
+    if(hostObj) for(const svc of hostObj.services) portServiceMap[String(svc.port)]=svc.name
+  }
+
+  const allPorts=Object.keys(byPort).sort((a,b)=>parseInt(a)-parseInt(b))
+  const cid='nsh-'+hostName.replace(/[^a-z0-9]/gi,'-')
+
+  if(!window._nsData)window._nsData={}
+  window._nsData[cid]={headers,iHost,iPort,iTime,_allByPort:byPort,_portOffset:{},_portRows:{},COL}
+
+  function portLabel(p){
+    const s=portServiceMap[p]
+    const total=(byPort[p]||[]).length
+    const countLabel=`<span style="font-size:10px;color:#A19F9D;"> (${total.toLocaleString()})</span>`
+    return (s?`${p} — ${s}`:p)+countLabel
+  }
+
+  let html=`<div class="card" id="${cid}-card">
+  <div class="card-title">📈 Nameserver History — ${escHtml(hostName)}
+    <span style="font-weight:400;font-size:11px;color:#605E5C;margin-left:6px;">~10s interval</span>
+  </div>
+  <div id="${cid}-tabs" style="display:flex;border-bottom:1px solid #EDEBE9;background:#F8F8F7;padding:0 12px;overflow-x:auto;white-space:nowrap;">`
+  for(const p of allPorts){
+    html+=`<button data-port="${escHtml(p)}" onclick="switchNsPort('${cid}','${escHtml(p)}')" style="display:inline-flex;align-items:center;height:30px;padding:0 12px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:11px;color:#605E5C;cursor:pointer;white-space:nowrap;">${portLabel(p)}</button>`
+  }
+  html+=`</div><div id="${cid}-content"></div></div>`
+  return html
+}
+
+function renderTelemetry(text){
+  const lines=text.split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim())
+  if(lines.length<2)return '<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>telemetryData.csv is empty or invalid.</span></div>'
+  const headers=lines[0].split(';')
+  const rows=lines.slice(1).map(l=>l.split(';'))
+
+  let html=`<div class="card"><div class="card-title">📡 Telemetry Data <span style="font-weight:400;font-size:11px;color:#605E5C;">${rows.length} rows &nbsp;|&nbsp; telemetryData.csv</span></div>
+  <div style="overflow-x:auto;max-height:calc(100vh - 160px);overflow-y:auto;">
+  <table class="data-table" style="white-space:nowrap;width:auto;min-width:100%;">
+  <thead style="position:sticky;top:0;z-index:5;"><tr>`
+  for(const h of headers)html+=`<th>${escHtml(h)}</th>`
+  html+=`</tr></thead><tbody>`
+
+  for(const row of rows){
+    const isDeprecated=row[2]==='1'
+    html+=`<tr${isDeprecated?' style="opacity:0.5;"':''}>`
+    for(let i=0;i<headers.length;i++){
+      const val=row[i]??''
+      if(i===2){
+        html+=`<td>${val==='1'?tag('tag-warn','deprecated'):tag('tag-green','active')}</td>`
+      } else {
+        html+=`<td><span class="mono">${escHtml(val)}</span></td>`
+      }
+    }
+    html+=`</tr>`
+  }
+  html+=`</tbody></table></div></div>`
+  return html
+}
+
+function renderTopologyApp(data,container){
+  container.innerHTML=''
+  const tabBar=document.createElement('div')
+  tabBar.style.cssText='display:flex;border-bottom:1px solid #EDEBE9;background:#F3F2F1;padding:0 12px;overflow-x:auto;white-space:nowrap;position:sticky;top:0;z-index:10;'
+  container.appendChild(tabBar)
+  const panelsDiv=document.createElement('div')
+  panelsDiv.style.cssText='padding:16px;'
+  container.appendChild(panelsDiv)
+  const tabs=[{key:'dashboard',label:'Dashboard',icon:'📊'},...data.hosts.map(h=>({key:'host-'+h.name,label:h.name,icon:'🖥️'})),{key:'raw-tree',label:'Raw Tree',icon:'🌲'}]
+  function switchTab(key){
+    tabBar.querySelectorAll('button').forEach(b=>{const a=b.dataset.key===key;b.style.color=a?'#0078D4':'#605E5C';b.style.borderBottom=a?'2px solid #0078D4':'2px solid transparent';b.style.fontWeight=a?'600':'normal';b.style.background=a?'#EFF6FC':'transparent'})
+    panelsDiv.querySelectorAll('.topo-panel').forEach(p=>{p.style.display=p.dataset.key===key?'block':'none'})
+    if(key==='dashboard'&&data.replicationRows.length)requestAnimationFrame(()=>drawTopology(data))
+  }
+  for(const t of tabs){const btn=document.createElement('button');btn.dataset.key=t.key;btn.style.cssText='display:inline-flex;align-items:center;gap:5px;height:36px;padding:0 14px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:12px;color:#605E5C;cursor:pointer;white-space:nowrap;';btn.innerHTML=`${t.icon} ${escHtml(t.label)}`;btn.onclick=()=>switchTab(t.key);tabBar.appendChild(btn)}
+  const dashPanel=document.createElement('div');dashPanel.className='topo-panel';dashPanel.dataset.key='dashboard';dashPanel.innerHTML=renderDashboard(data);panelsDiv.appendChild(dashPanel)
+  if(data.replicationRows.length)requestAnimationFrame(()=>drawTopology(data))
+  for(const h of data.hosts){const hPanel=document.createElement('div');hPanel.className='topo-panel';hPanel.dataset.key='host-'+h.name;hPanel.style.display='none';const pid=`hp-${h.name.replace(/[^a-z0-9]/gi,'-')}`;hPanel.innerHTML=renderHostPanel(h,pid);panelsDiv.appendChild(hPanel)}
+  const rtPanel=document.createElement('div');rtPanel.className='topo-panel';rtPanel.dataset.key='raw-tree';rtPanel.style.display='none';rtPanel.innerHTML=`<input id="rawSearch" placeholder="🔍 Filter nodes…" oninput="applyTreeSearch(this.value)"><div id="rawTree">${data.rawTree.map(n=>renderTreeNode(n,0)).join('')}</div>`;panelsDiv.appendChild(rtPanel)
+  switchTab('dashboard')
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// HSI — HANASupportInfo Integration
+// ══════════════════════════════════════════════════════════════════════════
+
+// Fixed tab order + group definitions (mirrors the bash script)
+const HSI_ORDER = [
+  'GROUP:START',
+  'GROUP:OS_Information',
+  'GROUP:Filesystemdetails',
+  'GROUP:Volumes',
+  'GROUP:Network',
+  'Users_Groups.log',
+  'Security.log',
+  'Backup.log',
+  'Cluster.log',
+  'HANA_DB.log',
+  'GROUP:HANA_Custom_Config',
+  'GROUP:Replication',
+  'GROUP:SLD',
+  'SDA.log',
+  'Warning_Overview.log',
+]
+const HSI_GROUPS_BASE = {
+  'START': ['00_Initialization.log','01_Overview.log'],
+  'OS_Information': ['Host_Information.log','CPU.log','Memory.log'],
+  'Filesystemdetails': ['Filesystemdetails_General.log','Filesystemdetails_Permissions.log','Filesystemdetails.log'],
+  'Volumes': ['DATA_Volume.log','LOG_Volume.log','SHARED_Volume.log','var_tmp.log'],
+  'Network': ['Network_Test.log','Network_OS.log','Network_HANA.log'],
+  'Replication': ['Replication_Overview.log','Replication_Statistics.log'],
+  'SLD': ['SLD.log','sld_related_nameserver-trace-analyze.log'],
+}
+
+async function loadHSIFolder(){
+  try{
+    const dirHandle = await window.showDirectoryPicker({mode:'read',id:'load-hsi',...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})})
+    _lastPickedHandle = dirHandle
+    const sid = newSessionId()
+    const color = FSID_COLORS[fsidSessions.length % FSID_COLORS.length]
+    const s = {
+      id: sid, label: dirHandle.name, color, captureInfo: '',
+      type: 'hsi',
+      hsiFiles: {},        // filename.toLowerCase() -> FileSystemFileHandle
+      hsiCustomConfig: [], // ['90_DB_X.log', ...]
+      hsiMeta: {},         // { sid, hostname, version, kba, runDate }
+      hsiConfigData: null, // { databases:[{name,iniHandles}], refHandles:{}, parsedRef:null } from Configuration/
+      hsiDirHandle: dirHandle,
+      // FSID fields unused but keep shape consistent
+      loadedFiles:{}, loadedFolderName: dirHandle.name,
+      versionHistoryHandle:null, configFileHandles:[], configRefHandles:{}, configRefData:{},
+      telemetryHandle:null, nsHistoryHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[],
+      topoData:null
+    }
+    // Scan temp/ subfolder
+    let tempHandle = null
+    try{ tempHandle = await dirHandle.getDirectoryHandle('temp') }catch(e){}
+    if(!tempHandle){
+      // maybe the user selected the temp folder directly
+      for await(const [name, handle] of dirHandle.entries()){
+        if(handle.kind==='file' && name.endsWith('.log')) s.hsiFiles[name.toLowerCase()] = handle
+      }
+    } else {
+      for await(const [name, handle] of tempHandle.entries()){
+        if(handle.kind==='file' && name.endsWith('.log')){
+          s.hsiFiles[name.toLowerCase()] = handle
+          if(name.startsWith('90_') && name !== '99-LOGFILES.log') s.hsiCustomConfig.push(name)
+        }
+      }
+    }
+    s.hsiCustomConfig.sort()
+
+    // Scan Configuration/ folder (new HSI format: SYSTEMDB/, DB_X/, reference/)
+    try{
+      const configDir = await dirHandle.getDirectoryHandle('Configuration')
+      const hsiConfigData = {databases:[], refHandles:{}, parsedRef:null}
+      // Discover DB subdirectory names via entries() — entries() finds directories reliably
+      const dbDirNames=[], dbDirSet=new Set()
+      try{for await(const[n,h]of configDir.entries()){if(h.kind==='directory'&&n!=='reference'){dbDirNames.push(n);dbDirSet.add(n)}}}catch(e){}
+      // Always try SYSTEMDB; also guess DB_<SID> from folder name
+      if(!dbDirSet.has('SYSTEMDB'))dbDirNames.push('SYSTEMDB')
+      const _hsiSidM=dirHandle.name.match(/^HSI_([A-Z][A-Z0-9]{1,})_/i)
+      if(_hsiSidM){const g='DB_'+_hsiSidM[1].toUpperCase();if(!dbDirSet.has(g))dbDirNames.push(g)}
+      // Reference folder: getFileHandle() with known names (entries() may not return files on network drives)
+      try{
+        const refDir=await configDir.getDirectoryHandle('reference')
+        try{for await(const[n,h]of refDir.entries()){if(h.kind==='file'&&n.endsWith('.ini'))hsiConfigData.refHandles[n]=h}}catch(e){}
+        for(const fn of HANA_INI_FILES){if(!hsiConfigData.refHandles[fn]){try{hsiConfigData.refHandles[fn]=await refDir.getFileHandle(fn)}catch(e){}}}
+      }catch(e){}
+      // Each DB folder: same dual approach
+      for(const dbName of dbDirNames){
+        try{
+          const dbDir=await configDir.getDirectoryHandle(dbName)
+          const iniHandles=[], found=new Set()
+          try{for await(const[fn,fh]of dbDir.entries()){if(fh.kind==='file'&&fn.endsWith('.ini')){iniHandles.push({name:fn,handle:fh});found.add(fn)}}}catch(e){}
+          for(const fn of HANA_INI_FILES){if(!found.has(fn)){try{const fh=await dbDir.getFileHandle(fn);iniHandles.push({name:fn,handle:fh})}catch(e){}}}
+          if(iniHandles.length){iniHandles.sort((a,b)=>a.name.localeCompare(b.name));hsiConfigData.databases.push({name:dbName,iniHandles})}
+        }catch(e){}
+      }
+      hsiConfigData.databases.sort((a,b)=>a.name==='SYSTEMDB'?-1:b.name==='SYSTEMDB'?1:a.name.localeCompare(b.name))
+      if(hsiConfigData.databases.length) s.hsiConfigData=hsiConfigData
+    }catch(e){}
+
+    // Try to extract SID + hostname + version + KBA + run date from init log
+    try{
+      const initHandle = s.hsiFiles['00_initialization_overview.log']
+      if(initHandle){
+        const f = await initHandle.getFile()
+        const txt = await f.text()
+        const sidM     = txt.match(/^SID:\s+([A-Z0-9]{3})\s*$/im)
+        const verKbaM  = txt.match(/-\s*HANASupportInfo\s*-\s*(.+?)\s*-\s*KBA:\s*(\d+)/i)
+        const hostM    = txt.match(/Static Hostname:\s*(\S+)/i)
+        const runM     = txt.match(/##\s*Start command at:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/i)
+        s.hsiMeta = {
+          sid:     sidM?.[1]  || '',
+          hostname:hostM?.[1] || '',
+          version: verKbaM?.[1] || '',
+          kba:     verKbaM?.[2] || '3218277',
+          runDate: runM?.[1]  || ''
+        }
+        if(s.hsiMeta.sid) s.captureInfo = 'SID: '+s.hsiMeta.sid+(s.hsiMeta.hostname?' · '+s.hsiMeta.hostname:'')
+      }
+    }catch(e){}
+
+    fsidSessions.push(s)
+    activeFsidId = sid
+
+    // ── Scan FSIDs/ subfolder and load each as a child FSID session ──────────
+    try{
+      const fsidsDir = await dirHandle.getDirectoryHandle('FSIDs')
+      for await(const [name, handle] of fsidsDir.entries()){
+        if(handle.kind !== 'directory') continue
+        // treat each subfolder as an FSID dump
+        const childSid = newSessionId()
+        const childColor = s.color  // same color as parent HSI
+        const cs = {
+          id: childSid, label: name, color: childColor, captureInfo: '',
+          type: 'fsid', hsiParentId: sid,  // link to parent HSI session
+          loadedFiles:{}, loadedFolderName: name,
+          versionHistoryHandle:null, configDirHandle:null, _configScanned:false, configFileHandles:[], configRefHandles:{}, configRefData:{},
+          telemetryHandle:null, nsHistoryHandles:[], availabilityHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[],
+          hostsFileHandle:null, topoData:null, traceExplorerData:null
+        }
+        for await(const [fname, fh] of handle.entries()){
+          if(fh.kind==='file') cs.loadedFiles[fname.toLowerCase()] = fh
+        }
+        // SYS/global/hdb/versionhistory.csv
+        try{
+          const sys=await handle.getDirectoryHandle('SYS')
+          const global=await sys.getDirectoryHandle('global')
+          const hdb=await global.getDirectoryHandle('hdb')
+          try{cs.versionHistoryHandle=await hdb.getFileHandle('versionhistory.csv')}catch(e){}
+          try{
+            const custom=await hdb.getDirectoryHandle('custom')
+            cs.configDirHandle=await custom.getDirectoryHandle('config')
+          }catch(e){}
+          try{
+            const exe=await sys.getDirectoryHandle('exe')
+            const hdbExe=await exe.getDirectoryHandle('hdb')
+            const refConfig=await hdbExe.getDirectoryHandle('config')
+            const _rf=new Set()
+            try{for await(const[fn,fh]of refConfig.entries()){if(fh.kind==='file'&&fn.endsWith('.ini')){cs.configRefHandles[fn]=fh;_rf.add(fn)}}}catch(e){}
+            for(const fn of HANA_INI_FILES){if(!_rf.has(fn)){try{cs.configRefHandles[fn]=await refConfig.getFileHandle(fn)}catch(e){}}}
+          }catch(e){}
+        }catch(e){}
+        try{const etcDir=await handle.getDirectoryHandle('etc');cs.hostsFileHandle=await etcDir.getFileHandle('hosts')}catch(e){}
+        cs.telemetryHandle = cs.loadedFiles['telemetrydata.csv']||null
+        // nameserver_history + rtedumps
+        try{
+          for await(const [n1,h1] of handle.entries()){
+            if(h1.kind!=='directory'||!/^HDB\d\d$/.test(n1))continue
+            for await(const [n2,h2] of h1.entries()){
+              if(h2.kind!=='directory')continue
+              try{const trace=await h2.getDirectoryHandle('trace');const fh=await trace.getFileHandle('nameserver_history.trc');cs.nsHistoryHandles.push({hostName:n2,handle:fh})}catch(e){}
+              try{const trace=await h2.getDirectoryHandle('trace');for await(const[fn,fh]of trace.entries()){if(fh.kind==='file'&&fn.startsWith('system_availability_')&&fn.endsWith('.trc')){cs.availabilityHandles.push({hostName:n2,handle:fh});break}}}catch(e){}
+              try{
+                const trace=await h2.getDirectoryHandle('trace')
+                const tracePath=`${n1}/${n2}/trace`
+                let foundHere=false
+                for await(const [fname,fh] of trace.entries()){
+                  if(fh.kind==='file'&&fname.includes('.rtedump.')){const parsed=parseRteDumpFilename(fname);if(parsed){cs.rteDumpHandles.push({...parsed,handle:fh,scannedPath:tracePath});foundHere=true}}
+                  else if(fh.kind==='directory'&&fname.startsWith('DB_')){const ttp=`${tracePath}/${fname}`;try{for await(const [tf,th] of fh.entries()){if(th.kind==='file'&&tf.includes('.rtedump.')){const parsed=parseRteDumpFilename(tf);if(parsed){cs.rteDumpHandles.push({...parsed,handle:th,tenant:fname.replace(/^DB_/,''),scannedPath:ttp})}}}}catch(e){};cs.rteDumpScannedPaths.push(ttp)}
+                }
+                if(foundHere)cs.rteDumpScannedPaths.push(tracePath)
+              }catch(e){}
+            }
+          }
+          cs.nsHistoryHandles.sort((a,b)=>a.hostName.localeCompare(b.hostName))
+          cs.availabilityHandles.sort((a,b)=>a.hostName.localeCompare(b.hostName))
+          cs.rteDumpScannedPaths=[...new Set(cs.rteDumpScannedPaths)]
+          cs.rteDumpHandles.sort((a,b)=>{const h=a.virtualHost.localeCompare(b.virtualHost);if(h!==0)return h;const sv=a.serviceName.localeCompare(b.serviceName);if(sv!==0)return sv;return b.datetime.localeCompare(a.datetime)})
+          cs.rteDumpHandles.forEach((d,i)=>d._idx=i)
+        }catch(e){}
+        // capture info from log.txt
+        try{const logH=cs.loadedFiles['log.txt'];if(logH){const lf=await logH.getFile();const lt=await lf.text();const wl=lt.split('\n').find(l=>l.trim().startsWith('Writing to file'));if(wl){const m=wl.match(/fullsysteminfodump_[^_]+_[^_]+_(.+?)_(\d{4})_(\d{2})_(\d{2})_(\d{2})_(\d{2})_(\d{2})\.(zip|tar)/);if(m)cs.captureInfo=`captured on ${m[1]} at ${m[2]}-${m[3]}-${m[4]} ${m[5]}:${m[6]}:${m[7]} UTC`}}}catch(e){}
+        // trace explorer: server dirs in HDB<instance>
+        try{
+          for await(const[n1,h1]of handle.entries()){
+            if(h1.kind!=='directory'||!/^HDB\d\d$/.test(n1))continue
+            const servers=[]
+            for await(const[n2,h2]of h1.entries()){if(h2.kind==='directory')servers.push({name:n2,handle:h2})}
+            servers.sort((a,b)=>a.name.localeCompare(b.name))
+            if(servers.length){cs.traceExplorerData={instanceDir:n1,servers};break}
+          }
+        }catch(e){}
+
+        fsidSessions.push(cs)
+      }
+    }catch(e){} // no FSIDs folder — fine
+
+    renderNavTree()
+    // auto-navigate to first tab
+    const firstTab = hsiGetTabList(s)[0]
+    if(firstTab) activateHsiTab(sid, firstTab.id, null)
+  }catch(err){ if(err.name!=='AbortError') alert('Error loading HSI folder: '+err.message) }
+}
+
+// Build the ordered tab list for a session
+function hsiGetTabList(s){
+  const order = [...HSI_ORDER]
+  // inject custom config group
+  const ccIdx = order.indexOf('GROUP:HANA_Custom_Config')
+  const groups = {...HSI_GROUPS_BASE}
+  if(s.hsiConfigData) groups['HANA_Custom_Config'] = s.hsiConfigData.databases.map(d=>d.name)
+  else if(s.hsiCustomConfig.length) groups['HANA_Custom_Config'] = s.hsiCustomConfig
+  else order.splice(ccIdx, 1)
+
+  const tabs = []
+  for(const item of order){
+    if(item.startsWith('GROUP:')){
+      const grpName = item.slice(6)
+      if(grpName==='HANA_Custom_Config' && s.hsiConfigData){
+        tabs.push({id:'grp-'+grpName, label:grpName, type:'hsi-config', subfiles:s.hsiConfigData.databases.map(d=>d.name)})
+      } else {
+        const subfiles = (groups[grpName]||[]).filter(f => s.hsiFiles[f.toLowerCase()])
+        if(!subfiles.length){
+          // backward compat: old HSI merged Initialization+Overview into one file
+          if(grpName==='START' && s.hsiFiles['00_initialization_overview.log'])
+            tabs.push({id:'file-00_Initialization_Overview.log', label:'START', type:'file', file:'00_Initialization_Overview.log'})
+          continue
+        }
+        tabs.push({id:'grp-'+grpName, label:grpName, type:'group', subfiles})
+      }
+    } else {
+      if(!s.hsiFiles[item.toLowerCase()]) continue
+      const clean = item.replace(/^[\d]+_/,'').replace(/\.log$/,'')
+      tabs.push({id:'file-'+item, label:clean, type:'file', file:item})
+    }
+  }
+  return tabs
+}
+
+// Build nav group for an HSI session
+function buildHsiNavGroup(s){
+  const tabs = hsiGetTabList(s)
+  const grp = document.createElement('div')
+  grp.className = 'fsid-group open'
+  grp.dataset.sid = s.id
+
+  const hdr = document.createElement('div')
+  hdr.className = 'fsid-group-header'
+  hdr.style.borderLeftColor = s.color
+  hdr.innerHTML = `<span class="fsid-group-arrow">▶</span><span class="fsid-group-label" title="${escHtml(s.label)}">&#128202; ${escHtml(s.label)}<span class="fsid-group-subtitle">${escHtml(s.captureInfo)}</span></span>`
+  hdr.onclick = () => { grp.classList.toggle('open'); hdr.classList.toggle('active-group', grp.classList.contains('open')) }
+  hdr.oncontextmenu = (e) => { e.preventDefault(); showFsidCtxMenu(s.id, e.clientX, e.clientY) }
+  grp.appendChild(hdr)
+
+  const children = document.createElement('div')
+  children.className = 'fsid-group-children'
+  for(const tab of tabs){
+    const sub = document.createElement('div')
+    sub.className = 'fsid-sub-item'
+    sub.dataset.hsiTab = tab.id
+    sub.innerHTML = `<span style="font-size:11px;">📄</span>${escHtml(tab.label)}`
+    sub.onclick = () => activateHsiTab(s.id, tab.id, null)
+    children.appendChild(sub)
+  }
+
+  // ── Child FSID sessions (from FSIDs/ subfolder) ──────────────────────────
+  const childFsids = fsidSessions.filter(cs => cs.hsiParentId === s.id)
+  if(childFsids.length){
+    const sep = document.createElement('div')
+    sep.style.cssText = 'margin:4px 10px 2px 10px;border-top:1px solid #EDEBE9;font-size:10px;font-weight:600;color:#A19F9D;text-transform:uppercase;letter-spacing:0.5px;padding-top:4px;'
+    sep.textContent = 'FSIDs'
+    children.appendChild(sep)
+    for(const cs of childFsids){
+      // mini accordion for each child FSID
+      const childGrp = document.createElement('div')
+      childGrp.className = 'fsid-group open'
+      childGrp.dataset.sid = cs.id
+      childGrp.style.borderBottom = 'none'
+
+      const childHdr = document.createElement('div')
+      childHdr.className = 'fsid-group-header'
+      childHdr.style.cssText = `border-left-color:${cs.color};padding-left:20px;font-size:11px;`
+      childHdr.innerHTML = `<span class="fsid-group-arrow">▶</span><span class="fsid-group-label" title="${escHtml(cs.label)}">📁 ${escHtml(cs.label)}<span class="fsid-group-subtitle">${escHtml(cs.captureInfo)}</span></span>`
+      childHdr.onclick = (e) => { e.stopPropagation(); childGrp.classList.toggle('open') }
+      childHdr.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); showFsidCtxMenu(cs.id, e.clientX, e.clientY) }
+      childGrp.appendChild(childHdr)
+
+      const childChildren = document.createElement('div')
+      childChildren.className = 'fsid-group-children'
+      const hasTopology = 'topology.txt' in cs.loadedFiles
+      const fsidItems = [
+        {icon:'🗺️', label:'Topology', panel:'topology', disabled:false},
+        {icon:'📋', label:'Version History', panel:'versionhistory', disabled:false},
+        {icon:'⚙️', label:'Configuration', panel:'configuration', disabled:false},
+        ...(cs.hostsFileHandle ? [{icon:'🌐', label:'HOSTS', panel:'hosts', disabled:false}] : []),
+        {icon:'📡', label:'Telemetry Data', panel:'telemetry', disabled:false},
+        {icon:'📈', label:'Nameserver History', panel:'nshistory', disabled:false},
+        ...(cs.availabilityHandles?.length ? [{icon:'🟢', label:'Availability', panel:'availability', disabled:false}] : []),
+        {icon:'💥', label:'Runtime Dumps', panel:'rtedumps', disabled:false},
+        {icon:'📂', label:'Trace Explorer', panel:'traceexplorer', disabled:false},
+      ]
+      for(const it of fsidItems){
+        const sub = document.createElement('div')
+        sub.className = 'fsid-sub-item' + (it.disabled ? ' disabled' : '')
+        sub.dataset.panel = it.panel
+        sub.style.paddingLeft = '36px'
+        sub.innerHTML = `<span style="font-size:12px;">${it.icon}</span>${it.label}`
+        if(!it.disabled) sub.onclick = () => activateNavItem(cs.id, it.panel)
+        childChildren.appendChild(sub)
+      }
+      childGrp.appendChild(childChildren)
+      children.appendChild(childGrp)
+    }
+  }
+
+  grp.appendChild(children)
+  return grp
+}
+
+// Activate an HSI tab (and optional subtab)
+async function activateHsiTab(sid, tabId, subTabFile){
+  activeFsidId = sid
+  activePanel = 'hsi'
+
+  // Highlight nav item
+  document.getElementById('navTreeBody').querySelectorAll('.fsid-sub-item').forEach(i=>i.classList.remove('active'))
+  const grp = document.getElementById('navTreeBody').querySelector(`.fsid-group[data-sid="${sid}"]`)
+  if(grp){
+    const sub = grp.querySelector(`[data-hsi-tab="${tabId}"]`)
+    if(sub){ sub.classList.add('active'); sub.style.borderLeftColor = fsidSessions.find(s=>s.id===sid)?.color||'#107C10' }
+    if(!grp.classList.contains('open')) grp.classList.add('open')
+  }
+
+  // Show HSI panel, hide others
+  document.getElementById('empty').style.display = 'none'
+  document.querySelectorAll('.content-panel').forEach(p=>{
+    p.classList.remove('active')
+    p.style.display = ''
+  })
+  const panel = document.getElementById('panel-hsi')
+  panel.classList.add('active')
+  panel.style.display = 'flex'
+
+  const s = sess(sid)
+  if(!s) return
+  const tabs = hsiGetTabList(s)
+  const tab = tabs.find(t=>t.id===tabId)
+  if(!tab) return
+
+  panel.innerHTML = ''
+
+  // ── Subtab bar (for groups and hsi-config) ───────────────────────────────
+  let activeSubFile = subTabFile
+  if(tab.type==='group' || tab.type==='hsi-config'){
+    const stBar = document.createElement('div')
+    stBar.className = 'hsi-subtab-bar'
+    if(!activeSubFile) activeSubFile = tab.subfiles[0]
+    tab.subfiles.forEach(sf=>{
+      const clean = tab.type==='hsi-config' ? sf : sf.replace(/^[\d]+_/,'').replace(/\.log$/,'')
+      const btn = document.createElement('button')
+      btn.className = 'hsi-subtab-btn' + (sf===activeSubFile ? ' active' : '')
+      btn.textContent = clean
+      btn.onclick = () => activateHsiTab(sid, tabId, sf)
+      stBar.appendChild(btn)
+    })
+    panel.appendChild(stBar)
+  }
+
+  // ── Content area ──────────────────────────────────────────────────────────
+  const contentArea = document.createElement('div')
+  contentArea.className = 'hsi-content-area'
+  panel.appendChild(contentArea)
+
+  // ── New format: hsi-config — render INI files with Pure/Explained toggle ──
+  if(tab.type==='hsi-config'){
+    const dbName = activeSubFile
+    const db = s.hsiConfigData.databases.find(d=>d.name===dbName)
+    if(!db){ contentArea.innerHTML = `<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Database folder <code>${escHtml(dbName||'')}</code> not found.</span></div>`; return }
+    contentArea.innerHTML = '<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
+    // Parse reference data once, then cache in hsiConfigData.parsedRef
+    if(!s.hsiConfigData.parsedRef){
+      const pr={}
+      for(const [name,handle] of Object.entries(s.hsiConfigData.refHandles||{})){
+        try{const f=await handle.getFile();pr[name]=parseRefIni(await f.text())}catch(e){}
+      }
+      if(Object.keys(pr).length===0&&typeof BUNDLED_CONFIG_INI!=='undefined'){
+        for(const [name,text] of Object.entries(BUNDLED_CONFIG_INI)){
+          pr[name]=parseRefIni(text)
+        }
+      }
+      s.hsiConfigData.parsedRef=pr
+    }
+    s.configRefData = s.hsiConfigData.parsedRef
+    const hasRef = Object.keys(s.hsiConfigData.parsedRef).length > 0
+    if(!s.configViewMode) s.configViewMode='pure'
+    const mode = s.configViewMode
+    const btnStyle=(active)=>`padding:5px 14px;border:none;background:${active?'#0078D4':'#fff'};color:${active?'#fff':'#323130'};cursor:pointer;font-family:inherit;font-size:12px;`
+    const parts=[]
+    parts.push(`<div style="margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+    <div style="display:flex;border:1px solid #EDEBE9;border-radius:2px;overflow:hidden;">
+      <button onclick="hsiConfigToggleView('pure','${sid}','${tabId}','${escHtml(dbName)}')" style="${btnStyle(mode==='pure')}">Pure</button>
+      <button onclick="hsiConfigToggleView('explained','${sid}','${tabId}','${escHtml(dbName)}')" style="${btnStyle(mode==='explained')}border-left:1px solid #EDEBE9;">Explained</button>
+    </div>
+    ${mode==='explained'&&hasRef?`<span style="font-size:12px;color:#605E5C;">📚 <a href="https://help.sap.com/docs/SAP_HANA_PLATFORM/009e68bc5f3c440cb31823a3ec4bb95b/4b4d88980622427ab2d6ca8c05448166.html?locale=en-US" target="_blank" style="color:#0078D4;text-decoration:underline;">SAP HANA Parameter Reference</a></span>`:''}
+  </div>`)
+    parts.push(`<div style="margin-bottom:14px;padding:8px 12px;background:#EFF6FF;border:1px solid #BAD7FF;border-radius:2px;font-size:12px;display:flex;align-items:center;gap:10px;">⚙️ <strong>${escHtml(dbName)}</strong> &nbsp;·&nbsp; ${hasRef?'<span style="color:#107C10;">✓ reference data available</span>':'<span style="color:#A19F9D;">no reference data</span>'}</div>`)
+    if(mode==='explained'){
+      if(!hasRef){
+        parts.push(`<div style="margin:24px 0;padding:20px;background:#F3F2F1;border:1px solid #EDEBE9;border-radius:4px;text-align:center;">
+          <div style="color:#605E5C;font-size:13px;margin-bottom:12px;">No reference data available. Select a reference folder to enable the Explained view.</div>
+          <button onclick="hsiConfigPickRefFolder('${sid}','${tabId}','${escHtml(dbName)}')" style="padding:7px 16px;background:#0078D4;color:#fff;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:13px;">📁 Load reference folder…</button>
+        </div>`)
+      } else {
+        for(const {name,handle,content} of db.iniHandles){
+          try{const text=content!==undefined?content:await (await handle.getFile()).text();parts.push(renderIniFile(name,text))}catch(e){}
+        }
+      }
+    } else {
+      for(const {name,handle,content} of db.iniHandles){
+        try{
+          const text=content!==undefined?content:await (await handle.getFile()).text()
+          parts.push(`<div class="card" style="margin-bottom:18px;"><div class="card-title">📄 ${escHtml(name)}</div><div class="card-body" style="padding:0;overflow-x:auto;"><pre style="margin:0;padding:10px 12px;font-family:Consolas,monospace;font-size:11px;line-height:1.4;white-space:pre;color:#323130;">${escHtml(text)}</pre></div></div>`)
+        }catch(e){}
+      }
+    }
+    contentArea.innerHTML = parts.join('') || '<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No .ini files found.</span></div>'
+    return
+  }
+
+  // ── Old format: .log file rendering ──────────────────────────────────────
+  const fileToLoad = tab.type==='file' ? tab.file : activeSubFile
+  if(!fileToLoad){ contentArea.innerHTML = '<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No file found.</span></div>'; return }
+
+  const fileHandle = s.hsiFiles[fileToLoad.toLowerCase()]
+  if(!fileHandle){ contentArea.innerHTML = `<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>File <code>${escHtml(fileToLoad)}</code> not found in temp folder.</span></div>`; return }
+
+  contentArea.innerHTML = '<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
+  try{
+    const f = await fileHandle.getFile()
+    const txt = await f.text()
+    contentArea.innerHTML = renderHsiFile(txt, fileToLoad)
+    if(typeof BUNDLED_FS_REFERENCE!=='undefined'&&fileToLoad.toLowerCase().includes('permissions'))
+      applyBundledFsRef(contentArea)
+  }catch(e){
+    contentArea.innerHTML = `<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`
+  }
+}
+
+// ── HSI file renderer (JS port of bash _render_file) ──────────────────────
+function applyBundledFsRef(container){
+  if(typeof BUNDLED_FS_REFERENCE==='undefined'||!container) return
+  const refSections=parsePermSections(BUNDLED_FS_REFERENCE)
+  const refMap=new Map(refSections.map(s=>[s.path,s]))
+  const capturedPaths=new Set()
+  container.querySelectorAll('.hsi-ref-section[data-ref-path]').forEach(col=>{
+    const path=col.getAttribute('data-ref-path')
+    capturedPaths.add(path)
+    col.innerHTML=refMap.has(path)
+      ?renderPermContentLines(refMap.get(path).lines)
+      :'<div class="hsi-perm-ref-empty" style="color:#A19F9D;">Path not in reference file</div>'
+  })
+  const permArea=container.querySelector('.hsi-perm-area')||container
+  refSections.forEach(sec=>{
+    if(!capturedPaths.has(sec.path)){
+      const wrap=document.createElement('div')
+      const secId='perm-ref-only-'+sec.path.replace(/[^a-zA-Z0-9]/g,'-')
+      wrap.innerHTML=`<div class="hsi-h4" id="${secId}">${escHtml(sec.path)} <span style="font-size:11px;font-weight:400;color:#A19F9D;">(reference only)</span> <a href="#hsi-top" style="font-size:10px;font-weight:400;color:#0078D4;text-decoration:none;margin-left:8px;">&#9650; TOP</a></div><div class="hsi-perm-split"><div class="hsi-perm-col" style="flex:1;background:#F3F2F1;border-radius:2px;padding:8px 10px;color:#A19F9D;font-size:12px;">Path not in captured file</div><div class="hsi-perm-col hsi-perm-col-ref" style="flex:1;">${renderPermContentLines(sec.lines)}</div></div>`
+      permArea.appendChild(wrap)
+    }
+  })
+}
+
+function renderHsiFile(text, filename){
+  const lines = text.split('\n').map(l => l.replace(/\r$/, ''))
+  if(filename.toLowerCase().includes('permissions')) return renderPermFile(lines)
+  const tocEntries = []
+  const contentParts = []
+  let sectionId = 0
+  let inPre = false
+
+  for(const rawLine of lines){
+    // Section header: "Something - ex.:HH:MM:SS AM"
+    const secM = rawLine.match(/^(.+)\s+-\s+ex\.:.*$/)
+    if(secM){
+      if(inPre){ contentParts.push('</pre>'); inPre = false }
+      const anchor = `hsi-s-${sectionId}`
+      tocEntries.push(`<li><a href="#${anchor}">${escHtml(secM[1])}</a></li>`)
+      contentParts.push(`<div class="hsi-h4" id="${anchor}"><a class="top-link" href="#hsi-top" style="font-size:0.76em;text-decoration:none;color:#6c757d;padding:2px 8px;border:1px solid #dee2e6;border-radius:12px;white-space:nowrap;flex-shrink:0;" title="Top">▲ TOP</a> ${escHtml(rawLine)}</div>`)
+      sectionId++
+      continue
+    }
+
+    // Transform the line
+    const rendered = hsiTransformLine(rawLine)
+
+    // Check for block-level elements that must live outside <pre>
+    const isBlock = rendered.isBlock
+    const html = rendered.html
+
+    if(isBlock){
+      if(inPre){ contentParts.push('</pre>'); inPre = false }
+      contentParts.push(html)
+    } else {
+      const stripped = rawLine.trim()
+      if(!inPre && stripped){
+        contentParts.push('<pre class="hsi-pre">')
+        inPre = true
+      }
+      if(inPre) contentParts.push(html)
+    }
+  }
+  if(inPre) contentParts.push('</pre>')
+
+  // anchor for "▲ TOP" links — only used as fallback when no banner is rendered
+  let out = '<a id="hsi-top" style="display:block;"></a>'
+  if(tocEntries.length){
+    out += `<div class="hsi-toc"><strong>Contents</strong><ul>${tocEntries.join('')}</ul></div>`
+  }
+  out += contentParts.join('\n')
+  return out
+}
+
+// ── Permission file rendering ──────────────────────────────────────────────
+function parsePermSections(rawText){
+  const sections=[]
+  let cur=null
+  for(const line of rawText.split('\n').map(l=>l.replace(/\r$/,''))){
+    const m=line.match(/^\s*(\|[-\->]*\s+)?ls\s+-lah\s+(.+)$/)
+    if(m){
+      const path=m[2].trim()
+      const depth=path==='/'?0:path.split('/').filter(Boolean).length
+      if(depth<=2){ if(cur)sections.push(cur); cur={path,lines:[]} }
+      else { if(cur)cur.lines.push(line) }
+    } else { if(cur)cur.lines.push(line) }
+  }
+  if(cur)sections.push(cur)
+  return sections
+}
+
+function renderPermContentLines(lines){
+  let html='',inPre=false
+  for(const rawLine of lines){
+    const m=rawLine.match(/^\s*(\|[-\->]*\s+)?ls\s+-lah\s+(.+)$/)
+    if(m){
+      const path=m[2].trim()
+      const depth=path==='/'?0:path.split('/').filter(Boolean).length
+      if(depth>2){
+        if(inPre){html+='</pre>';inPre=false}
+        html+=`<div class="hsi-perm-ls-subheader">${escHtml(rawLine.trim())}</div>`
+      }
+      continue
+    }
+    if(/^-{20,}$/.test(rawLine.trim())){
+      if(inPre){html+='</pre>';inPre=false}
+      html+='<hr class="hsi-sep">'
+      continue
+    }
+    if(!inPre&&rawLine.trim()){html+='<pre class="hsi-pre">';inPre=true}
+    if(inPre)html+=escHtml(rawLine)+'\n'
+  }
+  if(inPre)html+='</pre>'
+  return html
+}
+
+function renderPermFile(lines){
+  const TOP_BTN=`<a href="#hsi-top" style="font-size:0.76em;text-decoration:none;color:#6c757d;padding:2px 8px;border:1px solid #dee2e6;border-radius:12px;white-space:nowrap;flex-shrink:0;" title="Top">▲ TOP</a>`
+  const tocEntries=[],sectionId_={v:0}
+  let mainHeader=null,capturedRawLines=[],state='scanning'
+
+  for(const line of lines){
+    if(state==='scanning'){
+      const secM=line.match(/^(.+)\s+-\s+ex\.:.*$/)
+      if(secM)mainHeader=line
+      if(/^<div class=["']log-block["']>$/.test(line.trim()))state='in-logblock'
+    } else if(state==='in-logblock'){
+      if(line.trim()==='</div>')state='done'
+      else capturedRawLines.push(line)
+    }
+  }
+
+  const sections=parsePermSections(capturedRawLines.join('\n'))
+  let body=''
+
+  if(mainHeader){
+    const secM=mainHeader.match(/^(.+)\s+-\s+ex\.:.*$/)
+    if(secM){
+      const anchor=`hsi-s-${sectionId_.v++}`
+      tocEntries.push(`<li><a href="#${anchor}">${escHtml(secM[1])}</a></li>`)
+      body+=`<div class="hsi-h4" id="${anchor}">${TOP_BTN} ${escHtml(mainHeader)}</div>`
+    }
+  }
+
+  body+=`<div class="hsi-perm-split" style="margin-bottom:8px;">
+    <div class="hsi-perm-col"><div class="hsi-perm-col-header">Captured Filesystemdetails</div></div>
+    <div class="hsi-perm-col"><div class="hsi-perm-col-header">Comparison of working Filesystemdetails
+      <button class="hsi-upload-btn" onclick="hsiPermUpload(this)">&#128196; Load reference file</button>
+    </div></div>
+  </div>`
+
+  for(const sec of sections){
+    const anchor=`hsi-perm-${sectionId_.v++}`
+    tocEntries.push(`<li><a href="#${anchor}">${escHtml(sec.path)}</a></li>`)
+    body+=`<div class="hsi-h4" id="${anchor}">${TOP_BTN} ls -lah ${escHtml(sec.path)}</div>`
+    body+=`<div class="hsi-perm-split">`
+    body+=`<div class="hsi-perm-col"><div class="hsi-log-block">${renderPermContentLines(sec.lines)}</div></div>`
+    body+=`<div class="hsi-perm-col"><div class="hsi-log-block hsi-ref-section" data-ref-path="${escHtml(sec.path)}"><div class="hsi-perm-ref-empty">No reference file loaded.</div></div></div>`
+    body+=`</div>`
+  }
+
+  let out=`<a id="hsi-top" style="display:block;"></a>`
+  if(tocEntries.length)out+=`<div class="hsi-toc"><strong>Contents</strong><ul>${tocEntries.join('')}</ul></div>`
+  return out+body
+}
+
+function hsiTransformLine(line){
+  // Replace placeholders before HTML escaping
+  let s = line
+  s = s.replace(/<font color="red">WARNING:<\/font>/g, '§WARN§')
+  s = s.replace(/<font color=red>WARNING:<\/font>/g, '§WARN§')
+  s = s.replace(/PASSED:/g, '§PASS§')
+  s = s.replace(/WARNING:/g, '§WARN§')
+  // FAILED:
+  s = s.replace(/FAILED:/g, '§FAIL§')
+
+  // Detect block-level markers before escaping
+  const isLogBlock = s.includes('<div class="log-block"') || s.includes("<div class='log-block'")
+  const isLogBlockClose = s.trim() === '</div>' && !s.includes('<div')
+  const isPermSplit = s.includes('<div class="perm-split"') || s.includes("<div class='perm-split'")
+  const isPermCol = s.includes('<div class="perm-col"') || s.includes("<div class='perm-col'")
+  const isPermColHdr = s.includes('<div class="perm-col-header"') || s.includes("<div class='perm-col-header'")
+  const isPermRefEmpty = s.includes('<div class="perm-ref-empty"') || s.includes("<div class='perm-ref-empty'")
+  const isDivClose = s.trim() === '</div>'
+  const hasInput = s.includes('<input type="file"')
+  const hasButton = s.includes('<button class="perm-upload-btn"')
+  const isSep = /^-{20,}$/.test(s.trim())
+
+  if(hasInput) return { isBlock: true, html: '' }
+
+  if(isLogBlock || isPermSplit || isPermCol || isPermColHdr || isPermRefEmpty || isDivClose || hasButton || isSep){
+    let html = s
+
+    // log-block: remap class
+    html = html.replace(/<div class=['"]log-block['"]\s*(id=['"][^'"]*['"])?\s*>/gi, (m, idAttr) => {
+      return `<div class="hsi-log-block"${idAttr ? ' '+idAttr : ''}>`
+    })
+    html = html.replace(/<div class=['"]perm-split['"]>/gi, '<div class="hsi-perm-split">')
+    html = html.replace(/<div class=['"]perm-col['"]>/gi, '<div class="hsi-perm-col">')
+    html = html.replace(/<div class=['"]perm-col-header['"]>/gi, '<div class="hsi-perm-col-header">')
+    html = html.replace(/<div class=['"]perm-ref-empty['"]>/gi, '<div class="hsi-perm-ref-empty">')
+    html = html.replace(/<button class="perm-upload-btn"([^>]*?)>/gi, (m,attrs)=>{
+      const a=attrs.replace(/\s*onclick\s*=\s*(?:"[^"]*"|'[^']*')/gi,'')
+      return `<button class="hsi-upload-btn"${a} onclick="hsiPermUpload(this)">`
+    })
+    // sep
+    if(isSep) html = '<hr class="hsi-sep">'
+    // badges
+    html = html.replace(/§PASS§/g, '<span class="hsi-badge-pass">✓ PASSED:</span>')
+    html = html.replace(/§WARN§/g, '<span class="hsi-badge-warn">WARNING:</span>')
+    html = html.replace(/§FAIL§/g, '<span class="hsi-badge-fail">✗ FAILED:</span>')
+    return { isBlock: true, html }
+  }
+
+  // Regular line: HTML-escape then inline transforms
+  let esc = s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+
+  // Restore inline allowed tags via regex (mirrors the perl in the bash script)
+  // links
+  esc = esc.replace(/&lt;a\s+href=(?:"?|'?)([^"' >]+)(?:"?|'?)(?:\s+target=(?:"?|'?)[^"' >]*(?:"?|'?))?\s*&gt;(.*?)&lt;\/a&gt;/gi,
+    '<a href="$1" target="_blank" rel="noopener noreferrer">$2</a>')
+  // font color
+  esc = esc.replace(/&lt;font\s+color=(?:"?|'?)([^"' >]+)(?:"?|'?)&gt;(.*?)&lt;\/font&gt;/gi,
+    '<span style="color:$1">$2</span>')
+  // inline tags
+  esc = esc.replace(/&lt;(\/?)(b|u|i|strong|em|code|br|small|mark)&gt;/gi, '<$1$2>')
+  // badges
+  esc = esc.replace(/§PASS§/g, '<span class="hsi-badge-pass">✓ PASSED:</span>')
+  esc = esc.replace(/§WARN§/g, '<span class="hsi-badge-warn">WARNING:</span>')
+  esc = esc.replace(/§FAIL§/g, '<span class="hsi-badge-fail">✗ FAILED:</span>')
+
+  return { isBlock: false, html: esc }
+}
+
+// (activateNav already handles HSI panel hide inline)

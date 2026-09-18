@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HANA-Lens</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+/* bundled build: hide manual reference file/folder pickers */
+.hsi-upload-btn { display: none !important; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <h1>&#9881; HANA-Lens <span style="font-size:10px;font-weight:400;color:#605E5C;">v.2026-08-24</span> <a href="https://me.sap.com/notes/3771222" target="_blank" style="font-size:10px;font-weight:400;color:#0078D4;text-decoration:none;margin-left:4px;">KBA 3771222</a></h1>
+    <button id="loadTopoBtn" onclick="loadTopologyFile()">Load topology file only</button>
+    <button id="loadRteBtn" onclick="rteDumpLoadSingle()" style="height:28px;padding:0 14px;background:#8764B8;color:#fff;border:none;border-radius:2px;font-size:12px;font-family:inherit;cursor:pointer;font-weight:500;white-space:nowrap;flex-shrink:0;">Load runtime dump only</button>
+    <input type="file" id="topoFileInput" accept=".txt,.json,text/plain,application/json" style="display:none;">
+    <button id="loadBtn" onclick="loadFSIDFolder()">Load FSID</button>
+    <button id="loadHsiBtn" onclick="loadHSIFolder()" style="height:28px;padding:0 14px;background:#107C10;color:#fff;border:none;border-radius:2px;font-size:12px;font-family:inherit;cursor:pointer;font-weight:500;white-space:nowrap;flex-shrink:0;">Load HSI</button>
+  </div>
+  <div id="main">
+    <div id="navTree">
+      <div id="navTreeHeader">Navigation</div>
+      <div id="navTreeBody">
+        <div class="nav-item disabled"><span class="nav-icon">📂</span>No data loaded</div>
+      </div>
+    </div>
+    <div id="contentArea">
+      <div id="empty">
+        <div class="empty-icon">&#128194;</div>
+        <p style="margin-bottom:12px;">Select a data source to get started:</p>
+        <div style="display:flex;flex-direction:column;gap:10px;font-size:12px;text-align:left;max-width:440px;color:#605E5C;line-height:1.5;">
+          <div><strong style="color:#323130;">Load FSID</strong> — Open a Full System Info Dump folder to analyze topology, configuration, trace files, runtime dumps, and more.</div>
+          <div><strong style="color:#107C10;">Load HSI</strong> — Open a HANA Support Info folder for a guided analysis including configuration, trace files, and system logs.</div>
+          <div><strong style="color:#323130;">Load topology file only</strong> — Open a single <code style="font-size:11px;">topology.txt</code> file to view system topology without the full FSID folder.</div>
+          <div><strong style="color:#8764B8;">Load runtime dump only</strong> — Open a single <code style="font-size:11px;">.rtedump.trc</code> file for direct runtime dump analysis.</div>
+        </div>
+      </div>
+      <div id="panel-topology" class="content-panel"></div>
+      <div id="panel-versionhistory" class="content-panel"></div>
+      <div id="panel-configuration" class="content-panel"></div>
+      <div id="panel-telemetry" class="content-panel"></div>
+      <div id="panel-nshistory" class="content-panel"></div>
+      <div id="panel-availability" class="content-panel"></div>
+      <div id="panel-rtedumps" class="content-panel"></div>
+      <div id="panel-hosts" class="content-panel"></div>
+      <div id="panel-traceexplorer" class="content-panel" style="display:flex;flex-direction:column;overflow:hidden;"></div>
+      <div id="panel-hsi" class="content-panel" style="height:100%;overflow:hidden;display:none;flex-direction:column;"></div>
+    </div>
+  </div>
+</div>
+<div id="fsid-ctx-menu">
+  <div class="ctx-item" id="ctx-rename" onclick="fsidCtxRename()">✏️ Rename</div>
+  <div class="ctx-item danger" id="ctx-remove" onclick="fsidCtxRemove()">🗑️ Remove</div>
+</div>
+
+<!-- Bundled reference data (HANA .ini defaults, SAP Notes, etc.) -->
+<script src="bundled-data.js"></script>
+<!-- Tauri adapter: replaces browser File System Access API with Rust IPC -->
+<script src="tauri-adapter.js"></script>
+<!-- Application logic -->
+<script src="app.js"></script>
+</body>
+</html>

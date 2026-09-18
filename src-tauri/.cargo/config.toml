@@ -1,0 +1,3 @@
+# Cargo config — deliberately empty.
+# target-dir is NOT overridden here so GitHub Actions finds build artifacts
+# at the default location (src-tauri/target/).
