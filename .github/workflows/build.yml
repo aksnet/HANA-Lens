@@ -24,6 +24,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read version
+        id: ver
+        run: echo "version=$(cat VERSION | tr -d '[:space:]')" >> $GITHUB_OUTPUT
+        shell: bash
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -46,12 +51,36 @@ jobs:
         run: npm install
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        run: npm run tauri build -- ${{ matrix.args }}
+
+      - name: Rename Windows installer
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          $src = Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter "*x64-setup.exe" | Select-Object -First 1
+          if ($src) { Rename-Item $src.FullName "HANA-Lens_${ver}_x64-setup.exe" }
+          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($msi) { Rename-Item $msi.FullName "HANA-Lens_${ver}_x64.msi" }
+
+      - name: Rename macOS DMG
+        if: matrix.platform == 'macos-14'
+        shell: bash
+        run: |
+          ver="${{ steps.ver.outputs.version }}"
+          dmg=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -1)
+          if [ -n "$dmg" ]; then mv "$dmg" "HANA-Lens_${ver}_aarch64.dmg"; fi
+
+      - name: Upload release artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.version }}
+          name: HANA-Lens v.${{ steps.ver.outputs.version }}
+          draft: true
+          prerelease: false
+          files: |
+            HANA-Lens_*.exe
+            HANA-Lens_*.msi
+            HANA-Lens_*.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: latest
-          releaseName: 'HANA-Lens — latest build'
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}

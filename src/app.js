@@ -2083,11 +2083,15 @@ async function activateNav(clickedItem,panelKey){
       await renderConfigContent(s,wrap)
       return
     }
-    wrap.innerHTML=`<div class="not-found-msg" style="flex-direction:column;align-items:flex-start;gap:12px;">
-      <div style="display:flex;align-items:center;gap:10px;"><span class="nf-icon">📁</span><span>No <strong>.ini files</strong> loaded yet.<br><span style="font-size:11px;color:#605E5C;">Select the <code>config/</code> folder to load configuration files.</span></span></div>
-      <button onclick="configPickFolder()" style="padding:6px 14px;background:#0078D4;color:#fff;border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;">📁 Select <code style="background:transparent;font-size:11px;">config/</code> folder…</button>
-    </div>`
-    configPickFolder()
+    // In Tauri, .ini files are accessible directly — scan without picker
+    wrap.innerHTML='<div style="color:#A19F9D;font-size:12px;">Loading…</div>'
+    await scanConfigDir(s)
+    s._configScanned=true
+    if(!s.configFileHandles.length){
+      wrap.innerHTML='<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No <strong>.ini files</strong> found in <code>config/</code>.</span></div>'
+      return
+    }
+    await renderConfigContent(s,wrap)
   }
 
   if(panelKey==='hosts'){
@@ -2526,7 +2530,7 @@ async function traceShowFileView(s){
   try{
     const file=await vf.handle.getFile()
     vf.fileSize=file.size
-    const MAX=5*1024*1024
+    const MAX=25*1024*1024
     const end=Math.min(MAX,file.size)
     const text=await file.slice(0,end).text()
     vf.offset=end
@@ -2567,7 +2571,7 @@ function traceAddLoadMoreBtn(list,fileSize){
   const btn=document.createElement('button')
   btn.id='trace-load-more-btn'
   btn.style.cssText='display:block;margin:8px 14px 16px;padding:5px 14px;background:#EFF6FC;border:1px solid #0078D4;border-radius:2px;font-family:inherit;font-size:11px;color:#0078D4;cursor:pointer;'
-  btn.textContent=`Load next 5 MB  (${formatBytes(remaining)} remaining)`
+  btn.textContent=`Load next 25 MB  (${formatBytes(remaining)} remaining)`
   btn.onclick=async()=>{btn.disabled=true;btn.textContent='Loading…';await traceAppendChunk()}
   list.appendChild(btn)
 }
@@ -2595,7 +2599,7 @@ async function traceAppendChunk(){
   if(!vf)return
   try{
     const file=await vf.handle.getFile()
-    const MAX=5*1024*1024
+    const MAX=25*1024*1024
     const end=Math.min(vf.offset+MAX,file.size)
     const text=await file.slice(vf.offset,end).text()
     vf.offset=end
@@ -2612,7 +2616,7 @@ async function traceAppendChunk(){
     const btn=document.getElementById('trace-load-more-btn')
     if(btn){
       if(end>=file.size){btn.remove()}
-      else{btn.disabled=false;btn.textContent=`Load next 5 MB  (${formatBytes(file.size-end)} remaining)`}
+      else{btn.disabled=false;btn.textContent=`Load next 25 MB  (${formatBytes(file.size-end)} remaining)`}
     }
   }catch(e){}
 }
@@ -3460,8 +3464,90 @@ async function activateHsiTab(sid, tabId, subTabFile){
     contentArea.innerHTML = renderHsiFile(txt, fileToLoad)
     if(typeof BUNDLED_FS_REFERENCE!=='undefined'&&fileToLoad.toLowerCase().includes('permissions'))
       applyBundledFsRef(contentArea)
+    if(fileToLoad.toLowerCase()==='network_test.log'){
+      const btnWrap=document.createElement('div')
+      btnWrap.style.cssText='padding:10px 14px 6px;flex-shrink:0;'
+      const btn=document.createElement('button')
+      btn.textContent='🤖 Prepare SAP Joule Work Desktop'
+      btn.style.cssText='padding:6px 16px;background:#0070C3;color:#fff;border:none;border-radius:3px;font-family:inherit;font-size:12px;font-weight:500;cursor:pointer;'
+      btn.onclick=()=>showNetworkJoulePrompt(txt)
+      btnWrap.appendChild(btn)
+      contentArea.insertBefore(btnWrap,contentArea.firstChild)
+    }
   }catch(e){
     contentArea.innerHTML = `<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`
+  }
+}
+
+function showNetworkJoulePrompt(rawText){
+  const lines=rawText.split('\n')
+  let startIdx=-1,endIdx=lines.length
+  for(let i=0;i<lines.length;i++){
+    if(startIdx===-1&&/^1\.\s*ICMP Ping Baseline/.test(lines[i])) startIdx=i
+    if(startIdx!==-1&&/^Network Test Summary and Evaluation/.test(lines[i])){ endIdx=i; break }
+  }
+  const extracted=startIdx>=0?lines.slice(startIdx,endIdx).join('\n').trimEnd():rawText
+
+  const prompt=`You are a Senior SAP HANA Support Expert. Analyze the following network test output and assess whether the network is suitable for SAP HANA (e.g. scale-out, HSR, inter-node communication).
+
+Evaluate each of the following areas and provide a concise verdict per section:
+
+ICMP Ping Baseline — latency (avg/max/mdev), packet loss
+Jumbo Frames MTU 9000 — end-to-end MTU support, loss under jumbo load
+Routing / Traceroute — hop count, L2 vs. routed path
+TCP Single-Stream Bandwidth — throughput, retransmits
+TCP Bidirectional Bandwidth — throughput per direction, retransmits
+TCP Multi-Stream Bandwidth — aggregate throughput, retransmits
+UDP Jitter & Loss (100M / 1G / 10G) — jitter values, loss percentage at each load level
+
+Then provide:
+
+A summary table (test | result | verdict)
+A detailed analysis section explaining what each result means in the context of HANA requirements (latency thresholds, bandwidth minimums, jumbo frame relevance, TCP retransmit impact on HSR/replication)
+A recommendations section — flag anything missing (e.g. switch interface data), reference relevant SAP Notes where applicable, and note any risks or follow-up actions
+Overall verdict: clearly state whether the network is fit for HANA and at what tier (minimum / good / excellent).
+
+Respond in English. Be concise and technical.
+
+--- BEGIN NETWORK TEST OUTPUT ---
+${extracted}
+--- END NETWORK TEST OUTPUT ---`
+
+  document.getElementById('joule-modal')?.remove()
+  const overlay=document.createElement('div')
+  overlay.id='joule-modal'
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;'
+  overlay.onclick=e=>{if(e.target===overlay)overlay.remove()}
+
+  const card=document.createElement('div')
+  card.style.cssText='background:#fff;border-radius:4px;width:100%;max-width:860px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.28);'
+
+  const hdr=document.createElement('div')
+  hdr.style.cssText='padding:12px 16px;border-bottom:1px solid #EDEBE9;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0;'
+  hdr.innerHTML=`<span style="font-size:13px;font-weight:600;color:#323130;">🤖 SAP Joule Work Desktop — Network Analysis Prompt</span><div style="display:flex;gap:8px;"><button id="joule-copy-btn" style="padding:4px 14px;background:#0078D4;color:#fff;border:none;border-radius:2px;font-family:inherit;font-size:12px;cursor:pointer;">📋 Copy</button><button onclick="document.getElementById('joule-modal').remove()" style="padding:4px 10px;background:#F3F2F1;border:1px solid #EDEBE9;border-radius:2px;font-family:inherit;font-size:12px;cursor:pointer;">✕ Close</button></div>`
+
+  const body=document.createElement('div')
+  body.style.cssText='padding:12px 16px;flex:1;overflow:auto;min-height:0;'
+
+  const ta=document.createElement('textarea')
+  ta.value=prompt
+  ta.readOnly=true
+  ta.style.cssText='width:100%;height:100%;min-height:420px;box-sizing:border-box;font-family:Consolas,monospace;font-size:11px;line-height:1.5;border:1px solid #EDEBE9;padding:10px;resize:none;color:#323130;outline:none;'
+
+  body.appendChild(ta)
+  card.appendChild(hdr)
+  card.appendChild(body)
+  overlay.appendChild(card)
+  document.body.appendChild(overlay)
+  ta.focus(); ta.select()
+
+  document.getElementById('joule-copy-btn').onclick=async()=>{
+    try{
+      await navigator.clipboard.writeText(prompt)
+      const b=document.getElementById('joule-copy-btn')
+      b.textContent='✓ Copied!'; b.style.background='#107C10'
+      setTimeout(()=>{b.textContent='📋 Copy';b.style.background='#0078D4'},2000)
+    }catch(e){ta.select();document.execCommand('copy')}
   }
 }
 

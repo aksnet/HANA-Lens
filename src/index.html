@@ -13,12 +13,12 @@
 <body>
 <div id="app">
   <div id="topbar">
-    <h1>&#9881; HANA-Lens <span style="font-size:10px;font-weight:400;color:#605E5C;">v.2026-08-24</span> <a href="https://me.sap.com/notes/3771222" target="_blank" style="font-size:10px;font-weight:400;color:#0078D4;text-decoration:none;margin-left:4px;">KBA 3771222</a></h1>
+    <h1>&#9881; HANA-Lens <span style="font-size:10px;font-weight:400;color:#605E5C;">v.2026_09_18_01</span> <a href="https://me.sap.com/notes/3771222" target="_blank" style="font-size:10px;font-weight:400;color:#0078D4;text-decoration:none;margin-left:4px;">KBA 3771222</a></h1>
     <button id="loadTopoBtn" onclick="loadTopologyFile()">Load topology file only</button>
     <button id="loadRteBtn" onclick="rteDumpLoadSingle()" style="height:28px;padding:0 14px;background:#8764B8;color:#fff;border:none;border-radius:2px;font-size:12px;font-family:inherit;cursor:pointer;font-weight:500;white-space:nowrap;flex-shrink:0;">Load runtime dump only</button>
     <input type="file" id="topoFileInput" accept=".txt,.json,text/plain,application/json" style="display:none;">
     <button id="loadBtn" onclick="loadFSIDFolder()">Load FSID</button>
-    <button id="loadHsiBtn" onclick="loadHSIFolder()" style="height:28px;padding:0 14px;background:#107C10;color:#fff;border:none;border-radius:2px;font-size:12px;font-family:inherit;cursor:pointer;font-weight:500;white-space:nowrap;flex-shrink:0;">Load HSI</button>
+    <button id="loadHsiBtn" onclick="loadHSIFolder()" style="height:28px;padding:0 14px;background:#107C10;color:#fff;border:none;border-radius:2px;font-size:12px;font-family:inherit;cursor:pointer;font-weight:500;white-space:nowrap;flex-shrink:0;">Load HSI / NETTEST</button>
   </div>
   <div id="main">
     <div id="navTree">
@@ -33,7 +33,7 @@
         <p style="margin-bottom:12px;">Select a data source to get started:</p>
         <div style="display:flex;flex-direction:column;gap:10px;font-size:12px;text-align:left;max-width:440px;color:#605E5C;line-height:1.5;">
           <div><strong style="color:#323130;">Load FSID</strong> — Open a Full System Info Dump folder to analyze topology, configuration, trace files, runtime dumps, and more.</div>
-          <div><strong style="color:#107C10;">Load HSI</strong> — Open a HANA Support Info folder for a guided analysis including configuration, trace files, and system logs.</div>
+          <div><strong style="color:#107C10;">Load HSI / NETTEST</strong> — Open a HANA Support Info folder for a guided analysis including configuration, trace files, and system logs. / Open a HANA Support Info NETTEST folder for a HANA network analysis.</div>
           <div><strong style="color:#323130;">Load topology file only</strong> — Open a single <code style="font-size:11px;">topology.txt</code> file to view system topology without the full FSID folder.</div>
           <div><strong style="color:#8764B8;">Load runtime dump only</strong> — Open a single <code style="font-size:11px;">.rtedump.trc</code> file for direct runtime dump analysis.</div>
         </div>
