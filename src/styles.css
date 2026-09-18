@@ -9,7 +9,9 @@ html, body { height: 100%; font-family: 'Segoe UI', system-ui, -apple-system, sa
 #loadTopoBtn:hover { background: #505050; }
 #app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 #main { display: flex; flex: 1; overflow: hidden; }
-#navTree { width: 200px; min-width: 160px; background: #FFFFFF; border-right: 1px solid #EDEBE9; display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
+#navTree { width: 200px; min-width: 120px; max-width: 500px; background: #FFFFFF; border-right: none; display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
+#nav-resize-handle { width: 4px; background: #EDEBE9; cursor: col-resize; flex-shrink: 0; transition: background 0.15s; }
+#nav-resize-handle:hover, #nav-resize-handle.dragging { background: #0078D4; }
 #navTreeHeader { padding: 8px 12px; font-size: 11px; font-weight: 600; color: #605E5C; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #EDEBE9; background: #F8F8F7; }
 #navTreeBody { flex: 1; overflow-y: auto; padding: 4px 0; }
 .nav-item { display: flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer; user-select: none; color: #323130; border-left: 2px solid transparent; }

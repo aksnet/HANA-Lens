@@ -3484,7 +3484,7 @@ function showNetworkJoulePrompt(rawText){
   let startIdx=-1,endIdx=lines.length
   for(let i=0;i<lines.length;i++){
     if(startIdx===-1&&/^1\.\s*ICMP Ping Baseline/.test(lines[i])) startIdx=i
-    if(startIdx!==-1&&/^Network Test Summary and Evaluation/.test(lines[i])){ endIdx=i; break }
+    if(startIdx!==-1&&(/^Network Test Summary and Evaluation/.test(lines[i])||/^Phase Results Overview/.test(lines[i]))){ endIdx=i; break }
   }
   const extracted=startIdx>=0?lines.slice(startIdx,endIdx).join('\n').trimEnd():rawText
 
@@ -3789,3 +3789,29 @@ function hsiTransformLine(line){
 }
 
 // (activateNav already handles HSI panel hide inline)
+
+;(function(){
+  const handle=document.getElementById('nav-resize-handle')
+  const nav=document.getElementById('navTree')
+  if(!handle||!nav) return
+  let dragging=false, startX=0, startW=0
+  handle.addEventListener('mousedown',e=>{
+    dragging=true; startX=e.clientX; startW=nav.offsetWidth
+    handle.classList.add('dragging')
+    document.body.style.cursor='col-resize'
+    document.body.style.userSelect='none'
+    e.preventDefault()
+  })
+  document.addEventListener('mousemove',e=>{
+    if(!dragging) return
+    const w=Math.min(500,Math.max(120,startW+(e.clientX-startX)))
+    nav.style.width=w+'px'
+  })
+  document.addEventListener('mouseup',()=>{
+    if(!dragging) return
+    dragging=false
+    handle.classList.remove('dragging')
+    document.body.style.cursor=''
+    document.body.style.userSelect=''
+  })
+})()
