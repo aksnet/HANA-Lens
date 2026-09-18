@@ -19,8 +19,8 @@ def make_png(width, height):
         crc = zlib.crc32(tag + data) & 0xFFFFFFFF
         return struct.pack('>I', len(data)) + tag + data + struct.pack('>I', crc)
 
-    ihdr = struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)
-    row  = bytes([R, G, B] * width)
+    ihdr = struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0)
+    row  = bytes([R, G, B, 255] * width)
     raw  = b''.join(b'\x00' + row for _ in range(height))
     return (
         b'\x89PNG\r\n\x1a\n'
