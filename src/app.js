@@ -1921,11 +1921,11 @@ function buildFsidGroup(s){
   children.className='fsid-group-children'
   const items=[
     {icon:'🗺️',label:'Topology',panel:'topology',disabled:false},
-    {icon:'📋',label:'Version History',panel:'versionhistory',disabled:false},
+    ...(s.versionHistoryHandle ? [{icon:'📋',label:'Version History',panel:'versionhistory',disabled:false}] : []),
     {icon:'⚙️',label:'Configuration',panel:'configuration',disabled:false},
     ...(s.hostsFileHandle ? [{icon:'🌐',label:'HOSTS',panel:'hosts',disabled:false}] : []),
-    {icon:'📡',label:'Telemetry Data',panel:'telemetry',disabled:false},
-    {icon:'📈',label:'Nameserver History',panel:'nshistory',disabled:false},
+    ...(s.telemetryHandle ? [{icon:'📡',label:'Telemetry Data',panel:'telemetry',disabled:false}] : []),
+    ...(s.nsHistoryHandles?.length ? [{icon:'📈',label:'Nameserver History',panel:'nshistory',disabled:false}] : []),
     ...(s.availabilityHandles?.length ? [{icon:'🟢',label:'Availability',panel:'availability',disabled:false}] : []),
     {icon:'💥',label:'Runtime Dumps',panel:'rtedumps',disabled:false},
     {icon:'📂',label:'Trace Explorer',panel:'traceexplorer',disabled:false},
@@ -2210,6 +2210,8 @@ async function activateNav(clickedItem,panelKey){
   }
 
   if(panelKey==='rtedumps'){
+    const panel=document.getElementById('panel-rtedumps')
+    panel.classList.add('active')
     panel.innerHTML=''
     const topRow=document.createElement('div')
     topRow.style.cssText='display:flex;align-items:center;border-bottom:1px solid #EDEBE9;background:#F3F2F1;flex-shrink:0;'
@@ -2308,6 +2310,36 @@ function traceFileIcon(name){
   if(['csv','tsv'].includes(ext))return '📊'
   if(['json','xml','ini','cfg'].includes(ext))return '⚙️'
   return '📄'
+}
+
+// Groups split .trc files (e.g. indexserver_host.port.031.trc → combined)
+// Excludes .rtedump. files. Returns new entry array with combined virtual entries.
+function traceGroupCombinedFiles(entries){
+  const pattern=/^(.+)\.(\d{3,})\.trc$/i
+  const groups=new Map()
+  const result=[]
+  for(const e of entries){
+    if(e.isDir||e.name.includes('.rtedump.')){result.push(e);continue}
+    const m=e.name.match(pattern)
+    if(!m){result.push(e);continue}
+    const base=m[1], seq=parseInt(m[2],10)
+    if(!groups.has(base))groups.set(base,[])
+    groups.get(base).push({entry:e,seq})
+  }
+  for(const[base,parts]of groups){
+    if(parts.length<2){result.push(parts[0].entry);continue}
+    parts.sort((a,b)=>a.seq-b.seq)
+    const handles=parts.map(p=>p.entry.handle)
+    const totalSize=parts.reduce((s,p)=>s+(p.entry.size||0),0)
+    const lastMod=Math.max(...parts.map(p=>p.entry.lastModified||0))
+    const combinedName=base+'.combined.trc'
+    const combinedHandle=window.CombinedFileHandle
+      ?new window.CombinedFileHandle(combinedName,handles)
+      :handles[0]
+    result.push({name:combinedName,isDir:false,isCombined:true,
+      handle:combinedHandle,size:totalSize,lastModified:lastMod,partCount:parts.length})
+  }
+  return result
 }
 
 async function traceRender(panel,s){
@@ -2440,23 +2472,33 @@ function traceRenderDirList(){
     `<span class="trace-header-cell" style="text-align:right;" onclick="traceSort('size')">Size${sc==='size'?arr:''}</span>`
   list.appendChild(hdr)
 
-  // sort: dirs always first, then files
+  // sort: dirs always first, then files; apply combined-file grouping to files
+  const rawFiles=traceExplState.entries.filter(e=>!e.isDir)
+  const groupedFiles=traceGroupCombinedFiles(rawFiles)
   const sorted=[
     ...[...traceExplState.entries.filter(e=>e.isDir)].sort((a,b)=>traceSortCmp(a,b,sc,sd)),
-    ...[...traceExplState.entries.filter(e=>!e.isDir)].sort((a,b)=>traceSortCmp(a,b,sc,sd))
+    ...[...groupedFiles].sort((a,b)=>traceSortCmp(a,b,sc,sd))
   ]
 
   sorted.forEach(e=>{
     const row=document.createElement('div')
     row.className='trace-entry has-cols'
     const mod=e.lastModified?new Date(e.lastModified).toLocaleString('de-DE',{year:'2-digit',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):''
+    const nameHtml=e.isCombined
+      ?`${escHtml(e.name)} <span style="color:#A19F9D;font-size:10px;">(${e.partCount} parts)</span>`
+      :escHtml(e.name)
+    const icon=e.isDir?'📁':e.isCombined?'🔗':traceFileIcon(e.name)
     row.innerHTML=
-      `<span class="trace-icon">${e.isDir?'📁':traceFileIcon(e.name)}</span>`+
-      `<span class="trace-name">${escHtml(e.name)}</span>`+
+      `<span class="trace-icon">${icon}</span>`+
+      `<span class="trace-name">${nameHtml}</span>`+
       `<span class="trace-col-modified">${mod}</span>`+
       `<span class="trace-col-size">${e.isDir?'':formatBytes(e.size)}</span>`
-    const origIdx=traceExplState.entries.indexOf(e)
-    row.onclick=()=>e.isDir?traceNavigateInto(origIdx):traceOpenFile(origIdx)
+    if(e.isDir){
+      const origIdx=traceExplState.entries.indexOf(e)
+      row.onclick=()=>traceNavigateInto(origIdx)
+    } else {
+      row.onclick=()=>traceOpenFileEntry(e)
+    }
     list.appendChild(row)
   })
   if(traceExplState._pendingScrollRestore!=null){
@@ -2500,6 +2542,11 @@ async function traceOpenFile(idx){
   if(!traceExplState)return
   const e=traceExplState.entries[idx]
   if(!e||e.isDir)return
+  await traceOpenFileEntry(e)
+}
+
+async function traceOpenFileEntry(e){
+  if(!traceExplState||!e||e.isDir)return
   traceExplState.viewingFile={name:e.name,handle:e.handle,offset:0,fileSize:0}
   await traceLoadDir()
 }
@@ -2514,6 +2561,9 @@ async function traceShowFileView(s){
   const data=s.traceExplorerData
   const srv=data.servers[traceExplState.serverIdx]
   const vf=traceExplState.viewingFile
+  vf._lines=[]
+  vf._filterFrom=null
+  vf._filterTo=null
   const bc=document.getElementById('trace-breadcrumb')
   if(bc){
     let html=`<span class="trace-crumb-root">${escHtml(data.instanceDir)}</span>`
@@ -2534,6 +2584,20 @@ async function traceShowFileView(s){
   up.innerHTML=`<span class="trace-icon">⬆️</span><span class="trace-name">..</span>`
   up.onclick=()=>traceCloseFile()
   list.appendChild(up)
+  // Filter bar
+  const filterBar=document.createElement('div')
+  filterBar.id='trace-filter-bar'
+  filterBar.style.cssText='padding:5px 14px;background:#F3F2F1;border-bottom:1px solid #EDEBE9;display:flex;align-items:center;gap:6px;flex-wrap:wrap;'
+  filterBar.innerHTML=
+    `<span style="font-size:11px;font-weight:600;color:#323130;">🗓 Filter:</span>`+
+    `<span style="font-size:11px;color:#605E5C;">From</span>`+
+    `<input type="datetime-local" id="trace-filter-from" step="1" style="font-size:11px;padding:2px 5px;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;">`+
+    `<span style="font-size:11px;color:#605E5C;">To</span>`+
+    `<input type="datetime-local" id="trace-filter-to" step="1" style="font-size:11px;padding:2px 5px;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;">`+
+    `<button onclick="traceApplyFilter()" style="padding:2px 10px;font-size:11px;font-family:inherit;background:#0078D4;color:#fff;border:none;border-radius:2px;cursor:pointer;">Apply</button>`+
+    `<button onclick="traceClearFilter()" style="padding:2px 10px;font-size:11px;font-family:inherit;background:#fff;color:#323130;border:1px solid #C8C6C4;border-radius:2px;cursor:pointer;">Clear</button>`+
+    `<span id="trace-filter-info" style="font-size:11px;color:#605E5C;margin-left:4px;"></span>`
+  list.appendChild(filterBar)
   try{
     const file=await vf.handle.getFile()
     vf.fileSize=file.size
@@ -2544,24 +2608,16 @@ async function traceShowFileView(s){
     const MAX_LINE=5000
     let rawLines=text.split('\n')
     traceExplState._partialLine=end<file.size?(rawLines.pop()||''):''
-    let truncatedCount=0
-    const safeLines=rawLines.map(l=>{if(l.length>MAX_LINE){truncatedCount++;return l.slice(0,MAX_LINE)+' … [line truncated]'}return l})
-    const lineCount=safeLines.length
-    const showNums=lineCount<=80000
-    traceExplState._lineCount=lineCount
-    traceExplState._showNums=showNums
-    const wrapper=document.createElement('div')
-    wrapper.id='trace-file-wrap'
-    wrapper.style.cssText='display:flex;flex-direction:column;overflow-x:auto;margin:8px 14px;padding:8px 0;background:#F8F8F7;border:1px solid #EDEBE9;border-radius:2px;'
-    for(let s=0;s<safeLines.length;s+=_TRACE_CHUNK){wrapper.appendChild(traceCreateChunk(safeLines.slice(s,s+_TRACE_CHUNK),s,showNums))}
+    const safeLines=rawLines.map(l=>l.length>MAX_LINE?l.slice(0,MAX_LINE)+' … [line truncated]':l)
+    let truncatedCount=rawLines.filter((l,i)=>safeLines[i]!==l).length
+    vf._lines=safeLines
+    traceRenderFromLines(list,vf)
     if(truncatedCount){
       const warn=document.createElement('div')
       warn.style.cssText='margin:4px 14px;padding:4px 10px;background:#FFFBE6;border:1px solid #FFE58F;border-radius:2px;font-size:11px;color:#AD6800;'
       warn.textContent=`⚠ ${truncatedCount} line(s) truncated to ${MAX_LINE} characters`
-      list.appendChild(warn)
+      list.insertBefore(warn,document.getElementById('trace-file-wrap'))
     }
-    list.appendChild(wrapper)
-    if(end<file.size) traceAddLoadMoreBtn(list,file.size)
     if(traceExplState._pendingScrollRestore!=null){
       const sv=traceExplState._pendingScrollRestore
       traceExplState._pendingScrollRestore=null
@@ -2601,6 +2657,62 @@ function traceCreateChunk(lines,startIdx,showNums){
   return cv
 }
 
+// ── Trace date/time filter ────────────────────────────────────────────────────
+
+function traceExtractTimestamp(line){
+  const m=line.match(/\b(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})/)
+  return m?m[1]+'T'+m[2]:null
+}
+
+function traceRenderFromLines(list,vf){
+  document.getElementById('trace-file-wrap')?.remove()
+  document.getElementById('trace-load-more-btn')?.remove()
+  const allLines=vf._lines||[]
+  let displayLines=allLines
+  let infoText=`${allLines.length.toLocaleString()} lines loaded`
+  if(vf._filterFrom||vf._filterTo){
+    const from=vf._filterFrom||null,to=vf._filterTo||null
+    displayLines=allLines.filter(line=>{
+      const ts=traceExtractTimestamp(line)
+      if(!ts)return true
+      if(from&&ts<from)return false
+      if(to&&ts>to)return false
+      return true
+    })
+    infoText=`${displayLines.length.toLocaleString()} / ${allLines.length.toLocaleString()} lines`
+  }
+  const info=document.getElementById('trace-filter-info')
+  if(info)info.textContent=infoText
+  const showNums=displayLines.length<=80000
+  const wrapper=document.createElement('div')
+  wrapper.id='trace-file-wrap'
+  wrapper.style.cssText='display:flex;flex-direction:column;overflow-x:auto;margin:8px 14px;padding:8px 0;background:#F8F8F7;border:1px solid #EDEBE9;border-radius:2px;'
+  for(let i=0;i<displayLines.length;i+=_TRACE_CHUNK){wrapper.appendChild(traceCreateChunk(displayLines.slice(i,i+_TRACE_CHUNK),i,showNums))}
+  list.appendChild(wrapper)
+  if(vf.offset<vf.fileSize)traceAddLoadMoreBtn(list,vf.fileSize)
+}
+
+function traceApplyFilter(){
+  const vf=traceExplState?.viewingFile
+  if(!vf)return
+  vf._filterFrom=document.getElementById('trace-filter-from')?.value||null
+  vf._filterTo=document.getElementById('trace-filter-to')?.value||null
+  const list=document.getElementById('trace-list')
+  if(list)traceRenderFromLines(list,vf)
+}
+
+function traceClearFilter(){
+  const vf=traceExplState?.viewingFile
+  if(!vf)return
+  vf._filterFrom=null
+  vf._filterTo=null
+  const f=document.getElementById('trace-filter-from'),t=document.getElementById('trace-filter-to')
+  if(f)f.value=''
+  if(t)t.value=''
+  const list=document.getElementById('trace-list')
+  if(list)traceRenderFromLines(list,vf)
+}
+
 async function traceAppendChunk(){
   const vf=traceExplState.viewingFile
   if(!vf)return
@@ -2615,15 +2727,23 @@ async function traceAppendChunk(){
     traceExplState._partialLine=''
     let rawLines=combined.split('\n')
     if(end<file.size){traceExplState._partialLine=rawLines.pop()||''}
-    const safeLines=rawLines.map(l=>{if(l.length>MAX_LINE)return l.slice(0,MAX_LINE)+' … [line truncated]';return l})
-    const prevCount=traceExplState._lineCount||0
-    traceExplState._lineCount=prevCount+safeLines.length
-    const wrap=document.getElementById('trace-file-wrap')
-    if(wrap){const showNums=traceExplState._showNums||false;for(let s=0;s<safeLines.length;s+=_TRACE_CHUNK){wrap.appendChild(traceCreateChunk(safeLines.slice(s,s+_TRACE_CHUNK),prevCount+s,showNums))}}
-    const btn=document.getElementById('trace-load-more-btn')
-    if(btn){
-      if(end>=file.size){btn.remove()}
-      else{btn.disabled=false;btn.textContent=`Load next 25 MB  (${formatBytes(file.size-end)} remaining)`}
+    const safeLines=rawLines.map(l=>l.length>MAX_LINE?l.slice(0,MAX_LINE)+' … [line truncated]':l)
+    const prevCount=vf._lines.length
+    vf._lines.push(...safeLines)
+    const list=document.getElementById('trace-list')
+    if(vf._filterFrom||vf._filterTo){
+      if(list)traceRenderFromLines(list,vf)
+    } else {
+      const wrap=document.getElementById('trace-file-wrap')
+      const showNums=vf._lines.length<=80000
+      if(wrap){for(let s=0;s<safeLines.length;s+=_TRACE_CHUNK){wrap.appendChild(traceCreateChunk(safeLines.slice(s,s+_TRACE_CHUNK),prevCount+s,showNums))}}
+      const info=document.getElementById('trace-filter-info')
+      if(info)info.textContent=`${vf._lines.length.toLocaleString()} lines loaded`
+      const btn=document.getElementById('trace-load-more-btn')
+      if(btn){
+        if(end>=file.size){btn.remove()}
+        else{btn.disabled=false;btn.textContent=`Load next 25 MB  (${formatBytes(file.size-end)} remaining)`}
+      }
     }
   }catch(e){}
 }
@@ -3320,11 +3440,11 @@ function buildHsiNavGroup(s){
       const hasTopology = 'topology.txt' in cs.loadedFiles
       const fsidItems = [
         {icon:'🗺️', label:'Topology', panel:'topology', disabled:false},
-        {icon:'📋', label:'Version History', panel:'versionhistory', disabled:false},
+        ...(cs.versionHistoryHandle ? [{icon:'📋', label:'Version History', panel:'versionhistory', disabled:false}] : []),
         {icon:'⚙️', label:'Configuration', panel:'configuration', disabled:false},
         ...(cs.hostsFileHandle ? [{icon:'🌐', label:'HOSTS', panel:'hosts', disabled:false}] : []),
-        {icon:'📡', label:'Telemetry Data', panel:'telemetry', disabled:false},
-        {icon:'📈', label:'Nameserver History', panel:'nshistory', disabled:false},
+        ...(cs.telemetryHandle ? [{icon:'📡', label:'Telemetry Data', panel:'telemetry', disabled:false}] : []),
+        ...(cs.nsHistoryHandles?.length ? [{icon:'📈', label:'Nameserver History', panel:'nshistory', disabled:false}] : []),
         ...(cs.availabilityHandles?.length ? [{icon:'🟢', label:'Availability', panel:'availability', disabled:false}] : []),
         {icon:'💥', label:'Runtime Dumps', panel:'rtedumps', disabled:false},
         {icon:'📂', label:'Trace Explorer', panel:'traceexplorer', disabled:false},

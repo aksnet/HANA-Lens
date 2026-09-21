@@ -124,8 +124,58 @@
     return [new TauriFileHandle(path)]
   }
 
-  // ── Expose classes globally (used by loadTopologyFile FileReader fallback) ───
+  // ── CombinedFileHandle ───────────────────────────────────────────────────────
+  // Represents multiple sequential TauriFileHandle parts as one virtual file.
+  // Parts must be passed sorted by sequence number, each with ._meta.size set.
+  class CombinedFileHandle {
+    constructor(name, parts) {
+      this.kind = 'file'
+      this.name = name
+      this._parts = parts
+      this._totalSize = parts.reduce((s, p) => s + (p._meta?.size ?? 0), 0)
+      this._lastModified = Math.max(...parts.map(p => p._meta?.lastModified ?? 0))
+    }
+
+    async getFile() {
+      const totalSize = this._totalSize
+      const lastModified = this._lastModified
+      const parts = this._parts
+      return {
+        size: totalSize,
+        lastModified,
+        async text() { return this.slice(0, totalSize).text() },
+        slice(start, end) {
+          return {
+            async text() {
+              let result = ''
+              let pos = 0
+              for (const part of parts) {
+                const partSize = part._meta?.size ?? 0
+                const partEnd = pos + partSize
+                if (end <= pos) break
+                if (start >= partEnd) { pos = partEnd; continue }
+                const readStart = Math.max(0, start - pos)
+                const readEnd = Math.min(partSize, end - pos)
+                if (readEnd > readStart) {
+                  result += await invoke('read_file_range', {
+                    path: part._path,
+                    offset: readStart >>> 0,
+                    length: (readEnd - readStart) >>> 0
+                  })
+                }
+                pos = partEnd
+              }
+              return result
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // ── Expose classes globally ──────────────────────────────────────────────────
   window.TauriDirHandle = TauriDirHandle
   window.TauriFileHandle = TauriFileHandle
+  window.CombinedFileHandle = CombinedFileHandle
 
 })();
