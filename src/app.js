@@ -2389,17 +2389,24 @@ async function traceLoadDir(){
   // breadcrumb
   const bc=document.getElementById('trace-breadcrumb')
   if(bc){
-    let html=`<span class="trace-crumb-root">${escHtml(data.instanceDir)}</span>`
-    html+=`<span class="trace-crumb-sep">/</span><span class="trace-crumb-root">${escHtml(srv.name)}</span>`
-    traceExplState.stack.forEach((frame,depth)=>{
-      html+=`<span class="trace-crumb-sep">/</span>`
-      if(depth<traceExplState.stack.length-1){
-        html+=`<a class="trace-crumb-link" href="#" onclick="traceNavigateUp(${depth+1});return false;">${escHtml(frame.name)}</a>`
-      } else {
-        html+=`<span class="trace-crumb-cur">${escHtml(frame.name)}</span>`
-      }
-    })
-    bc.innerHTML=html
+    const atRoot=traceExplState.stack.length===0
+    if(atRoot){
+      let html=`<span class="trace-crumb-root">${escHtml(data.instanceDir)}</span>`
+      html+=`<span class="trace-crumb-sep">/</span><span class="trace-crumb-cur">${escHtml(srv.name)}</span>`
+      bc.innerHTML=html
+    } else {
+      let html=`<a class="trace-crumb-link" href="#" onclick="traceNavigateUp(0);return false;">${escHtml(data.instanceDir)}</a>`
+      html+=`<span class="trace-crumb-sep">/</span><a class="trace-crumb-link" href="#" onclick="traceNavigateUp(0);return false;">${escHtml(srv.name)}</a>`
+      traceExplState.stack.forEach((frame,depth)=>{
+        html+=`<span class="trace-crumb-sep">/</span>`
+        if(depth<traceExplState.stack.length-1){
+          html+=`<a class="trace-crumb-link" href="#" onclick="traceNavigateUp(${depth+1});return false;">${escHtml(frame.name)}</a>`
+        } else {
+          html+=`<span class="trace-crumb-cur">${escHtml(frame.name)}</span>`
+        }
+      })
+      bc.innerHTML=html
+    }
   }
   traceRenderDirList()
 }

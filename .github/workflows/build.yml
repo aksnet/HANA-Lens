@@ -63,6 +63,16 @@ jobs:
           $msi = Get-ChildItem "src-tauri/target/release/bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($msi) { Move-Item $msi.FullName "HANA-Lens_${ver}_x64.msi" }
 
+      - name: Create Windows portable ZIP
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          $exe = "src-tauri/target/release/HANA-Lens.exe"
+          if (Test-Path $exe) {
+            Compress-Archive -Path $exe -DestinationPath "HANA-Lens_${ver}_x64-portable.zip"
+          }
+
       - name: Rename macOS DMG
         if: matrix.platform == 'macos-14'
         shell: bash
@@ -81,6 +91,7 @@ jobs:
           files: |
             HANA-Lens_*.exe
             HANA-Lens_*.msi
+            HANA-Lens_*.zip
             HANA-Lens_*.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
