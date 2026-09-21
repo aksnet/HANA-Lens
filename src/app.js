@@ -2255,7 +2255,7 @@ async function activateNav(clickedItem,panelKey){
       const infoPanel=document.createElement('div')
       infoPanel.dataset.rtepanel='overview'
       infoPanel.style.display='block'
-      const pathList=scanned.length?scanned.map(p=>`<code>${escHtml(p)}</code>`).join(', '):'<em>no FSID loaded</em>'
+      const pathList=scanned.length?scanned.map(p=>`<code>${escHtml(p)}</code>`).join(', '):s?'<em>no HDB&lt;instance&gt; directory found</em>':'<em>no FSID loaded</em>'
       infoPanel.innerHTML=`<div class="not-found-msg" style="margin:16px;"><span class="nf-icon">⚠️</span><span>No runtime dump files found. Scanned: ${pathList} &nbsp;— use <strong>Load dump file</strong> to open a single file.</span></div>`
       tabContent.appendChild(infoPanel)
       const knowledgeBtn=document.createElement('button')
@@ -2564,10 +2564,13 @@ async function traceShowFileView(s){
   vf._lines=[]
   vf._filterFrom=null
   vf._filterTo=null
+  vf._searchTerms=[]
+  vf._bookmarks=new Set()
+  vf._bookmarkCursor=null
   const bc=document.getElementById('trace-breadcrumb')
   if(bc){
-    let html=`<span class="trace-crumb-root">${escHtml(data.instanceDir)}</span>`
-    html+=`<span class="trace-crumb-sep">/</span><span class="trace-crumb-root">${escHtml(srv.name)}</span>`
+    let html=`<a class="trace-crumb-link" href="#" onclick="traceNavigateUp(0);return false;">${escHtml(data.instanceDir)}</a>`
+    html+=`<span class="trace-crumb-sep">/</span><a class="trace-crumb-link" href="#" onclick="traceNavigateUp(0);return false;">${escHtml(srv.name)}</a>`
     traceExplState.stack.forEach((frame,depth)=>{
       html+=`<span class="trace-crumb-sep">/</span>`
       html+=`<a class="trace-crumb-link" href="#" onclick="traceNavigateUp(${depth+1});return false;">${escHtml(frame.name)}</a>`
@@ -2584,20 +2587,62 @@ async function traceShowFileView(s){
   up.innerHTML=`<span class="trace-icon">⬆️</span><span class="trace-name">..</span>`
   up.onclick=()=>traceCloseFile()
   list.appendChild(up)
-  // Filter bar
-  const filterBar=document.createElement('div')
-  filterBar.id='trace-filter-bar'
-  filterBar.style.cssText='padding:5px 14px;background:#F3F2F1;border-bottom:1px solid #EDEBE9;display:flex;align-items:center;gap:6px;flex-wrap:wrap;'
-  filterBar.innerHTML=
-    `<span style="font-size:11px;font-weight:600;color:#323130;">🗓 Filter:</span>`+
-    `<span style="font-size:11px;color:#605E5C;">From</span>`+
-    `<input type="datetime-local" id="trace-filter-from" step="1" style="font-size:11px;padding:2px 5px;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;">`+
+  // Toolbar: Filter button + bookmark navigation
+  const btnStyle='padding:2px 10px;font-size:11px;font-family:inherit;border-radius:2px;cursor:pointer;'
+  const toolbar=document.createElement('div')
+  toolbar.style.cssText='padding:4px 14px;background:#F3F2F1;border-bottom:1px solid #EDEBE9;display:flex;align-items:center;gap:6px;flex-shrink:0;'
+  const filterBtn=document.createElement('button')
+  filterBtn.id='trace-filter-btn'
+  filterBtn.style.cssText=btnStyle+'background:#fff;color:#323130;border:1px solid #C8C6C4;'
+  filterBtn.textContent='🔍 Filter ▾'
+  filterBtn.addEventListener('click',()=>{
+    const panel=document.getElementById('trace-filter-panel')
+    if(!panel)return
+    const open=panel.style.display==='flex'
+    panel.style.display=open?'none':'flex'
+    filterBtn.textContent=open?'🔍 Filter ▾':'🔍 Filter ▴'
+  })
+  const navUp=document.createElement('button')
+  navUp.id='trace-nav-up'
+  navUp.style.cssText=btnStyle+'background:#fff;color:#323130;border:1px solid #C8C6C4;display:none;'
+  navUp.title='Previous mark'
+  navUp.textContent='▲'
+  navUp.addEventListener('click',()=>traceBookmarkNav(-1))
+  const navDown=document.createElement('button')
+  navDown.id='trace-nav-down'
+  navDown.style.cssText=btnStyle+'background:#fff;color:#323130;border:1px solid #C8C6C4;display:none;'
+  navDown.title='Next mark'
+  navDown.textContent='▼'
+  navDown.addEventListener('click',()=>traceBookmarkNav(1))
+  const infoSpan=document.createElement('span')
+  infoSpan.id='trace-filter-info'
+  infoSpan.style.cssText='font-size:11px;color:#605E5C;margin-left:4px;'
+  toolbar.appendChild(filterBtn)
+  toolbar.appendChild(navUp)
+  toolbar.appendChild(navDown)
+  toolbar.appendChild(infoSpan)
+  list.appendChild(toolbar)
+  // Filter panel (hidden by default)
+  const inpStyle='font-size:11px;padding:2px 5px;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;width:200px;'
+  const filterPanel=document.createElement('div')
+  filterPanel.id='trace-filter-panel'
+  filterPanel.style.cssText='display:none;flex-direction:column;gap:5px;padding:7px 14px;background:#FAF9F8;border-bottom:1px solid #EDEBE9;flex-shrink:0;'
+  filterPanel.innerHTML=
+    `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">`+
+    `<span style="font-size:11px;color:#605E5C;min-width:34px;">From</span>`+
+    `<input type="text" id="trace-filter-from" placeholder="YYYY-MM-DD HH:MM:SS  (empty = start)" style="${inpStyle}">`+
     `<span style="font-size:11px;color:#605E5C;">To</span>`+
-    `<input type="datetime-local" id="trace-filter-to" step="1" style="font-size:11px;padding:2px 5px;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;">`+
-    `<button onclick="traceApplyFilter()" style="padding:2px 10px;font-size:11px;font-family:inherit;background:#0078D4;color:#fff;border:none;border-radius:2px;cursor:pointer;">Apply</button>`+
-    `<button onclick="traceClearFilter()" style="padding:2px 10px;font-size:11px;font-family:inherit;background:#fff;color:#323130;border:1px solid #C8C6C4;border-radius:2px;cursor:pointer;">Clear</button>`+
-    `<span id="trace-filter-info" style="font-size:11px;color:#605E5C;margin-left:4px;"></span>`
-  list.appendChild(filterBar)
+    `<input type="text" id="trace-filter-to" placeholder="YYYY-MM-DD HH:MM:SS  (empty = end)" style="${inpStyle}">`+
+    `</div>`+
+    `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">`+
+    `<span style="font-size:11px;color:#605E5C;min-width:34px;">Terms</span>`+
+    `<input type="text" id="trace-filter-terms" placeholder="comma separated, e.g.: savepoint, error" style="${inpStyle.replace('width:200px','flex:1;min-width:200px')}">`+
+    `<button id="trace-filter-apply-btn" style="${btnStyle}background:#0078D4;color:#fff;border:none;">Apply</button>`+
+    `<button id="trace-filter-clear-btn" style="${btnStyle}background:#fff;color:#323130;border:1px solid #C8C6C4;">Clear</button>`+
+    `</div>`
+  list.appendChild(filterPanel)
+  document.getElementById('trace-filter-apply-btn').addEventListener('click',traceApplyFilter)
+  document.getElementById('trace-filter-clear-btn').addEventListener('click',traceClearFilter)
   try{
     const file=await vf.handle.getFile()
     vf.fileSize=file.size
@@ -2640,38 +2685,76 @@ function traceAddLoadMoreBtn(list,fileSize){
 }
 
 const _TRACE_CHUNK=500
-const _TRACE_LH=16
-function traceCreateChunk(lines,startIdx,showNums){
+const _TRACE_LH=15
+function traceCreateChunk(lines,startIdx,showNums,opts){
+  const searchTerms=opts?.searchTerms||[]
+  const bookmarks=opts?.bookmarks||null
+  const onBMToggle=opts?.onBookmarkToggle||null
   const cv=document.createElement('div')
   cv.style.cssText=`content-visibility:auto;contain-intrinsic-block-size:${lines.length*_TRACE_LH}px;display:flex;`
   if(showNums){
-    const nums=document.createElement('pre')
-    nums.style.cssText='flex-shrink:0;text-align:right;padding:0 8px 0 10px;margin:0;font-family:Consolas,monospace;font-size:11px;line-height:1.35;color:#A19F9D;background:#F3F2F1;border-right:1px solid #EDEBE9;user-select:none;-webkit-user-select:none;overflow:hidden;min-width:3.5em;'
-    nums.textContent=Array.from({length:lines.length},(_,i)=>startIdx+i+1).join('\n')
-    cv.appendChild(nums)
+    const numsWrap=document.createElement('div')
+    numsWrap.className='trace-nums'
+    numsWrap.style.cssText=`flex-shrink:0;min-width:3.5em;background:#F3F2F1;border-right:1px solid #EDEBE9;user-select:none;-webkit-user-select:none;overflow:hidden;font-family:Consolas,monospace;font-size:11px;${onBMToggle?'cursor:pointer;':''}`
+    const parts=[]
+    for(let i=0;i<lines.length;i++){
+      const abs=startIdx+i
+      const marked=bookmarks?.has(abs)
+      parts.push(`<div data-li="${abs}" style="height:${_TRACE_LH}px;line-height:${_TRACE_LH}px;text-align:right;padding:0 8px 0 4px;${marked?'background:#0078D4;color:#fff;':'color:#A19F9D;'}">${abs+1}</div>`)
+    }
+    numsWrap.innerHTML=parts.join('')
+    if(onBMToggle)numsWrap.addEventListener('click',e=>{const d=e.target.closest('[data-li]');if(d)onBMToggle(parseInt(d.dataset.li))})
+    cv.appendChild(numsWrap)
   }
   const pre=document.createElement('pre')
-  pre.style.cssText='flex:1;margin:0;padding:0 10px;font-family:Consolas,monospace;font-size:11px;line-height:1.35;white-space:pre;color:#000;'
-  pre.textContent=lines.join('\n')
+  pre.style.cssText=`flex:1;margin:0;padding:0 10px;font-family:Consolas,monospace;font-size:11px;line-height:${_TRACE_LH}px;white-space:pre;color:#000;`
+  if(searchTerms.length){
+    pre.innerHTML=lines.map(line=>{
+      let s=escHtml(line)
+      for(const t of searchTerms){
+        if(!t.trim())continue
+        try{s=s.replace(new RegExp(t.trim().replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),m=>`<mark style="background:#FFD700;color:#000;">${m}</mark>`)}catch(e){}
+      }
+      return s
+    }).join('\n')
+  }else{pre.textContent=lines.join('\n')}
   cv.appendChild(pre)
   return cv
 }
 
-// ── Trace date/time filter ────────────────────────────────────────────────────
+// ── Trace date/time filter + bookmarks ───────────────────────────────────────
 
 function traceExtractTimestamp(line){
   const m=line.match(/\b(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})/)
   return m?m[1]+'T'+m[2]:null
 }
 
+function traceNormalizeFilterVal(val){
+  if(!val)return null
+  // Accept "YYYY-MM-DD HH:MM:SS", "YYYY-MM-DDTHH:MM:SS", "YYYY-MM-DDTHH:MM", "YYYY-MM-DD"
+  let s=val.trim().replace(' ','T')
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s))s+='T00:00:00'
+  else if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s))s+=':00'
+  else if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(s))s=s.slice(0,19)
+  else return null
+  return s  // "YYYY-MM-DDTHH:MM:SS" — string-sortable, same format as traceExtractTimestamp
+}
+
 function traceRenderFromLines(list,vf){
   document.getElementById('trace-file-wrap')?.remove()
   document.getElementById('trace-load-more-btn')?.remove()
+  // reset bookmarks on re-render
+  if(vf._bookmarks)vf._bookmarks.clear()
+  vf._bookmarkCursor=null
+  const navUp=document.getElementById('trace-nav-up'),navDown=document.getElementById('trace-nav-down')
+  if(navUp)navUp.style.display='none'
+  if(navDown)navDown.style.display='none'
   const allLines=vf._lines||[]
   let displayLines=allLines
   let infoText=`${allLines.length.toLocaleString()} lines loaded`
-  if(vf._filterFrom||vf._filterTo){
-    const from=vf._filterFrom||null,to=vf._filterTo||null
+  const from=traceNormalizeFilterVal(vf._filterFrom)
+  const to=traceNormalizeFilterVal(vf._filterTo)
+  if(from||to){
     displayLines=allLines.filter(line=>{
       const ts=traceExtractTimestamp(line)
       if(!ts)return true
@@ -2687,7 +2770,8 @@ function traceRenderFromLines(list,vf){
   const wrapper=document.createElement('div')
   wrapper.id='trace-file-wrap'
   wrapper.style.cssText='display:flex;flex-direction:column;overflow-x:auto;margin:8px 14px;padding:8px 0;background:#F8F8F7;border:1px solid #EDEBE9;border-radius:2px;'
-  for(let i=0;i<displayLines.length;i+=_TRACE_CHUNK){wrapper.appendChild(traceCreateChunk(displayLines.slice(i,i+_TRACE_CHUNK),i,showNums))}
+  const opts={searchTerms:vf._searchTerms||[],bookmarks:vf._bookmarks||null,onBookmarkToggle:traceToggleBookmark}
+  for(let i=0;i<displayLines.length;i+=_TRACE_CHUNK){wrapper.appendChild(traceCreateChunk(displayLines.slice(i,i+_TRACE_CHUNK),i,showNums,opts))}
   list.appendChild(wrapper)
   if(vf.offset<vf.fileSize)traceAddLoadMoreBtn(list,vf.fileSize)
 }
@@ -2695,8 +2779,13 @@ function traceRenderFromLines(list,vf){
 function traceApplyFilter(){
   const vf=traceExplState?.viewingFile
   if(!vf)return
-  vf._filterFrom=document.getElementById('trace-filter-from')?.value||null
-  vf._filterTo=document.getElementById('trace-filter-to')?.value||null
+  vf._filterFrom=document.getElementById('trace-filter-from')?.value?.trim()||null
+  vf._filterTo=document.getElementById('trace-filter-to')?.value?.trim()||null
+  const termsRaw=document.getElementById('trace-filter-terms')?.value?.trim()||''
+  vf._searchTerms=termsRaw?termsRaw.split(',').map(t=>t.trim()).filter(Boolean):[]
+  const btn=document.getElementById('trace-filter-btn')
+  const hasFilter=vf._filterFrom||vf._filterTo||vf._searchTerms.length
+  if(btn)btn.style.background=hasFilter?'#0078D4':'#fff',btn.style.color=hasFilter?'#fff':'#323130'
   const list=document.getElementById('trace-list')
   if(list)traceRenderFromLines(list,vf)
 }
@@ -2706,11 +2795,70 @@ function traceClearFilter(){
   if(!vf)return
   vf._filterFrom=null
   vf._filterTo=null
-  const f=document.getElementById('trace-filter-from'),t=document.getElementById('trace-filter-to')
+  vf._searchTerms=[]
+  const f=document.getElementById('trace-filter-from'),t=document.getElementById('trace-filter-to'),tr=document.getElementById('trace-filter-terms')
   if(f)f.value=''
   if(t)t.value=''
+  if(tr)tr.value=''
+  const btn=document.getElementById('trace-filter-btn')
+  if(btn)btn.style.background='#fff',btn.style.color='#323130'
   const list=document.getElementById('trace-list')
   if(list)traceRenderFromLines(list,vf)
+}
+
+function traceToggleBookmark(absIdx){
+  const vf=traceExplState?.viewingFile
+  if(!vf||!vf._bookmarks)return
+  if(vf._bookmarks.has(absIdx)){vf._bookmarks.delete(absIdx)}else{vf._bookmarks.add(absIdx)}
+  // update the specific line number div without re-rendering all chunks
+  const d=document.querySelector(`[data-li="${absIdx}"]`)
+  if(d){
+    const marked=vf._bookmarks.has(absIdx)
+    d.style.background=marked?'#0078D4':''
+    d.style.color=marked?'#fff':'#A19F9D'
+  }
+  const count=vf._bookmarks.size
+  const navUp=document.getElementById('trace-nav-up'),navDown=document.getElementById('trace-nav-down')
+  if(navUp)navUp.style.display=count>0?'':'none'
+  if(navDown)navDown.style.display=count>0?'':'none'
+  const info=document.getElementById('trace-filter-info')
+  if(info){
+    const base=info.textContent.replace(/ · \d+ bookmark[s]?/,'')
+    info.textContent=count>0?`${base} · ${count} bookmark${count>1?'s':''}`:base
+  }
+  if(!vf._bookmarks.has(absIdx)&&vf._bookmarkCursor===absIdx)vf._bookmarkCursor=null
+}
+
+function traceBookmarkNav(dir){
+  const vf=traceExplState?.viewingFile
+  if(!vf||!vf._bookmarks||vf._bookmarks.size===0)return
+  const sorted=[...vf._bookmarks].sort((a,b)=>a-b)
+  let idx
+  if(vf._bookmarkCursor==null){idx=dir>0?0:sorted.length-1}
+  else{
+    const cur=sorted.indexOf(vf._bookmarkCursor)
+    idx=cur<0?(dir>0?0:sorted.length-1):((cur+dir+sorted.length)%sorted.length)
+  }
+  vf._bookmarkCursor=sorted[idx]
+  traceScrollToLine(vf._bookmarkCursor)
+}
+
+function traceScrollToLine(absIdx){
+  const list=document.getElementById('trace-list')
+  const wrap=document.getElementById('trace-file-wrap')
+  if(!list||!wrap)return
+  // try to find the exact div first for precise positioning
+  const d=document.querySelector(`[data-li="${absIdx}"]`)
+  if(d){
+    const top=d.getBoundingClientRect().top-list.getBoundingClientRect().top+list.scrollTop
+    list.scrollTo({top:top-list.clientHeight/2,behavior:'smooth'})
+    // flash outline
+    d.style.outline='2px solid #FFD700'
+    setTimeout(()=>{d.style.outline=''},800)
+  } else {
+    // fallback: estimate via line height
+    list.scrollTo({top:wrap.offsetTop+absIdx*_TRACE_LH-list.clientHeight/2,behavior:'smooth'})
+  }
 }
 
 async function traceAppendChunk(){
@@ -2736,7 +2884,8 @@ async function traceAppendChunk(){
     } else {
       const wrap=document.getElementById('trace-file-wrap')
       const showNums=vf._lines.length<=80000
-      if(wrap){for(let s=0;s<safeLines.length;s+=_TRACE_CHUNK){wrap.appendChild(traceCreateChunk(safeLines.slice(s,s+_TRACE_CHUNK),prevCount+s,showNums))}}
+      const opts={searchTerms:vf._searchTerms||[],bookmarks:vf._bookmarks||null,onBookmarkToggle:traceToggleBookmark}
+      if(wrap){for(let s=0;s<safeLines.length;s+=_TRACE_CHUNK){wrap.appendChild(traceCreateChunk(safeLines.slice(s,s+_TRACE_CHUNK),prevCount+s,showNums,opts))}}
       const info=document.getElementById('trace-filter-info')
       if(info)info.textContent=`${vf._lines.length.toLocaleString()} lines loaded`
       const btn=document.getElementById('trace-load-more-btn')
@@ -3316,7 +3465,7 @@ async function loadHSIFolder(){
                 let foundHere=false
                 for await(const [fname,fh] of trace.entries()){
                   if(fh.kind==='file'&&fname.includes('.rtedump.')){const parsed=parseRteDumpFilename(fname);if(parsed){cs.rteDumpHandles.push({...parsed,handle:fh,scannedPath:tracePath});foundHere=true}}
-                  else if(fh.kind==='directory'&&fname.startsWith('DB_')){const ttp=`${tracePath}/${fname}`;try{for await(const [tf,th] of fh.entries()){if(th.kind==='file'&&tf.includes('.rtedump.')){const parsed=parseRteDumpFilename(tf);if(parsed){cs.rteDumpHandles.push({...parsed,handle:th,tenant:fname.replace(/^DB_/,''),scannedPath:ttp})}}}}catch(e){};cs.rteDumpScannedPaths.push(ttp)}
+                  else if(fh.kind==='directory'&&fname.startsWith('DB_')){const ttp=`${tracePath}/${fname}`;let foundTenant=false;try{for await(const [tf,th] of fh.entries()){if(th.kind==='file'&&tf.includes('.rtedump.')){const parsed=parseRteDumpFilename(tf);if(parsed){cs.rteDumpHandles.push({...parsed,handle:th,tenant:fname.replace(/^DB_/,''),scannedPath:ttp});foundTenant=true}}}}catch(e){};if(foundTenant)cs.rteDumpScannedPaths.push(ttp)}
                 }
                 if(foundHere)cs.rteDumpScannedPaths.push(tracePath)
               }catch(e){}
