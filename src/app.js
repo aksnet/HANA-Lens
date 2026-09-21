@@ -1105,7 +1105,7 @@ async function rteDumpLoadSingle(){
   if(!activeFsidId){
     const sid=newSessionId()
     const color=FSID_COLORS[fsidSessions.length%FSID_COLORS.length]
-    fsidSessions.push({id:sid,label:'📄 '+fname,color,captureInfo:'',loadedFiles:{},loadedFolderName:'',versionHistoryHandle:null,configFileHandles:[],configRefHandles:{},configRefData:{},telemetryHandle:null,nsHistoryHandles:[],rteDumpHandles:[],rteDumpScannedPaths:[],topoData:null})
+    fsidSessions.push({id:sid,label:'📄 '+fname,color,captureInfo:'',loadedFiles:{},loadedFolderName:'',versionHistoryHandle:null,configFileHandles:[],configRefHandles:{},configRefData:{},telemetryHandle:null,nsHistoryHandles:[],rteDumpHandles:[],rteDumpScannedPaths:[],rteDumpHdbFound:false,topoData:null})
     activeFsidId=sid
     renderNavTree()
   }
@@ -1669,7 +1669,7 @@ async function loadFSIDFolder(){
       id:sid, label:dirHandle.name, color, captureInfo:'',
       loadedFiles:{}, loadedFolderName:dirHandle.name,
       versionHistoryHandle:null, configDirHandle:null, _configScanned:false, configFileHandles:[], configRefHandles:{}, configRefData:{},
-      telemetryHandle:null, nsHistoryHandles:[], availabilityHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[],
+      telemetryHandle:null, nsHistoryHandles:[], availabilityHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[], rteDumpHdbFound:false,
       hostsFileHandle:null,
       topoData:null, traceExplorerData:null
     }
@@ -1714,6 +1714,7 @@ async function loadFSIDFolder(){
     try{
       for await(const[n1,h1]of dirHandle.entries()){
         if(h1.kind!=='directory'||!/^HDB\d\d$/.test(n1))continue
+        s.rteDumpHdbFound=true
         for await(const[n2,h2]of h1.entries()){
           if(h2.kind!=='directory')continue
           try{
@@ -1848,7 +1849,7 @@ document.addEventListener('DOMContentLoaded',()=>{
           id:sid, label:'📄 '+file.name, color, captureInfo:'',
           loadedFiles:{}, loadedFolderName:'',
           versionHistoryHandle:null, configFileHandles:[], configRefHandles:{}, configRefData:{},
-          telemetryHandle:null, nsHistoryHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[],
+          telemetryHandle:null, nsHistoryHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[], rteDumpHdbFound:false,
           topoData:null
         }
         fsidSessions.push(s)
@@ -2255,7 +2256,7 @@ async function activateNav(clickedItem,panelKey){
       const infoPanel=document.createElement('div')
       infoPanel.dataset.rtepanel='overview'
       infoPanel.style.display='block'
-      const pathList=scanned.length?scanned.map(p=>`<code>${escHtml(p)}</code>`).join(', '):s?'<em>no HDB&lt;instance&gt; directory found</em>':'<em>no FSID loaded</em>'
+      const pathList=scanned.length?scanned.map(p=>`<code>${escHtml(p)}</code>`).join(', '):s?s.rteDumpHdbFound?'<em>no .rtedump files found in this FSID</em>':'<em>no HDB&lt;instance&gt; directory found</em>':'<em>no FSID loaded</em>'
       infoPanel.innerHTML=`<div class="not-found-msg" style="margin:16px;"><span class="nf-icon">⚠️</span><span>No runtime dump files found. Scanned: ${pathList} &nbsp;— use <strong>Load dump file</strong> to open a single file.</span></div>`
       tabContent.appendChild(infoPanel)
       const knowledgeBtn=document.createElement('button')
@@ -2315,24 +2316,26 @@ function traceFileIcon(name){
 // Groups split .trc files (e.g. indexserver_host.port.031.trc → combined)
 // Excludes .rtedump. files. Returns new entry array with combined virtual entries.
 function traceGroupCombinedFiles(entries){
-  const pattern=/^(.+)\.(\d{3,})\.trc$/i
+  const pattern=/^(.+)\.(\d{3,})\.(trc|csv)$/i
   const groups=new Map()
   const result=[]
   for(const e of entries){
     if(e.isDir||e.name.includes('.rtedump.')){result.push(e);continue}
     const m=e.name.match(pattern)
     if(!m){result.push(e);continue}
-    const base=m[1], seq=parseInt(m[2],10)
-    if(!groups.has(base))groups.set(base,[])
-    groups.get(base).push({entry:e,seq})
+    const base=m[1], seq=parseInt(m[2],10), ext=m[3].toLowerCase()
+    const key=base+'.'+ext
+    if(!groups.has(key))groups.set(key,{base,ext,parts:[]})
+    groups.get(key).parts.push({entry:e,seq})
   }
-  for(const[base,parts]of groups){
+  for(const[,g]of groups){
+    const{base,ext,parts}=g
     if(parts.length<2){result.push(parts[0].entry);continue}
     parts.sort((a,b)=>a.seq-b.seq)
     const handles=parts.map(p=>p.entry.handle)
     const totalSize=parts.reduce((s,p)=>s+(p.entry.size||0),0)
     const lastMod=Math.max(...parts.map(p=>p.entry.lastModified||0))
-    const combinedName=base+'.combined.trc'
+    const combinedName=base+'.combined.'+ext
     const combinedHandle=window.CombinedFileHandle
       ?new window.CombinedFileHandle(combinedName,handles)
       :handles[0]
@@ -2395,7 +2398,11 @@ async function traceLoadDir(){
   if(!traceExplState)return
   const s=sess(traceExplState.sid)
   if(!s?.traceExplorerData)return
-  if(traceExplState.viewingFile){await traceShowFileView(s);return}
+  if(traceExplState.viewingFile){
+    if(traceExplState.viewingFile.name.toLowerCase().endsWith('.csv'))await traceShowCsvView(s)
+    else await traceShowFileView(s)
+    return
+  }
   const data=s.traceExplorerData
   const srv=data.servers[traceExplState.serverIdx]
 
@@ -2557,6 +2564,71 @@ async function traceCloseFile(){
   await traceLoadDir()
 }
 
+function renderCsvTable(text,name){
+  const rawLines=text.split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim())
+  if(rawLines.length<2)return '<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>CSV is empty or has no data rows.</span></div>'
+  const sep=rawLines[0].includes(';')?';':','
+  const headerLine=rawLines[0]
+  const headers=headerLine.split(sep)
+  const rows=[]
+  for(let i=1;i<rawLines.length;i++){
+    if(rawLines[i]===headerLine)continue  // skip repeated header (combined files)
+    rows.push(rawLines[i].split(sep))
+  }
+  let html=`<div class="card"><div class="card-title">📊 ${escHtml(name)} <span style="font-weight:400;font-size:11px;color:#605E5C;">${rows.length.toLocaleString()} rows</span></div>`+
+    `<div style="overflow-x:auto;max-height:calc(100vh - 160px);overflow-y:auto;">`+
+    `<table class="data-table" style="white-space:nowrap;width:auto;min-width:100%;">`+
+    `<thead style="position:sticky;top:0;z-index:5;"><tr>`
+  for(const h of headers)html+=`<th>${escHtml(h)}</th>`
+  html+=`</tr></thead><tbody>`
+  for(const row of rows){
+    html+='<tr>'
+    for(let i=0;i<headers.length;i++)html+=`<td><span class="mono">${escHtml(row[i]??'')}</span></td>`
+    html+='</tr>'
+  }
+  html+=`</tbody></table></div></div>`
+  return html
+}
+
+async function traceShowCsvView(s){
+  const data=s.traceExplorerData
+  const srv=data.servers[traceExplState.serverIdx]
+  const vf=traceExplState.viewingFile
+  const bc=document.getElementById('trace-breadcrumb')
+  if(bc){
+    let html=`<a class="trace-crumb-link" href="#" onclick="traceNavigateUp(0);return false;">${escHtml(data.instanceDir)}</a>`
+    html+=`<span class="trace-crumb-sep">/</span><a class="trace-crumb-link" href="#" onclick="traceNavigateUp(0);return false;">${escHtml(srv.name)}</a>`
+    traceExplState.stack.forEach((frame,depth)=>{
+      html+=`<span class="trace-crumb-sep">/</span>`
+      html+=`<a class="trace-crumb-link" href="#" onclick="traceNavigateUp(${depth+1});return false;">${escHtml(frame.name)}</a>`
+    })
+    html+=`<span class="trace-crumb-sep">/</span>`
+    html+=`<span class="trace-crumb-cur" style="user-select:text;cursor:text;">${escHtml(vf.name)}</span>`
+    bc.innerHTML=html
+  }
+  const list=document.getElementById('trace-list')
+  if(!list)return
+  list.innerHTML=''
+  const up=document.createElement('div')
+  up.className='trace-entry'
+  up.innerHTML=`<span class="trace-icon">⬆️</span><span class="trace-name">..</span>`
+  up.onclick=()=>traceCloseFile()
+  list.appendChild(up)
+  const loading=document.createElement('div')
+  loading.style.cssText='padding:16px;color:#605E5C;font-size:12px;'
+  loading.textContent='Loading…'
+  list.appendChild(loading)
+  try{
+    const file=await vf.handle.getFile()
+    const text=await file.text()
+    loading.remove()
+    const wrap=document.createElement('div')
+    wrap.style.cssText='padding:8px 14px;overflow:auto;flex:1;'
+    wrap.innerHTML=renderCsvTable(text,vf.name)
+    list.appendChild(wrap)
+  }catch(e){loading.textContent='Error: '+String(e)}
+}
+
 async function traceShowFileView(s){
   const data=s.traceExplorerData
   const srv=data.servers[traceExplState.serverIdx]
@@ -2567,6 +2639,8 @@ async function traceShowFileView(s){
   vf._searchTerms=[]
   vf._bookmarks=new Set()
   vf._bookmarkCursor=null
+  vf._termMatchLines=[]
+  vf._termMatchCursor=null
   const bc=document.getElementById('trace-breadcrumb')
   if(bc){
     let html=`<a class="trace-crumb-link" href="#" onclick="traceNavigateUp(0);return false;">${escHtml(data.instanceDir)}</a>`
@@ -2590,7 +2664,7 @@ async function traceShowFileView(s){
   // Toolbar: Filter button + bookmark navigation
   const btnStyle='padding:2px 10px;font-size:11px;font-family:inherit;border-radius:2px;cursor:pointer;'
   const toolbar=document.createElement('div')
-  toolbar.style.cssText='padding:4px 14px;background:#F3F2F1;border-bottom:1px solid #EDEBE9;display:flex;align-items:center;gap:6px;flex-shrink:0;'
+  toolbar.style.cssText='padding:4px 14px;background:#F3F2F1;border-bottom:1px solid #EDEBE9;display:flex;align-items:center;gap:6px;flex-shrink:0;position:sticky;top:0;z-index:5;'
   const filterBtn=document.createElement('button')
   filterBtn.id='trace-filter-btn'
   filterBtn.style.cssText=btnStyle+'background:#fff;color:#323130;border:1px solid #C8C6C4;'
@@ -2623,26 +2697,58 @@ async function traceShowFileView(s){
   toolbar.appendChild(infoSpan)
   list.appendChild(toolbar)
   // Filter panel (hidden by default)
-  const inpStyle='font-size:11px;padding:2px 5px;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;width:200px;'
+  const inpStyle='font-size:11px;padding:2px 5px;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;width:220px;'
   const filterPanel=document.createElement('div')
   filterPanel.id='trace-filter-panel'
-  filterPanel.style.cssText='display:none;flex-direction:column;gap:5px;padding:7px 14px;background:#FAF9F8;border-bottom:1px solid #EDEBE9;flex-shrink:0;'
+  filterPanel.style.cssText='display:none;flex-direction:column;gap:5px;padding:7px 14px;background:#FAF9F8;border-bottom:1px solid #EDEBE9;flex-shrink:0;position:sticky;top:31px;z-index:4;'
   filterPanel.innerHTML=
     `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">`+
     `<span style="font-size:11px;color:#605E5C;min-width:34px;">From</span>`+
-    `<input type="text" id="trace-filter-from" placeholder="YYYY-MM-DD HH:MM:SS  (empty = start)" style="${inpStyle}">`+
+    `<input type="text" id="trace-filter-from" placeholder="YYYY-MM-DD HH:MM:SS" style="${inpStyle}">`+
     `<span style="font-size:11px;color:#605E5C;">To</span>`+
-    `<input type="text" id="trace-filter-to" placeholder="YYYY-MM-DD HH:MM:SS  (empty = end)" style="${inpStyle}">`+
+    `<input type="text" id="trace-filter-to" placeholder="YYYY-MM-DD HH:MM:SS" style="${inpStyle}">`+
     `</div>`+
     `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">`+
     `<span style="font-size:11px;color:#605E5C;min-width:34px;">Terms</span>`+
-    `<input type="text" id="trace-filter-terms" placeholder="comma separated, e.g.: savepoint, error" style="${inpStyle.replace('width:200px','flex:1;min-width:200px')}">`+
+    `<input type="text" id="trace-filter-terms" placeholder="comma separated, e.g.: savepoint, error" style="${inpStyle.replace('width:220px','flex:1;min-width:220px')}">`+
+    `<select id="trace-filter-preset" style="font-size:11px;padding:2px 4px;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;color:#605E5C;background:#fff;cursor:pointer;" title="Load preset filter"><option value="">📂 preset</option></select>`+
     `<button id="trace-filter-apply-btn" style="${btnStyle}background:#0078D4;color:#fff;border:none;">Apply</button>`+
     `<button id="trace-filter-clear-btn" style="${btnStyle}background:#fff;color:#323130;border:1px solid #C8C6C4;">Clear</button>`+
     `</div>`
   list.appendChild(filterPanel)
   document.getElementById('trace-filter-apply-btn').addEventListener('click',traceApplyFilter)
   document.getElementById('trace-filter-clear-btn').addEventListener('click',traceClearFilter)
+  // Load preset filter files from filter_pre-defined and filter_custom folders
+  const presetSel=document.getElementById('trace-filter-preset')
+  if(presetSel&&window.__TAURI__?.core?.invoke){
+    window.__TAURI__.core.invoke('read_filter_files').then(presets=>{
+      if(!presets?.length)return
+      const groups={}
+      for(const p of presets){
+        const g=p.source==='filter_pre-defined'?'Pre-defined':'Custom'
+        if(!groups[g])groups[g]=[]
+        groups[g].push(p)
+      }
+      for(const[label,items]of Object.entries(groups)){
+        const grp=document.createElement('optgroup')
+        grp.label=label
+        for(const p of items){
+          const opt=document.createElement('option')
+          opt.value=p.content
+          opt.textContent=p.name
+          grp.appendChild(opt)
+        }
+        presetSel.appendChild(grp)
+      }
+    }).catch(()=>{})
+    presetSel.addEventListener('change',()=>{
+      if(!presetSel.value)return
+      const ti=document.getElementById('trace-filter-terms')
+      if(ti)ti.value=presetSel.value
+      presetSel.value=''
+      traceApplyFilter()
+    })
+  }
   try{
     const file=await vf.handle.getFile()
     vf.fileSize=file.size
@@ -2743,12 +2849,6 @@ function traceNormalizeFilterVal(val){
 function traceRenderFromLines(list,vf){
   document.getElementById('trace-file-wrap')?.remove()
   document.getElementById('trace-load-more-btn')?.remove()
-  // reset bookmarks on re-render
-  if(vf._bookmarks)vf._bookmarks.clear()
-  vf._bookmarkCursor=null
-  const navUp=document.getElementById('trace-nav-up'),navDown=document.getElementById('trace-nav-down')
-  if(navUp)navUp.style.display='none'
-  if(navDown)navDown.style.display='none'
   const allLines=vf._lines||[]
   let displayLines=allLines
   let infoText=`${allLines.length.toLocaleString()} lines loaded`
@@ -2764,13 +2864,35 @@ function traceRenderFromLines(list,vf){
     })
     infoText=`${displayLines.length.toLocaleString()} / ${allLines.length.toLocaleString()} lines`
   }
+  // compute term match line indices
+  const terms=vf._searchTerms||[]
+  if(terms.length){
+    vf._termMatchLines=[]
+    for(let i=0;i<displayLines.length;i++){
+      const lo=displayLines[i].toLowerCase()
+      if(terms.some(t=>{const tt=t.trim().toLowerCase();return tt&&lo.includes(tt)}))vf._termMatchLines.push(i)
+    }
+  } else {
+    vf._termMatchLines=[]
+    vf._termMatchCursor=null
+  }
+  // update nav buttons and info
+  const navUp=document.getElementById('trace-nav-up'),navDown=document.getElementById('trace-nav-down')
+  const bmCount=vf._bookmarks?.size||0
+  const mCount=vf._termMatchLines?.length||0
+  const showNav=bmCount>0||mCount>0
+  if(navUp)navUp.style.display=showNav?'':'none'
+  if(navDown)navDown.style.display=showNav?'':'none'
+  let suffix=''
+  if(bmCount>0)suffix=` · ${bmCount} bookmark${bmCount>1?'s':''}`
+  else if(mCount>0)suffix=` · ${mCount} match${mCount!==1?'es':''}`
   const info=document.getElementById('trace-filter-info')
-  if(info)info.textContent=infoText
+  if(info)info.textContent=infoText+suffix
   const showNums=displayLines.length<=80000
   const wrapper=document.createElement('div')
   wrapper.id='trace-file-wrap'
   wrapper.style.cssText='display:flex;flex-direction:column;overflow-x:auto;margin:8px 14px;padding:8px 0;background:#F8F8F7;border:1px solid #EDEBE9;border-radius:2px;'
-  const opts={searchTerms:vf._searchTerms||[],bookmarks:vf._bookmarks||null,onBookmarkToggle:traceToggleBookmark}
+  const opts={searchTerms:terms,bookmarks:vf._bookmarks||null,onBookmarkToggle:traceToggleBookmark}
   for(let i=0;i<displayLines.length;i+=_TRACE_CHUNK){wrapper.appendChild(traceCreateChunk(displayLines.slice(i,i+_TRACE_CHUNK),i,showNums,opts))}
   list.appendChild(wrapper)
   if(vf.offset<vf.fileSize)traceAddLoadMoreBtn(list,vf.fileSize)
@@ -2779,13 +2901,20 @@ function traceRenderFromLines(list,vf){
 function traceApplyFilter(){
   const vf=traceExplState?.viewingFile
   if(!vf)return
-  vf._filterFrom=document.getElementById('trace-filter-from')?.value?.trim()||null
-  vf._filterTo=document.getElementById('trace-filter-to')?.value?.trim()||null
+  const newFrom=document.getElementById('trace-filter-from')?.value?.trim()||null
+  const newTo=document.getElementById('trace-filter-to')?.value?.trim()||null
+  const timeFilterChanged=newFrom!==vf._filterFrom||newTo!==vf._filterTo
+  vf._filterFrom=newFrom
+  vf._filterTo=newTo
   const termsRaw=document.getElementById('trace-filter-terms')?.value?.trim()||''
   vf._searchTerms=termsRaw?termsRaw.split(',').map(t=>t.trim()).filter(Boolean):[]
   const btn=document.getElementById('trace-filter-btn')
   const hasFilter=vf._filterFrom||vf._filterTo||vf._searchTerms.length
   if(btn)btn.style.background=hasFilter?'#0078D4':'#fff',btn.style.color=hasFilter?'#fff':'#323130'
+  if(timeFilterChanged){
+    if(vf._bookmarks)vf._bookmarks.clear()
+    vf._bookmarkCursor=null
+  }
   const list=document.getElementById('trace-list')
   if(list)traceRenderFromLines(list,vf)
 }
@@ -2796,6 +2925,10 @@ function traceClearFilter(){
   vf._filterFrom=null
   vf._filterTo=null
   vf._searchTerms=[]
+  vf._termMatchLines=[]
+  vf._termMatchCursor=null
+  if(vf._bookmarks)vf._bookmarks.clear()
+  vf._bookmarkCursor=null
   const f=document.getElementById('trace-filter-from'),t=document.getElementById('trace-filter-to'),tr=document.getElementById('trace-filter-terms')
   if(f)f.value=''
   if(t)t.value=''
@@ -2810,37 +2943,48 @@ function traceToggleBookmark(absIdx){
   const vf=traceExplState?.viewingFile
   if(!vf||!vf._bookmarks)return
   if(vf._bookmarks.has(absIdx)){vf._bookmarks.delete(absIdx)}else{vf._bookmarks.add(absIdx)}
-  // update the specific line number div without re-rendering all chunks
   const d=document.querySelector(`[data-li="${absIdx}"]`)
   if(d){
     const marked=vf._bookmarks.has(absIdx)
     d.style.background=marked?'#0078D4':''
     d.style.color=marked?'#fff':'#A19F9D'
   }
-  const count=vf._bookmarks.size
+  const bmCount=vf._bookmarks.size
+  const mCount=vf._termMatchLines?.length||0
   const navUp=document.getElementById('trace-nav-up'),navDown=document.getElementById('trace-nav-down')
-  if(navUp)navUp.style.display=count>0?'':'none'
-  if(navDown)navDown.style.display=count>0?'':'none'
+  const showNav=bmCount>0||mCount>0
+  if(navUp)navUp.style.display=showNav?'':'none'
+  if(navDown)navDown.style.display=showNav?'':'none'
   const info=document.getElementById('trace-filter-info')
   if(info){
-    const base=info.textContent.replace(/ · \d+ bookmark[s]?/,'')
-    info.textContent=count>0?`${base} · ${count} bookmark${count>1?'s':''}`:base
+    const base=info.textContent.replace(/ · \d+ bookmark[s]?| · \d+ match(?:es)?/g,'')
+    let suffix=''
+    if(bmCount>0)suffix=` · ${bmCount} bookmark${bmCount>1?'s':''}`
+    else if(mCount>0)suffix=` · ${mCount} match${mCount!==1?'es':''}`
+    info.textContent=base+suffix
   }
   if(!vf._bookmarks.has(absIdx)&&vf._bookmarkCursor===absIdx)vf._bookmarkCursor=null
 }
 
 function traceBookmarkNav(dir){
   const vf=traceExplState?.viewingFile
-  if(!vf||!vf._bookmarks||vf._bookmarks.size===0)return
-  const sorted=[...vf._bookmarks].sort((a,b)=>a-b)
-  let idx
-  if(vf._bookmarkCursor==null){idx=dir>0?0:sorted.length-1}
-  else{
-    const cur=sorted.indexOf(vf._bookmarkCursor)
-    idx=cur<0?(dir>0?0:sorted.length-1):((cur+dir+sorted.length)%sorted.length)
+  if(!vf)return
+  const bmSize=vf._bookmarks?.size||0
+  const matchLines=vf._termMatchLines||[]
+  if(bmSize>0){
+    const sorted=[...vf._bookmarks].sort((a,b)=>a-b)
+    let idx
+    if(vf._bookmarkCursor==null){idx=dir>0?0:sorted.length-1}
+    else{const cur=sorted.indexOf(vf._bookmarkCursor);idx=cur<0?(dir>0?0:sorted.length-1):((cur+dir+sorted.length)%sorted.length)}
+    vf._bookmarkCursor=sorted[idx]
+    traceScrollToLine(vf._bookmarkCursor)
+  } else if(matchLines.length>0){
+    let idx
+    if(vf._termMatchCursor==null){idx=dir>0?0:matchLines.length-1}
+    else{const cur=matchLines.indexOf(vf._termMatchCursor);idx=cur<0?(dir>0?0:matchLines.length-1):((cur+dir+matchLines.length)%matchLines.length)}
+    vf._termMatchCursor=matchLines[idx]
+    traceScrollToLine(vf._termMatchCursor)
   }
-  vf._bookmarkCursor=sorted[idx]
-  traceScrollToLine(vf._bookmarkCursor)
 }
 
 function traceScrollToLine(absIdx){
@@ -3335,7 +3479,7 @@ async function loadHSIFolder(){
       // FSID fields unused but keep shape consistent
       loadedFiles:{}, loadedFolderName: dirHandle.name,
       versionHistoryHandle:null, configFileHandles:[], configRefHandles:{}, configRefData:{},
-      telemetryHandle:null, nsHistoryHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[],
+      telemetryHandle:null, nsHistoryHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[], rteDumpHdbFound:false,
       topoData:null
     }
     // Scan temp/ subfolder
@@ -3424,7 +3568,7 @@ async function loadHSIFolder(){
           type: 'fsid', hsiParentId: sid,  // link to parent HSI session
           loadedFiles:{}, loadedFolderName: name,
           versionHistoryHandle:null, configDirHandle:null, _configScanned:false, configFileHandles:[], configRefHandles:{}, configRefData:{},
-          telemetryHandle:null, nsHistoryHandles:[], availabilityHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[],
+          telemetryHandle:null, nsHistoryHandles:[], availabilityHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[], rteDumpHdbFound:false,
           hostsFileHandle:null, topoData:null, traceExplorerData:null
         }
         for await(const [fname, fh] of handle.entries()){

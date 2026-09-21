@@ -15,7 +15,7 @@ jobs:
       matrix:
         include:
           - platform: windows-latest
-            args: ''
+            args: '--no-bundle'
           - platform: macos-14
             args: '--target aarch64-apple-darwin'
 
@@ -53,16 +53,6 @@ jobs:
       - name: Build Tauri app
         run: npm run tauri build -- ${{ matrix.args }}
 
-      - name: Rename Windows installer
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
-        run: |
-          $ver = "${{ steps.ver.outputs.version }}"
-          $src = Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter "*x64-setup.exe" | Select-Object -First 1
-          if ($src) { Move-Item $src.FullName "HANA-Lens_${ver}_x64-setup.exe" }
-          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($msi) { Move-Item $msi.FullName "HANA-Lens_${ver}_x64.msi" }
-
       - name: Create Windows portable ZIP
         if: matrix.platform == 'windows-latest'
         shell: pwsh
@@ -70,7 +60,12 @@ jobs:
           $ver = "${{ steps.ver.outputs.version }}"
           $exe = "src-tauri/target/release/HANA-Lens.exe"
           if (Test-Path $exe) {
-            Compress-Archive -Path $exe -DestinationPath "HANA-Lens_${ver}_x64-portable.zip"
+            New-Item -ItemType Directory -Path "pkg" -Force | Out-Null
+            Copy-Item $exe "pkg\HANA-Lens.exe"
+            if (Test-Path "filter_pre-defined") { Copy-Item -Recurse "filter_pre-defined" "pkg\" }
+            if (Test-Path "filter_custom")     { Copy-Item -Recurse "filter_custom" "pkg\" }
+            Compress-Archive -Path "pkg\*" -DestinationPath "HANA-Lens_${ver}_x64-portable.zip"
+            Remove-Item -Recurse -Force "pkg"
           }
 
       - name: Rename macOS DMG
@@ -81,6 +76,20 @@ jobs:
           dmg=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -1)
           if [ -n "$dmg" ]; then mv "$dmg" "HANA-Lens_${ver}_aarch64.dmg"; fi
 
+      - name: Remove stale .exe and .msi release assets
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: |
+          tag="${{ steps.ver.outputs.version }}"
+          for ext in exe msi; do
+            assets=$(gh release view "$tag" --json assets -q ".assets[] | select(.name | endswith(\".$ext\")) | .name" 2>/dev/null || true)
+            for asset in $assets; do
+              gh release delete-asset "$tag" "$asset" --yes 2>/dev/null || true
+            done
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Upload release artifacts
         uses: softprops/action-gh-release@v2
         with:
@@ -89,9 +98,7 @@ jobs:
           draft: true
           prerelease: false
           files: |
-            HANA-Lens_*.exe
-            HANA-Lens_*.msi
-            HANA-Lens_*.zip
-            HANA-Lens_*.dmg
+            HANA-Lens_*_x64-portable.zip
+            HANA-Lens_*_aarch64.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

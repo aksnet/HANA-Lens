@@ -5,6 +5,7 @@ use serde::Serialize;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::time::UNIX_EPOCH;
+use tauri::Manager;
 
 #[derive(Serialize)]
 struct DirEntry {
@@ -79,6 +80,65 @@ fn entry_exists(path: String, kind: String) -> bool {
     if kind == "file" { p.is_file() } else { p.is_dir() }
 }
 
+// Open an http/https URL in the system default browser
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {    if !url.starts_with("https://") && !url.starts_with("http://") {
+        return Err("Only http/https URLs are supported".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("rundll32")
+            .args(["url.dll,FileProtocolHandler", url.as_str()])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(url.as_str())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+// Read .txt filter files from filter_pre-defined and filter_custom folders
+// Searches exe_dir (Windows portable) and resource_dir (macOS bundle)
+#[tauri::command]
+fn read_filter_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
+    use std::collections::HashSet;
+    let mut result: Vec<serde_json::Value> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut bases: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(p) = app.path().exe_dir() { bases.push(p); }
+    if let Ok(p) = app.path().resource_dir() { bases.push(p); }
+    for base in bases {
+        for folder in &["filter_pre-defined", "filter_custom"] {
+            let dir = base.join(folder);
+            let entries = match fs::read_dir(&dir) { Ok(e) => e, Err(_) => continue };
+            let mut folder_items: Vec<serde_json::Value> = Vec::new();
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase());
+                if ext.as_deref() != Some("txt") { continue; }
+                let stem = match path.file_stem().and_then(|s| s.to_str()) {
+                    Some(s) => s.to_string(), None => continue,
+                };
+                let key = format!("{}/{}", folder, stem);
+                if seen.contains(&key) { continue; }
+                seen.insert(key);
+                let content = fs::read_to_string(&path).unwrap_or_default().trim().to_string();
+                folder_items.push(serde_json::json!({
+                    "name": stem, "source": folder.to_string(), "content": content
+                }));
+            }
+            folder_items.sort_by(|a, b| a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or("")));
+            result.extend(folder_items);
+        }
+    }
+    result
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -88,6 +148,8 @@ fn main() {
             read_file_range,
             get_file_metadata,
             entry_exists,
+            open_external_url,
+            read_filter_files,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
