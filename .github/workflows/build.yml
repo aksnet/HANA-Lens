@@ -64,6 +64,7 @@ jobs:
             Copy-Item $exe "pkg\HANA-Lens.exe"
             if (Test-Path "filter_pre-defined") { Copy-Item -Recurse "filter_pre-defined" "pkg\" }
             if (Test-Path "filter_custom")     { Copy-Item -Recurse "filter_custom" "pkg\" }
+            if (Test-Path "SAP_HanaDumpAnalyzer") { Copy-Item -Recurse "SAP_HanaDumpAnalyzer" "pkg\" }
             Compress-Archive -Path "pkg\*" -DestinationPath "HANA-Lens_${ver}_x64-portable.zip"
             Remove-Item -Recurse -Force "pkg"
           }
@@ -75,10 +76,17 @@ jobs:
           ver="${{ steps.ver.outputs.version }}"
           app_path=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos -name "*.app" 2>/dev/null | head -1)
           if [ -n "$app_path" ]; then
-            mkdir -p "$app_path/Contents/Resources/filter_pre-defined"
-            cp filter_pre-defined/*.txt "$app_path/Contents/Resources/filter_pre-defined/" 2>/dev/null || true
-            hdiutil create -srcfolder "$app_path" -volname "HANA-Lens" -format UDZO \
+            tmp_dir=$(mktemp -d)
+            cp -r "$app_path" "$tmp_dir/"
+            tmp_app="$tmp_dir/$(basename "$app_path")"
+            mkdir -p "$tmp_app/Contents/Resources/filter_pre-defined"
+            cp filter_pre-defined/*.txt "$tmp_app/Contents/Resources/filter_pre-defined/" 2>/dev/null || true
+            if [ -d "SAP_HanaDumpAnalyzer" ]; then
+              cp -r SAP_HanaDumpAnalyzer "$tmp_app/Contents/Resources/"
+            fi
+            hdiutil create -srcfolder "$tmp_app" -volname "HANA-Lens" -format UDZO \
               -o "HANA-Lens_${ver}_aarch64.dmg"
+            rm -rf "$tmp_dir"
           fi
 
       - name: Remove stale .exe and .msi release assets
