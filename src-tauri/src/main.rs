@@ -103,7 +103,7 @@ fn open_external_url(url: String) -> Result<(), String> {    if !url.starts_with
 }
 
 // Read .txt filter files from filter_pre-defined and filter_custom folders
-// Search order: exe_dir (Windows portable, next to .exe), resource_dir (macOS .app bundle),
+// Search order: executable_dir (Windows portable, next to .exe), resource_dir (macOS .app bundle),
 //               app_data_dir (user-writable: %APPDATA%\com.sap.hana-lens\ / ~/Library/Application Support/com.sap.hana-lens/)
 #[tauri::command]
 fn read_filter_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
@@ -111,7 +111,7 @@ fn read_filter_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
     let mut result: Vec<serde_json::Value> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     let mut bases: Vec<std::path::PathBuf> = Vec::new();
-    if let Ok(p) = app.path().exe_dir() { bases.push(p); }
+    if let Ok(p) = app.path().executable_dir() { bases.push(p); }
     if let Ok(p) = app.path().resource_dir() { bases.push(p); }
     if let Ok(p) = app.path().app_data_dir() { bases.push(p); }
     for base in bases {
