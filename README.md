@@ -29,10 +29,8 @@ Go to the [Releases](../../releases) page and download the latest version.
 | File | Description |
 |---|---|
 | `HANA-Lens_YYYY_MM_DD_vv_x64-portable.zip` | **Portable** — extract and run, no installation needed |
-| `HANA-Lens_YYYY_MM_DD_vv_x64-setup.exe` | Installer (NSIS) |
-| `HANA-Lens_YYYY_MM_DD_vv_x64.msi` | MSI installer |
 
-**Portable usage:** Extract the ZIP, double-click `HANA-Lens.exe`. No installation or additional software required. WebView2 is pre-installed on all Windows 11 systems (ships with Microsoft Edge).
+**Usage:** Extract the ZIP, double-click `HANA-Lens.exe`. No installation or additional software required. WebView2 is pre-installed on all Windows 11 systems (ships with Microsoft Edge).
 
 ### macOS (Apple Silicon)
 
@@ -88,3 +86,30 @@ Open `/Applications` and double-click `HANA-Lens.app`. It will now launch withou
 |---|---|
 | Windows | Windows 10/11 x64, WebView2 (included with Edge) |
 | macOS | macOS 12+, Apple Silicon (M1/M2/M3) |
+
+---
+
+## Filter Presets
+
+The Trace Explorer filter bar includes a preset dropdown that loads search term templates from `.txt` files.
+
+### Pre-defined filters (read-only, shipped with the app)
+
+Pre-defined filters are bundled inside the application and cannot be modified by users.
+
+### Custom filters (user-editable)
+
+Place your own `.txt` files in the `filter_custom` folder. Each file becomes one entry in the dropdown — the file name (without `.txt`) is shown as the label, and the file content is loaded into the search field when selected.
+
+**Windows (portable):** Place `filter_custom/` next to `HANA-Lens.exe` in the extracted ZIP folder.
+
+**macOS:** Place `filter_custom/` in the app data directory:
+```
+~/Library/Application Support/com.sap.hana-lens/filter_custom/
+```
+
+A `.txt` file contains comma-separated search terms, one set per file. Example (`replication.txt`):
+```
+SAPHanaReplication, replication error, log shipping
+```
+

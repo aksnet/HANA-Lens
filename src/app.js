@@ -2077,7 +2077,7 @@ async function activateNav(clickedItem,panelKey){
       wrap.innerHTML='<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No <strong>config</strong> directory found at <code>SYS/global/hdb/custom/config/</code>.</span></div>'
       return
     }
-    if(!s.configViewMode) s.configViewMode='pure'
+    if(!s.configViewMode) s.configViewMode='explained'
     // If already loaded, render directly
     if(s.configFileHandles.length){
       wrap.innerHTML='<div style="color:#A19F9D;font-size:12px;">Loading…</div>'
@@ -3084,8 +3084,8 @@ async function renderConfigContent(s, wrap){
   const parts=[]
   parts.push(`<div style="margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
     <div style="display:flex;border:1px solid #EDEBE9;border-radius:2px;overflow:hidden;">
-      <button onclick="configToggleView('pure')" style="${btnStyle(mode==='pure')}">Pure</button>
-      <button onclick="configToggleView('explained')" style="${btnStyle(mode==='explained')}border-left:1px solid #EDEBE9;">Explained</button>
+      <button onclick="configToggleView('explained')" style="${btnStyle(mode==='explained')}">Explained</button>
+      <button onclick="configToggleView('pure')" style="${btnStyle(mode==='pure')}border-left:1px solid #EDEBE9;">Pure</button>
     </div>
     ${mode==='explained'&&hasRef?`<span style="font-size:12px;color:#605E5C;">📚 <a href="https://help.sap.com/docs/SAP_HANA_PLATFORM/009e68bc5f3c440cb31823a3ec4bb95b/4b4d88980622427ab2d6ca8c05448166.html?locale=en-US" target="_blank" style="color:#0078D4;text-decoration:underline;">SAP HANA Parameter Reference</a>${tenantHint}</span>`:''}
   </div>`)
@@ -3169,7 +3169,7 @@ async function configPickFolder(){
     wrap.innerHTML='<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No <strong>.ini files</strong> found in the selected folder.</span></div>'
     return
   }
-  if(!s.configViewMode) s.configViewMode='pure'
+  if(!s.configViewMode) s.configViewMode='explained'
   await renderConfigContent(s,wrap)
 }
 
@@ -3835,14 +3835,14 @@ async function activateHsiTab(sid, tabId, subTabFile){
     }
     s.configRefData = s.hsiConfigData.parsedRef
     const hasRef = Object.keys(s.hsiConfigData.parsedRef).length > 0
-    if(!s.configViewMode) s.configViewMode='pure'
+    if(!s.configViewMode) s.configViewMode='explained'
     const mode = s.configViewMode
     const btnStyle=(active)=>`padding:5px 14px;border:none;background:${active?'#0078D4':'#fff'};color:${active?'#fff':'#323130'};cursor:pointer;font-family:inherit;font-size:12px;`
     const parts=[]
     parts.push(`<div style="margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
     <div style="display:flex;border:1px solid #EDEBE9;border-radius:2px;overflow:hidden;">
-      <button onclick="hsiConfigToggleView('pure','${sid}','${tabId}','${escHtml(dbName)}')" style="${btnStyle(mode==='pure')}">Pure</button>
-      <button onclick="hsiConfigToggleView('explained','${sid}','${tabId}','${escHtml(dbName)}')" style="${btnStyle(mode==='explained')}border-left:1px solid #EDEBE9;">Explained</button>
+      <button onclick="hsiConfigToggleView('explained','${sid}','${tabId}','${escHtml(dbName)}')" style="${btnStyle(mode==='explained')}">Explained</button>
+      <button onclick="hsiConfigToggleView('pure','${sid}','${tabId}','${escHtml(dbName)}')" style="${btnStyle(mode==='pure')}border-left:1px solid #EDEBE9;">Pure</button>
     </div>
     ${mode==='explained'&&hasRef?`<span style="font-size:12px;color:#605E5C;">📚 <a href="https://help.sap.com/docs/SAP_HANA_PLATFORM/009e68bc5f3c440cb31823a3ec4bb95b/4b4d88980622427ab2d6ca8c05448166.html?locale=en-US" target="_blank" style="color:#0078D4;text-decoration:underline;">SAP HANA Parameter Reference</a></span>`:''}
   </div>`)

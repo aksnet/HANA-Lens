@@ -178,4 +178,16 @@
   window.TauriFileHandle = TauriFileHandle
   window.CombinedFileHandle = CombinedFileHandle
 
+  // ── External link handler ────────────────────────────────────────────────────
+  // WebView2/WebKit does not open target="_blank" links in the system browser.
+  // Intercept all http/https link clicks and route them through the Rust command.
+  document.addEventListener('click', e => {
+    const a = e.target.closest('a[href]')
+    if(!a) return
+    const href = a.href
+    if(!href || (!href.startsWith('http://') && !href.startsWith('https://'))) return
+    e.preventDefault()
+    invoke('open_external_url', { url: href }).catch(() => {})
+  }, true)
+
 })();

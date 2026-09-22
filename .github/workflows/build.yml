@@ -68,13 +68,18 @@ jobs:
             Remove-Item -Recurse -Force "pkg"
           }
 
-      - name: Rename macOS DMG
+      - name: Package macOS DMG
         if: matrix.platform == 'macos-14'
         shell: bash
         run: |
           ver="${{ steps.ver.outputs.version }}"
-          dmg=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -1)
-          if [ -n "$dmg" ]; then mv "$dmg" "HANA-Lens_${ver}_aarch64.dmg"; fi
+          app_path=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos -name "*.app" 2>/dev/null | head -1)
+          if [ -n "$app_path" ]; then
+            mkdir -p "$app_path/Contents/Resources/filter_pre-defined"
+            cp filter_pre-defined/*.txt "$app_path/Contents/Resources/filter_pre-defined/" 2>/dev/null || true
+            hdiutil create -srcfolder "$app_path" -volname "HANA-Lens" -format UDZO \
+              -o "HANA-Lens_${ver}_aarch64.dmg"
+          fi
 
       - name: Remove stale .exe and .msi release assets
         if: matrix.platform == 'windows-latest'
