@@ -936,7 +936,7 @@ function renderRteDumps(dumps,scannedPaths){
       </td></tr>`
     }
 
-    html+=`<tr style="cursor:pointer;" onclick="rteDumpOpenTab(${d._idx})" title="Click to open dump in new tab">
+    html+=`<tr style="cursor:pointer;" onclick="rteDumpOpenTab(${d._idx})" oncontextmenu="event.preventDefault();showRteCtxMenu(${d._idx},event.clientX,event.clientY)" title="Click to open dump in new tab">
       <td><span class="mono">${escHtml(dtDisplay)}</span></td>
       <td>${tag('tag-cyan',d.serviceName)}</td>
       <td><span class="mono">${escHtml(d.virtualHost)}</span></td>
@@ -1631,6 +1631,7 @@ let _lastPickedHandle = null  // last FileSystemHandle used in any picker — pa
 
 // ── ctx-menu state ─────────────────────────────────────────────────────────
 let ctxTargetId = null
+let _rteCtxIdx = null
 
 // ── back-compat: these globals point into the active session ───────────────
 function sess(id){ return fsidSessions.find(s=>s.id===id)||null }
@@ -1874,8 +1875,8 @@ document.addEventListener('DOMContentLoaded',()=>{
     reader.readAsText(file)
     this.value=''
   })
-  // close context menu on outside click
-  document.addEventListener('click',()=>hideFsidCtxMenu())
+  // close context menus on outside click
+  document.addEventListener('click',()=>{hideFsidCtxMenu();hideRteCtxMenu()})
 })
 
 // ── Nav Tree (Multi-FSID accordion) ──────────────────────────────────────
@@ -2004,6 +2005,34 @@ function showFsidCtxMenu(sid,x,y){
 function hideFsidCtxMenu(){
   document.getElementById('fsid-ctx-menu').style.display='none'
   ctxTargetId=null
+}
+function showRteCtxMenu(idx,x,y){
+  _rteCtxIdx=idx
+  const m=document.getElementById('rte-ctx-menu')
+  m.style.display='block'
+  m.style.left=x+'px'
+  m.style.top=y+'px'
+  requestAnimationFrame(()=>{
+    const r=m.getBoundingClientRect()
+    if(r.right>window.innerWidth)m.style.left=(x-r.width)+'px'
+    if(r.bottom>window.innerHeight)m.style.top=(y-r.height)+'px'
+  })
+}
+function hideRteCtxMenu(){
+  const m=document.getElementById('rte-ctx-menu')
+  if(m)m.style.display='none'
+  _rteCtxIdx=null
+}
+function rteDumpOpenInAnalyzer(){
+  hideRteCtxMenu()
+  const d=rteDumpHandles[_rteCtxIdx]
+  if(!d)return
+  const path=d.handle?._path
+  if(!path){alert('File path not available.');return}
+  if(window.__TAURI__?.core?.invoke){
+    window.__TAURI__.core.invoke('open_in_dump_analyzer',{dumpPath:path})
+      .catch(e=>alert('Could not start HanaDumpAnalyzer:\n'+e))
+  }
 }
 function fsidCtxRename(){
   const s=sess(ctxTargetId);if(!s){hideFsidCtxMenu();return}
@@ -2888,7 +2917,7 @@ function traceRenderFromLines(list,vf){
   else if(mCount>0)suffix=` · ${mCount} match${mCount!==1?'es':''}`
   const info=document.getElementById('trace-filter-info')
   if(info)info.textContent=infoText+suffix
-  const showNums=displayLines.length<=80000
+  const showNums=true
   const wrapper=document.createElement('div')
   wrapper.id='trace-file-wrap'
   wrapper.style.cssText='display:flex;flex-direction:column;overflow-x:auto;margin:8px 14px;padding:8px 0;background:#F8F8F7;border:1px solid #EDEBE9;border-radius:2px;'
@@ -3027,7 +3056,7 @@ async function traceAppendChunk(){
       if(list)traceRenderFromLines(list,vf)
     } else {
       const wrap=document.getElementById('trace-file-wrap')
-      const showNums=vf._lines.length<=80000
+      const showNums=true
       const opts={searchTerms:vf._searchTerms||[],bookmarks:vf._bookmarks||null,onBookmarkToggle:traceToggleBookmark}
       if(wrap){for(let s=0;s<safeLines.length;s+=_TRACE_CHUNK){wrap.appendChild(traceCreateChunk(safeLines.slice(s,s+_TRACE_CHUNK),prevCount+s,showNums,opts))}}
       const info=document.getElementById('trace-filter-info')
@@ -3038,7 +3067,11 @@ async function traceAppendChunk(){
         else{btn.disabled=false;btn.textContent=`Load next 25 MB  (${formatBytes(file.size-end)} remaining)`}
       }
     }
-  }catch(e){}
+  }catch(e){
+    const btn=document.getElementById('trace-load-more-btn')
+    if(btn){btn.disabled=false;btn.textContent='⚠️ Load failed — click to retry';btn.style.borderColor='#CF1322';btn.style.color='#CF1322'}
+    console.error('traceAppendChunk error:',e)
+  }
 }
 
 async function scanConfigDir(s){

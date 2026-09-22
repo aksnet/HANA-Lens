@@ -53,11 +53,11 @@ fn read_text_file(path: String) -> Result<String, String> {
 // Read a byte range from a file and return as UTF-8 text (for chunked trace file viewing)
 #[tauri::command]
 fn read_file_range(path: String, offset: u64, length: u64) -> Result<String, String> {
+    use std::io::Read;
     let mut file = fs::File::open(&path).map_err(|e| e.to_string())?;
     file.seek(SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
-    let mut buf = vec![0u8; length as usize];
-    let n = file.read(&mut buf).map_err(|e| e.to_string())?;
-    buf.truncate(n);
+    let mut buf = Vec::with_capacity(length as usize);
+    file.take(length).read_to_end(&mut buf).map_err(|e| e.to_string())?;
     Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 
@@ -141,6 +141,24 @@ fn read_filter_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
     result
 }
 
+#[tauri::command]
+fn open_in_dump_analyzer(app: tauri::AppHandle, dump_path: String) -> Result<(), String> {
+    let mut bases: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(p) = app.path().executable_dir() { bases.push(p); }
+    if let Ok(p) = app.path().resource_dir() { bases.push(p); }
+    if let Ok(p) = app.path().app_data_dir() { bases.push(p); }
+    let jar = bases.iter()
+        .map(|b| b.join("SAP_HanaDumpAnalyzer").join("HanaDumpAnalyzer.jar"))
+        .find(|p| p.exists())
+        .ok_or_else(|| "HanaDumpAnalyzer.jar not found in SAP_HanaDumpAnalyzer/".to_string())?;
+    std::process::Command::new("java")
+        .arg("-jar").arg(&jar)
+        .arg("-s").arg(&dump_path)
+        .spawn()
+        .map_err(|e| format!("Failed to start java: {}", e))?;
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -152,6 +170,7 @@ fn main() {
             entry_exists,
             open_external_url,
             read_filter_files,
+            open_in_dump_analyzer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -186,6 +186,7 @@
     if(!a) return
     const href = a.href
     if(!href || (!href.startsWith('http://') && !href.startsWith('https://'))) return
+    try { if(new URL(href).hostname === 'tauri.localhost') return } catch(e) {}
     e.preventDefault()
     invoke('open_external_url', { url: href }).catch(() => {})
   }, true)
