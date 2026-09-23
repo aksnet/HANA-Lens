@@ -2353,7 +2353,7 @@ function traceGroupCombinedFiles(entries){
   const groups=new Map()
   const result=[]
   for(const e of entries){
-    if(e.isDir||e.name.includes('.rtedump.')){result.push(e);continue}
+    if(e.isDir){result.push(e);continue}
     const m=e.name.match(pattern)
     if(!m){result.push(e);continue}
     const base=m[1], seq=parseInt(m[2],10), ext=m[3].toLowerCase()
@@ -2513,7 +2513,8 @@ function traceRenderDirList(){
   list.appendChild(hdr)
 
   // sort: dirs always first, then files; apply combined-file grouping to files
-  const rawFiles=traceExplState.entries.filter(e=>!e.isDir)
+  // .rtedump. files are already shown in Runtime Dumps panel — hide them here
+  const rawFiles=traceExplState.entries.filter(e=>!e.isDir&&!e.name.includes('.rtedump.'))
   const groupedFiles=traceGroupCombinedFiles(rawFiles)
   const sorted=[
     ...[...traceExplState.entries.filter(e=>e.isDir)].sort((a,b)=>traceSortCmp(a,b,sc,sd)),
@@ -3515,6 +3516,7 @@ async function loadHSIFolder(){
       hsiCustomConfig: [], // ['90_DB_X.log', ...]
       hsiMeta: {},         // { sid, hostname, version, kba, runDate }
       hsiConfigData: null, // { databases:[{name,iniHandles}], refHandles:{}, parsedRef:null } from Configuration/
+      hsiLcmLogsData: null, // { tools:[{name, flatFiles:[{name,handle}], opFolders:[{name,files:[{name,handle}]}]}] }
       hsiDirHandle: dirHandle,
       // FSID fields unused but keep shape consistent
       loadedFiles:{}, loadedFolderName: dirHandle.name,
@@ -3678,6 +3680,30 @@ async function loadHSIFolder(){
       }
     }catch(e){} // no FSIDs folder — fine
 
+    // Scan lcm-logs/ subfolder
+    try{
+      const lcmRoot = await dirHandle.getDirectoryHandle('lcm-logs')
+      const lcmData = {tools:[]}
+      for await(const [tname,thandle] of lcmRoot.entries()){
+        if(thandle.kind!=='directory') continue
+        const tool={name:tname,handle:thandle,flatFiles:[],opFolders:[]}
+        for await(const [fname,fhandle] of thandle.entries()){
+          if(fhandle.kind==='file') tool.flatFiles.push({name:fname,handle:fhandle})
+          else if(fhandle.kind==='directory'){
+            const opFiles=[]
+            try{for await(const [ofname,ofhandle] of fhandle.entries()){if(ofhandle.kind==='file')opFiles.push({name:ofname,handle:ofhandle})}}catch(e){}
+            opFiles.sort((a,b)=>a.name.localeCompare(b.name))
+            tool.opFolders.push({name:fname,handle:fhandle,files:opFiles})
+          }
+        }
+        tool.flatFiles.sort((a,b)=>a.name.localeCompare(b.name))
+        tool.opFolders.sort((a,b)=>b.name.localeCompare(a.name)) // newest first
+        lcmData.tools.push(tool)
+      }
+      lcmData.tools.sort((a,b)=>a.name.localeCompare(b.name))
+      if(lcmData.tools.length) s.hsiLcmLogsData=lcmData
+    }catch(e){}
+
     renderNavTree()
     // auto-navigate to first tab
     const firstTab = hsiGetTabList(s)[0]
@@ -3717,6 +3743,8 @@ function hsiGetTabList(s){
       tabs.push({id:'file-'+item, label:clean, type:'file', file:item})
     }
   }
+  if(s.hsiLcmLogsData && s.hsiLcmLogsData.tools.length)
+    tabs.push({id:'lcm-logs', label:'LCM Logs', type:'lcm-logs'})
   return tabs
 }
 
@@ -3832,6 +3860,12 @@ async function activateHsiTab(sid, tabId, subTabFile){
 
   panel.innerHTML = ''
 
+  // ── LCM Logs panel ────────────────────────────────────────────────────────
+  if(tab.type==='lcm-logs'){
+    lcmRenderPanel(panel, s, sid, tabId, subTabFile)
+    return
+  }
+
   // ── Subtab bar (for groups and hsi-config) ───────────────────────────────
   let activeSubFile = subTabFile
   if(tab.type==='group' || tab.type==='hsi-config'){
@@ -3936,6 +3970,94 @@ async function activateHsiTab(sid, tabId, subTabFile){
     }
   }catch(e){
     contentArea.innerHTML = `<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`
+  }
+}
+
+// ─── LCM Logs helpers ────────────────────────────────────────────────────────
+
+let _lcmFileHandles=[]
+
+function lcmFileIcon(name){
+  const ext=name.split('.').pop().toLowerCase()
+  if(ext==='log')return '📋'
+  if(ext==='trc')return '📄'
+  if(ext==='xml')return '📑'
+  if(ext==='cfg')return '⚙️'
+  return '📄'
+}
+
+function lcmRenderPanel(panel,s,sid,tabId,subTabFile){
+  const lcm=s.hsiLcmLogsData
+  if(!lcm||!lcm.tools.length){
+    const ca=document.createElement('div');ca.className='hsi-content-area'
+    ca.innerHTML='<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No lcm-logs data found.</span></div>'
+    panel.appendChild(ca);return
+  }
+  const stBar=document.createElement('div')
+  stBar.className='hsi-subtab-bar'
+  const activeTool=subTabFile||lcm.tools[0].name
+  lcm.tools.forEach(t=>{
+    const btn=document.createElement('button')
+    btn.className='hsi-subtab-btn'+(t.name===activeTool?' active':'')
+    btn.textContent=t.name
+    btn.onclick=()=>activateHsiTab(sid,tabId,t.name)
+    stBar.appendChild(btn)
+  })
+  panel.appendChild(stBar)
+  const ca=document.createElement('div');ca.className='hsi-content-area'
+  panel.appendChild(ca)
+  const tool=lcm.tools.find(t=>t.name===activeTool)
+  if(tool) lcmRenderToolView(ca,tool)
+}
+
+function lcmRenderToolView(container,tool){
+  _lcmFileHandles=[]
+  const parts=[]
+  if(tool.opFolders.length){
+    parts.push('<div class="lcm-section-hdr">Operations</div>')
+    tool.opFolders.forEach(op=>{
+      const label=op.name
+        .replace(/^hdb_[^_]+_/,'')
+        .replace(/_(\d{4}-\d{2}-\d{2})_(\d{2})\.(\d{2})\.(\d{2})$/,' · $1 $2:$3')
+        .replace(/_/g,' ')
+      const fileRows=op.files.map(f=>{
+        const idx=_lcmFileHandles.push({handle:f.handle,name:f.name})-1
+        return `<div class="lcm-file-item" onclick="lcmOpenFile(${idx})"><span class="lcm-file-icon">${lcmFileIcon(f.name)}</span>${escHtml(f.name)}</div>`
+      }).join('')
+      parts.push(`<div class="lcm-op-folder open">
+        <div class="lcm-op-header" onclick="this.closest('.lcm-op-folder').classList.toggle('open')"><span class="lcm-op-arrow">▶</span><span>📁 ${escHtml(label)}</span></div>
+        <div class="lcm-op-files">${fileRows||'<div style="padding:6px 16px;color:#A19F9D;font-size:11px;">Empty</div>'}</div>
+      </div>`)
+    })
+  }
+  if(tool.flatFiles.length){
+    parts.push('<div class="lcm-section-hdr">Files</div>')
+    tool.flatFiles.forEach(f=>{
+      const idx=_lcmFileHandles.push({handle:f.handle,name:f.name})-1
+      parts.push(`<div class="lcm-file-item" onclick="lcmOpenFile(${idx})"><span class="lcm-file-icon">${lcmFileIcon(f.name)}</span>${escHtml(f.name)}</div>`)
+    })
+  }
+  container.innerHTML=parts.join('')||'<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No files found.</span></div>'
+}
+
+async function lcmOpenFile(idx){
+  const entry=_lcmFileHandles[idx]
+  if(!entry)return
+  const panel=document.getElementById('panel-hsi')
+  const ca=panel.querySelector('.hsi-content-area')
+  if(!ca)return
+  ca.innerHTML='<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
+  try{
+    const f=await entry.handle.getFile()
+    const txt=await f.text()
+    const ext=entry.name.split('.').pop().toLowerCase()
+    if(ext==='log'){
+      ca.innerHTML=renderHsiFile(txt,entry.name)
+    } else {
+      ca.innerHTML=`<pre style="margin:0;padding:12px;font-family:Consolas,monospace;font-size:11px;line-height:1.5;white-space:pre-wrap;color:#323130;">${escHtml(txt)}</pre>`
+    }
+  }catch(e){
+    ca.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`
   }
 }
 
