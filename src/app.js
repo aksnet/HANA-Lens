@@ -2024,14 +2024,18 @@ function hideRteCtxMenu(){
   _rteCtxIdx=null
 }
 function rteDumpOpenInAnalyzer(){
+  const idx=_rteCtxIdx
   hideRteCtxMenu()
-  const d=rteDumpHandles[_rteCtxIdx]
-  if(!d)return
+  const d=rteDumpHandles[idx]
+  if(!d){console.error('rteDumpOpenInAnalyzer: no handle for idx',idx);return}
   const path=d.handle?._path
   if(!path){alert('File path not available.');return}
+  console.log('Opening in HanaDumpAnalyzer:',path)
   if(window.__TAURI__?.core?.invoke){
     window.__TAURI__.core.invoke('open_in_dump_analyzer',{dumpPath:path})
       .catch(e=>alert('Could not start HanaDumpAnalyzer:\n'+e))
+  } else {
+    alert('Tauri not available.')
   }
 }
 function fsidCtxRename(){
@@ -3069,8 +3073,11 @@ async function traceAppendChunk(){
     }
   }catch(e){
     const btn=document.getElementById('trace-load-more-btn')
-    if(btn){btn.disabled=false;btn.textContent='⚠️ Load failed — click to retry';btn.style.borderColor='#CF1322';btn.style.color='#CF1322'}
+    const msg=String(e?.message||e||'unknown error')
+    if(btn){btn.disabled=false;btn.textContent='⚠️ Load failed — click to retry';btn.title=msg;btn.style.borderColor='#CF1322';btn.style.color='#CF1322'}
     console.error('traceAppendChunk error:',e)
+    const info=document.getElementById('trace-filter-info')
+    if(info)info.textContent='Load error: '+msg
   }
 }
 
