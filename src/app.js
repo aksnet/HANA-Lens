@@ -3517,6 +3517,7 @@ async function loadHSIFolder(){
       hsiMeta: {},         // { sid, hostname, version, kba, runDate }
       hsiConfigData: null, // { databases:[{name,iniHandles}], refHandles:{}, parsedRef:null } from Configuration/
       hsiLcmLogsData: null, // { tools:[{name, flatFiles:[{name,handle}], opFolders:[{name,files:[{name,handle}]}]}] }
+      hsiZipFsids: [],      // [{name}] — ZIP files found in FSIDs/ that need extraction
       hsiDirHandle: dirHandle,
       // FSID fields unused but keep shape consistent
       loadedFiles:{}, loadedFolderName: dirHandle.name,
@@ -3601,7 +3602,11 @@ async function loadHSIFolder(){
     try{
       const fsidsDir = await dirHandle.getDirectoryHandle('FSIDs')
       for await(const [name, handle] of fsidsDir.entries()){
-        if(handle.kind !== 'directory') continue
+        if(handle.kind !== 'directory'){
+          // Collect ZIP archives for display in the nav (needs manual extraction)
+          if(/\.(zip|tar\.gz|tar|gz)$/i.test(name)) s.hsiZipFsids.push({name})
+          continue
+        }
         // treat each subfolder as an FSID dump
         const childSid = newSessionId()
         const childColor = s.color  // same color as parent HSI
@@ -3776,7 +3781,8 @@ function buildHsiNavGroup(s){
 
   // ── Child FSID sessions (from FSIDs/ subfolder) ──────────────────────────
   const childFsids = fsidSessions.filter(cs => cs.hsiParentId === s.id)
-  if(childFsids.length){
+  const zipFsids = s.hsiZipFsids || []
+  if(childFsids.length || zipFsids.length){
     const sep = document.createElement('div')
     sep.style.cssText = 'margin:4px 10px 2px 10px;border-top:1px solid #EDEBE9;font-size:10px;font-weight:600;color:#A19F9D;text-transform:uppercase;letter-spacing:0.5px;padding-top:4px;'
     sep.textContent = 'FSIDs'
@@ -3821,6 +3827,15 @@ function buildHsiNavGroup(s){
       }
       childGrp.appendChild(childChildren)
       children.appendChild(childGrp)
+    }
+    // ZIP files that still need extraction
+    for(const z of zipFsids){
+      const zipItem = document.createElement('div')
+      zipItem.className = 'fsid-sub-item'
+      zipItem.style.paddingLeft = '20px'
+      zipItem.innerHTML = `<span style="font-size:12px;">🗜️</span><span style="color:#A19F9D;">${escHtml(z.name)}</span>`
+      zipItem.onclick = () => showFsidZipInfo(z.name, s.label)
+      children.appendChild(zipItem)
     }
   }
 
@@ -4007,10 +4022,10 @@ function lcmRenderPanel(panel,s,sid,tabId,subTabFile){
   const ca=document.createElement('div');ca.className='hsi-content-area'
   panel.appendChild(ca)
   const tool=lcm.tools.find(t=>t.name===activeTool)
-  if(tool) lcmRenderToolView(ca,tool)
+  if(tool) lcmRenderToolView(ca,tool,sid)
 }
 
-function lcmRenderToolView(container,tool){
+function lcmRenderToolView(container,tool,sid){
   _lcmFileHandles=[]
   const parts=[]
   if(tool.opFolders.length){
@@ -4021,7 +4036,7 @@ function lcmRenderToolView(container,tool){
         .replace(/_(\d{4}-\d{2}-\d{2})_(\d{2})\.(\d{2})\.(\d{2})$/,' · $1 $2:$3')
         .replace(/_/g,' ')
       const fileRows=op.files.map(f=>{
-        const idx=_lcmFileHandles.push({handle:f.handle,name:f.name})-1
+        const idx=_lcmFileHandles.push({handle:f.handle,name:f.name,sid,toolName:tool.name,toolHandle:tool.handle,stackFrame:{name:op.name,handle:op.handle}})-1
         return `<div class="lcm-file-item" onclick="lcmOpenFile(${idx})"><span class="lcm-file-icon">${lcmFileIcon(f.name)}</span>${escHtml(f.name)}</div>`
       }).join('')
       parts.push(`<div class="lcm-op-folder open">
@@ -4033,7 +4048,7 @@ function lcmRenderToolView(container,tool){
   if(tool.flatFiles.length){
     parts.push('<div class="lcm-section-hdr">Files</div>')
     tool.flatFiles.forEach(f=>{
-      const idx=_lcmFileHandles.push({handle:f.handle,name:f.name})-1
+      const idx=_lcmFileHandles.push({handle:f.handle,name:f.name,sid,toolName:tool.name,toolHandle:tool.handle,stackFrame:null})-1
       parts.push(`<div class="lcm-file-item" onclick="lcmOpenFile(${idx})"><span class="lcm-file-icon">${lcmFileIcon(f.name)}</span>${escHtml(f.name)}</div>`)
     })
   }
@@ -4043,22 +4058,40 @@ function lcmRenderToolView(container,tool){
 async function lcmOpenFile(idx){
   const entry=_lcmFileHandles[idx]
   if(!entry)return
-  const panel=document.getElementById('panel-hsi')
-  const ca=panel.querySelector('.hsi-content-area')
-  if(!ca)return
-  ca.innerHTML='<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
-  try{
-    const f=await entry.handle.getFile()
-    const txt=await f.text()
-    const ext=entry.name.split('.').pop().toLowerCase()
-    if(ext==='log'){
-      ca.innerHTML=renderHsiFile(txt,entry.name)
-    } else {
-      ca.innerHTML=`<pre style="margin:0;padding:12px;font-family:Consolas,monospace;font-size:11px;line-height:1.5;white-space:pre-wrap;color:#323130;">${escHtml(txt)}</pre>`
-    }
-  }catch(e){
-    ca.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`
+  const s=sess(entry.sid)
+  if(!s)return
+  // Synthetic traceExplorerData pointing to the lcm tool folder
+  s.traceExplorerData={instanceDir:'lcm-logs',servers:[{name:entry.toolName,handle:entry.toolHandle}]}
+  // Pre-set traceExplState with viewingFile so traceLoadDir() calls traceShowFileView()
+  const stack=entry.stackFrame?[entry.stackFrame]:[]
+  s.traceExplState={
+    sid:s.id,serverIdx:0,stack,entries:[],
+    viewingFile:{name:entry.name,handle:entry.handle,isDir:false,size:null,lastModified:null},
+    sortCol:'name',sortDir:'asc',scrollTop:0
   }
+  activeFsidId=s.id
+  activateNav(null,'traceexplorer')
+}
+
+function showFsidZipInfo(zipName, hsiLabel){
+  // Show panel-hsi with an extraction hint for this ZIP
+  document.getElementById('empty').style.display = 'none'
+  document.querySelectorAll('.content-panel').forEach(p=>{p.classList.remove('active');p.style.display=''})
+  const panel = document.getElementById('panel-hsi')
+  panel.classList.add('active')
+  panel.style.display = 'flex'
+  panel.innerHTML = `<div class="hsi-content-area" style="display:flex;align-items:center;justify-content:center;">
+    <div style="max-width:480px;text-align:center;">
+      <div style="font-size:40px;margin-bottom:12px;">🗜️</div>
+      <div style="font-size:15px;font-weight:600;color:#323130;margin-bottom:10px;">${escHtml(zipName)}</div>
+      <div style="font-size:13px;color:#605E5C;line-height:1.6;margin-bottom:18px;">
+        Dieses FSID liegt als ZIP-Archiv vor und kann nicht direkt geladen werden.<br>
+        Bitte das Archiv im Ordner <code style="font-size:11px;background:#F3F2F1;padding:1px 5px;border-radius:2px;">FSIDs/</code> des HSI entpacken,
+        dann das HSI erneut über <strong>Load HSI / NETTEST</strong> öffnen.
+      </div>
+      <div style="font-size:11px;color:#A19F9D;">📂 ${escHtml(hsiLabel)} › FSIDs › ${escHtml(zipName)}</div>
+    </div>
+  </div>`
 }
 
 function showNetworkJoulePrompt(rawText){
