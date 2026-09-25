@@ -116,6 +116,27 @@ fn open_external_url(url: String) -> Result<(), String> {    if !url.starts_with
     Ok(())
 }
 
+// Open a folder path in Windows Explorer / macOS Finder
+#[tauri::command]
+fn open_folder(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let win_path = path.replace('/', "\\");
+        std::process::Command::new("explorer")
+            .arg(&win_path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 // Read .txt filter files from filter_pre-defined and filter_custom folders
 // Search order: executable_dir (Windows portable, next to .exe), resource_dir (macOS .app bundle),
 //               app_data_dir (user-writable: %APPDATA%\com.sap.hana-lens\ / ~/Library/Application Support/com.sap.hana-lens/)
@@ -184,6 +205,7 @@ fn main() {
             entry_exists,
             path_accessible,
             open_external_url,
+            open_folder,
             read_filter_files,
             open_in_dump_analyzer,
         ])

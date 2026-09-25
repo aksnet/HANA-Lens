@@ -2443,7 +2443,7 @@ async function traceLoadDir(){
   if(!s?.traceExplorerData)return
   if(traceExplState.viewingFile){
     const vfName=traceExplState.viewingFile.name.toLowerCase()
-    const isTabular=vfName.endsWith('.csv')||/_history\.trc$/i.test(vfName)
+    const isTabular=vfName.endsWith('.csv')
     if(isTabular)await traceShowCsvView(s)
     else await traceShowFileView(s)
     return
@@ -2524,9 +2524,15 @@ function traceRenderDirList(){
     `<span class="trace-header-cell" style="text-align:right;" onclick="traceSort('size')">Size${sc==='size'?arr:''}</span>`
   list.appendChild(hdr)
 
-  // sort: dirs always first, then files; apply combined-file grouping to files
-  // .rtedump. files are already shown in Runtime Dumps panel — hide them here
-  const rawFiles=traceExplState.entries.filter(e=>!e.isDir&&!e.name.includes('.rtedump.'))
+  // .rtedump. files → Runtime Dumps panel; nameserver_history.trc + system_availability_*.trc → dedicated nav items
+  const rawFiles=traceExplState.entries.filter(e=>{
+    if(e.isDir)return false
+    const n=e.name.toLowerCase()
+    if(n.includes('.rtedump.'))return false
+    if(n==='nameserver_history.trc')return false
+    if(n.startsWith('system_availability_')&&n.endsWith('.trc'))return false
+    return true
+  })
   const groupedFiles=traceGroupCombinedFiles(rawFiles)
   const sorted=[
     ...[...traceExplState.entries.filter(e=>e.isDir)].sort((a,b)=>traceSortCmp(a,b,sc,sd)),
@@ -3815,6 +3821,11 @@ async function loadHSIFolder(existingHandle){
   }catch(err){ if(err.name!=='AbortError') alert('Error loading HSI folder: '+err.message) }
 }
 
+function openFolderInExplorer(path){
+  if(!path||!window.__TAURI__?.core?.invoke)return
+  window.__TAURI__.core.invoke('open_folder',{path}).catch(()=>{})
+}
+
 async function reloadHsiSession(sid){
   const s=sess(sid)
   if(!s?.hsiDirHandle) return
@@ -3950,7 +3961,7 @@ function buildHsiNavGroup(s){
       zipItem.className = 'fsid-sub-item'
       zipItem.style.paddingLeft = '20px'
       zipItem.innerHTML = `<span style="font-size:12px;">🗜️</span><span style="color:#A19F9D;">${escHtml(z.name)}</span>`
-      zipItem.onclick = () => showFsidZipInfo(z.name, s.label, s.id)
+      zipItem.onclick = () => showFsidZipInfo(z.name, s.label, s.id, s.hsiDirHandle?._path)
       children.appendChild(zipItem)
     }
   }
@@ -4189,13 +4200,17 @@ async function lcmOpenFile(idx){
   activateNav(null,'traceexplorer')
 }
 
-function showFsidZipInfo(zipName, hsiLabel, sid){
+function showFsidZipInfo(zipName, hsiLabel, sid, hsiRootPath){
   // Show panel-hsi with an extraction hint for this ZIP
   document.getElementById('empty').style.display = 'none'
   document.querySelectorAll('.content-panel').forEach(p=>{p.classList.remove('active');p.style.display=''})
   const panel = document.getElementById('panel-hsi')
   panel.classList.add('active')
   panel.style.display = 'flex'
+  const fsidsPath = hsiRootPath ? hsiRootPath.replace(/\\/g,'/')+ '/FSIDs' : null
+  const openBtnHtml = fsidsPath
+    ? `<button data-path="${escHtml(fsidsPath)}" onclick="openFolderInExplorer(this.dataset.path)" style="margin-left:8px;padding:8px 20px;background:#0078D4;color:#fff;border:none;border-radius:2px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;">📂 Open FSIDs folder</button>`
+    : ''
   panel.innerHTML = `<div class="hsi-content-area" style="display:flex;align-items:center;justify-content:center;">
     <div style="max-width:480px;text-align:center;">
       <div style="font-size:40px;margin-bottom:12px;">🗜️</div>
@@ -4205,7 +4220,7 @@ function showFsidZipInfo(zipName, hsiLabel, sid){
         Please extract the archive into the <code style="font-size:11px;background:#F3F2F1;padding:1px 5px;border-radius:2px;">FSIDs/</code> folder of this HSI,
         then reload the HSI using <strong>Load HSI / NETTEST</strong>.
       </div>
-      <button onclick="reloadHsiSession('${escHtml(sid)}')" style="padding:8px 20px;background:#107C10;color:#fff;border:none;border-radius:2px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;">🔄 Reload HSI</button>
+      <button onclick="reloadHsiSession('${escHtml(sid)}')" style="padding:8px 20px;background:#107C10;color:#fff;border:none;border-radius:2px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;">🔄 Reload HSI</button>${openBtnHtml}
       <div style="margin-top:14px;font-size:11px;color:#A19F9D;">📂 ${escHtml(hsiLabel)} › FSIDs › ${escHtml(zipName)}</div>
     </div>
   </div>`
