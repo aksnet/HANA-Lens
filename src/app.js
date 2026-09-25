@@ -1097,56 +1097,29 @@ async function rteDumpLoadSingle(){
     })
   }catch(e){if(e.name!=='AbortError')alert('Error: '+e.message);return}
   _lastPickedHandle=fileHandle
-  const file=await fileHandle.getFile()
-  const text=await file.text()
-  const fname=file.name
-
-  // navigate to rtedumps panel (creates a minimal session if none exists)
-  if(!activeFsidId){
-    const sid=newSessionId()
-    const color=FSID_COLORS[fsidSessions.length%FSID_COLORS.length]
-    fsidSessions.push({id:sid,label:'📄 '+fname,color,captureInfo:'',loadedFiles:{},loadedFolderName:'',versionHistoryHandle:null,configFileHandles:[],configRefHandles:{},configRefData:{},telemetryHandle:null,nsHistoryHandles:[],rteDumpHandles:[],rteDumpScannedPaths:[],rteDumpHdbFound:false,topoData:null})
-    activeFsidId=sid
-    renderNavTree()
+  const fname=fileHandle.name
+  // Parse filename — fall back to a minimal stub for non-standard names
+  const parsed=parseRteDumpFilename(fname)||{
+    filename:fname,serviceName:fname.replace(/\..*/,''),virtualHost:'',port:'',
+    datetime:'',seq:'0',reason:fname
   }
-  activateNavItem(activeFsidId,'rtedumps')
+  const sid=newSessionId()
+  const color=FSID_COLORS[fsidSessions.length%FSID_COLORS.length]
+  const s={
+    id:sid,label:'💥 '+fname,type:'rtedump-single',color,
+    captureInfo:'',loadedFiles:{},loadedFolderName:'',
+    versionHistoryHandle:null,configFileHandles:[],configRefHandles:{},configRefData:{},
+    telemetryHandle:null,nsHistoryHandles:[],
+    rteDumpHandles:[{...parsed,handle:fileHandle,scannedPath:fileHandle._path||fname,tenant:'',_idx:0}],
+    rteDumpScannedPaths:[],rteDumpHdbFound:true,
+    topoData:null,hsiLcmLogsData:null,hsiZipFsids:[]
+  }
+  fsidSessions.push(s)
+  activeFsidId=sid
+  renderNavTree()
+  activateNavItem(sid,'rtedumps')
   await new Promise(r=>setTimeout(r,0))
-
-  const tabBar=document.getElementById('rte-tabbar')
-  const tabContent=document.getElementById('rte-tabcontent')
-  if(!tabBar||!tabContent)return
-
-  const tabId='rte-single-'+fname.replace(/[^a-z0-9]/gi,'-')
-
-  if(tabBar.querySelector(`[data-rteid="${tabId}"]`)){rteTabSwitch(tabId);return}
-
-  const btn=document.createElement('button')
-  btn.dataset.rteid=tabId
-  btn.style.cssText='display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 10px 0 14px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:11px;color:#605E5C;cursor:pointer;white-space:nowrap;max-width:260px;'
-  const labelSpan=document.createElement('span')
-  labelSpan.title=fname
-  labelSpan.style.cssText='overflow:hidden;text-overflow:ellipsis;'
-  labelSpan.textContent='📄 '+fname
-  const closeX=document.createElement('span')
-  closeX.textContent='×'
-  closeX.style.cssText='font-size:14px;line-height:1;opacity:0.5;padding:0 2px;'
-  closeX.onclick=(e)=>{
-    e.stopPropagation();btn.remove()
-    const p=tabContent.querySelector(`[data-rtepanel="${tabId}"]`)
-    if(p)p.remove()
-    const ob=tabBar.querySelector('[data-rteid="overview"]')
-    if(ob)ob.click()
-  }
-  btn.appendChild(labelSpan);btn.appendChild(closeX)
-  btn.onclick=()=>rteTabSwitch(tabId)
-  tabBar.appendChild(btn)
-
-  const pnl=document.createElement('div')
-  pnl.dataset.rtepanel=tabId
-  pnl.style.cssText='display:none;overflow-y:auto;'
-  pnl.innerHTML=renderRteDumpFileContent(text,fname)
-  tabContent.appendChild(pnl)
-  rteTabSwitch(tabId)
+  rteDumpOpenTab(0)
 }
 
 // ── Runtime Dump Search ───────────────────────────────────────────────────
@@ -1858,7 +1831,7 @@ document.addEventListener('DOMContentLoaded',()=>{
         const sid=newSessionId()
         const color=FSID_COLORS[fsidSessions.length%FSID_COLORS.length]
         const s={
-          id:sid, label:'📄 '+file.name, color, captureInfo:'',
+          id:sid, label:'📄 '+file.name, type:'topo-single', color, captureInfo:'',
           loadedFiles:{}, loadedFolderName:'',
           versionHistoryHandle:null, configFileHandles:[], configRefHandles:{}, configRefData:{},
           telemetryHandle:null, nsHistoryHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[], rteDumpHdbFound:false,
@@ -1933,15 +1906,15 @@ function buildFsidGroup(s){
   const children=document.createElement('div')
   children.className='fsid-group-children'
   const items=[
-    {icon:'🗺️',label:'Topology',panel:'topology',disabled:false},
-    ...(s.versionHistoryHandle ? [{icon:'📋',label:'Version History',panel:'versionhistory',disabled:false}] : []),
-    {icon:'⚙️',label:'Configuration',panel:'configuration',disabled:false},
-    ...(s.hostsFileHandle ? [{icon:'🌐',label:'HOSTS',panel:'hosts',disabled:false}] : []),
-    ...(s.telemetryHandle ? [{icon:'📡',label:'Telemetry Data',panel:'telemetry',disabled:false}] : []),
-    ...(s.nsHistoryHandles?.length ? [{icon:'📈',label:'Nameserver History',panel:'nshistory',disabled:false}] : []),
-    ...(s.availabilityHandles?.length ? [{icon:'🟢',label:'Availability',panel:'availability',disabled:false}] : []),
-    {icon:'💥',label:'Runtime Dumps',panel:'rtedumps',disabled:false},
-    {icon:'📂',label:'Trace Explorer',panel:'traceexplorer',disabled:false},
+    ...(s.type!=='rtedump-single'?[{icon:'🗺️',label:'Topology',panel:'topology',disabled:false}]:[]),
+    ...(s.versionHistoryHandle&&s.type!=='rtedump-single'&&s.type!=='topo-single'?[{icon:'📋',label:'Version History',panel:'versionhistory',disabled:false}]:[]),
+    ...(s.type!=='rtedump-single'&&s.type!=='topo-single'?[{icon:'⚙️',label:'Configuration',panel:'configuration',disabled:false}]:[]),
+    ...(s.hostsFileHandle?[{icon:'🌐',label:'HOSTS',panel:'hosts',disabled:false}]:[]),
+    ...(s.telemetryHandle?[{icon:'📡',label:'Telemetry Data',panel:'telemetry',disabled:false}]:[]),
+    ...(s.nsHistoryHandles?.length?[{icon:'📈',label:'Nameserver History',panel:'nshistory',disabled:false}]:[]),
+    ...(s.availabilityHandles?.length?[{icon:'🟢',label:'Availability',panel:'availability',disabled:false}]:[]),
+    ...(s.type!=='topo-single'?[{icon:'💥',label:'Runtime Dumps',panel:'rtedumps',disabled:false}]:[]),
+    ...(s.type!=='rtedump-single'&&s.type!=='topo-single'?[{icon:'📂',label:'Trace Explorer',panel:'traceexplorer',disabled:false}]:[]),
   ]
   for(const it of items){
     const sub=document.createElement('div')
@@ -2469,7 +2442,9 @@ async function traceLoadDir(){
   const s=sess(traceExplState.sid)
   if(!s?.traceExplorerData)return
   if(traceExplState.viewingFile){
-    if(traceExplState.viewingFile.name.toLowerCase().endsWith('.csv'))await traceShowCsvView(s)
+    const vfName=traceExplState.viewingFile.name.toLowerCase()
+    const isTabular=vfName.endsWith('.csv')||/_history\.trc$/i.test(vfName)
+    if(isTabular)await traceShowCsvView(s)
     else await traceShowFileView(s)
     return
   }
@@ -2802,17 +2777,26 @@ async function traceShowFileView(s){
     `<select id="trace-filter-preset" style="font-size:11px;padding:2px 4px;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;color:#605E5C;background:#fff;cursor:pointer;" title="Load preset filter"><option value="">📂 preset</option></select>`+
     `<button id="trace-filter-apply-btn" style="${btnStyle}background:#0078D4;color:#fff;border:none;">Apply</button>`+
     `<button id="trace-filter-clear-btn" style="${btnStyle}background:#fff;color:#323130;border:1px solid #C8C6C4;">Clear</button>`+
+    `<label style="font-size:11px;color:#605E5C;display:flex;align-items:center;gap:4px;cursor:pointer;margin-left:6px;"><input type="checkbox" id="trace-filter-only-matches" style="cursor:pointer;margin:0;"> Show only matching lines</label>`+
     `</div>`+
     `<div style="font-size:10px;color:#605E5C;padding:1px 0 0 40px;">Color syntax: <code style="font-size:10px;">term[[#BG]]</code> or <code style="font-size:10px;">term[[#BG,#FG]]</code> — no color = grey background. Look up hex codes at <a href="https://www.color-hex.com/" target="_blank" style="color:#0078D4;text-decoration:none;">color-hex.com</a></div>`
   list.appendChild(filterPanel)
   // Restore filter state if this file had active filters
-  if(vf._filterFrom||vf._filterTo||vf._searchTerms?.length){
+  if(vf._filterFrom||vf._filterTo||vf._searchTerms?.length||vf._termFilterOnly){
     const fi=document.getElementById('trace-filter-from')
     const ti=document.getElementById('trace-filter-to')
     const tr=document.getElementById('trace-filter-terms')
+    const cb=document.getElementById('trace-filter-only-matches')
     if(fi&&vf._filterFrom)fi.value=vf._filterFrom
     if(ti&&vf._filterTo)ti.value=vf._filterTo
     if(tr&&vf._searchTerms?.length)tr.value=traceSerializeTerms(vf._searchTerms)
+    if(cb)cb.checked=!!vf._termFilterOnly
+    // Re-open filter panel and mark button as active so the user can see / change the filter
+    filterPanel.style.display='flex'
+    filterBtn.textContent='🔍 Filter ▴'
+    filterBtn.style.background='#0078D4'
+    filterBtn.style.color='#fff'
+    filterBtn.style.border='none'
   }
   document.getElementById('trace-filter-apply-btn').addEventListener('click',traceApplyFilter)
   document.getElementById('trace-filter-clear-btn').addEventListener('click',traceClearFilter)
@@ -2981,6 +2965,13 @@ function traceRenderFromLines(list,vf){
     vf._termMatchLines=[]
     vf._termMatchCursor=null
   }
+  // "Show only matching lines" mode: keep only lines that matched a term
+  if(vf._termFilterOnly&&terms.length&&vf._termMatchLines.length){
+    const matchSet=new Set(vf._termMatchLines)
+    displayLines=displayLines.filter((_,i)=>matchSet.has(i))
+    vf._termMatchLines=displayLines.map((_,i)=>i)
+    infoText=`${displayLines.length.toLocaleString()} / ${allLines.length.toLocaleString()} lines`
+  }
   // update nav buttons and info
   const navUp=document.getElementById('trace-nav-up'),navDown=document.getElementById('trace-nav-down')
   const bmCount=vf._bookmarks?.size||0
@@ -3046,9 +3037,10 @@ function traceApplyFilter(){
   vf._filterTo=newTo
   const termsRaw=document.getElementById('trace-filter-terms')?.value?.trim()||''
   vf._searchTerms=termsRaw?traceParseTerms(termsRaw):[]
+  vf._termFilterOnly=document.getElementById('trace-filter-only-matches')?.checked||false
   const btn=document.getElementById('trace-filter-btn')
-  const hasFilter=vf._filterFrom||vf._filterTo||vf._searchTerms.length
-  if(btn)btn.style.background=hasFilter?'#0078D4':'#fff',btn.style.color=hasFilter?'#fff':'#323130'
+  const hasFilter=vf._filterFrom||vf._filterTo||vf._searchTerms.length||vf._termFilterOnly
+  if(btn)btn.style.background=hasFilter?'#0078D4':'#fff',btn.style.color=hasFilter?'#fff':'#323130',btn.style.border=hasFilter?'none':'1px solid #C8C6C4'
   if(timeFilterChanged){
     if(vf._bookmarks)vf._bookmarks.clear()
     vf._bookmarkCursor=null
@@ -3063,6 +3055,7 @@ function traceClearFilter(){
   vf._filterFrom=null
   vf._filterTo=null
   vf._searchTerms=[]
+  vf._termFilterOnly=false
   vf._termMatchLines=[]
   vf._termMatchCursor=null
   if(vf._bookmarks)vf._bookmarks.clear()
@@ -3071,8 +3064,10 @@ function traceClearFilter(){
   if(f)f.value=''
   if(t)t.value=''
   if(tr)tr.value=''
+  const cb=document.getElementById('trace-filter-only-matches')
+  if(cb)cb.checked=false
   const btn=document.getElementById('trace-filter-btn')
-  if(btn)btn.style.background='#fff',btn.style.color='#323130'
+  if(btn)btn.style.background='#fff',btn.style.color='#323130',btn.style.border='1px solid #C8C6C4'
   const list=document.getElementById('trace-list')
   if(list)traceRenderFromLines(list,vf)
 }
