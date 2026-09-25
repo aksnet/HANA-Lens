@@ -93,11 +93,18 @@
   // ── showDirectoryPicker override ─────────────────────────────────────────────
   // Accepts same option shape as the browser API; `startIn` can be a TauriDirHandle
   // or TauriFileHandle (uses its directory as defaultPath).
+  // Path accessibility is checked with a 500 ms timeout before passing to the OS
+  // dialog — prevents long hangs when the last-used path is on an unavailable
+  // network drive.
   window.showDirectoryPicker = async function(opts){
     let defaultPath
     if(opts?.startIn){
       const h = opts.startIn
-      defaultPath = h.kind === 'file' ? dirOfPath(h._path) : h._path
+      const candidate = h.kind === 'file' ? dirOfPath(h._path) : h._path
+      try {
+        const ok = await invoke('path_accessible', { path: candidate })
+        if(ok) defaultPath = candidate
+      } catch(e) {}
     }
     const result = await tauriOpen({ directory: true, multiple: false, defaultPath })
     if(!result) throw Object.assign(new Error('Aborted'), {name:'AbortError'})
@@ -109,7 +116,11 @@
     let defaultPath
     if(opts?.startIn){
       const h = opts.startIn
-      defaultPath = h.kind === 'file' ? dirOfPath(h._path) : h._path
+      const candidate = h.kind === 'file' ? dirOfPath(h._path) : h._path
+      try {
+        const ok = await invoke('path_accessible', { path: candidate })
+        if(ok) defaultPath = candidate
+      } catch(e) {}
     }
     const filters = []
     if(opts?.types){

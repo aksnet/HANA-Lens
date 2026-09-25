@@ -1628,6 +1628,17 @@ let activeFsidId = null     // id of the currently viewed session
 let activePanel  = null     // 'topology' | 'versionhistory' | ... for the active session
 let traceExplState = null   // {sid, serverIdx, stack:[{name,handle}], entries:[...]}
 let _lastPickedHandle = null  // last FileSystemHandle used in any picker — passed as startIn
+let _traceCopyPath = ''       // full path of the currently open trace file, for breadcrumb copy btn
+
+function traceCopyBreadcrumbPath(btn){
+  if(!_traceCopyPath)return
+  navigator.clipboard.writeText(_traceCopyPath).then(()=>{
+    const prev=btn.textContent
+    btn.textContent='✓'
+    btn.style.color='#107C10'
+    setTimeout(()=>{btn.textContent=prev;btn.style.color=''},1200)
+  }).catch(()=>{})
+}
 
 // ── ctx-menu state ─────────────────────────────────────────────────────────
 let ctxTargetId = null
@@ -2320,7 +2331,7 @@ async function activateNav(clickedItem,panelKey){
       traceExplState._pendingScrollRestore=traceExplState.scrollTop||0
       traceRender(panel,s)
     } else {
-      traceExplState={sid:s.id,serverIdx:0,stack:[],entries:[],viewingFile:null,sortCol:'name',sortDir:'asc',scrollTop:0}
+      traceExplState={sid:s.id,serverIdx:0,stack:[],entries:[],viewingFile:null,sortCol:'name',sortDir:'asc',scrollTop:0,serverStates:{}}
       s.traceExplState=traceExplState
       traceRender(panel,s)
     }
@@ -2419,9 +2430,35 @@ async function traceRender(panel,s){
 
 async function traceSelectServer(idx){
   if(!traceExplState)return
+  const oldIdx=traceExplState.serverIdx
+  if(!traceExplState.serverStates)traceExplState.serverStates={}
+  // Save current server state before switching
+  traceExplState.serverStates[oldIdx]={
+    stack:[...traceExplState.stack],
+    viewingFile:traceExplState.viewingFile,
+    entries:[...(traceExplState.entries||[])],
+    sortCol:traceExplState.sortCol,
+    sortDir:traceExplState.sortDir,
+    scrollTop:traceExplState.scrollTop
+  }
+  // Restore saved state for target server (or reset to root)
+  const saved=traceExplState.serverStates[idx]
+  if(saved){
+    traceExplState.stack=saved.stack
+    traceExplState.viewingFile=saved.viewingFile
+    traceExplState.entries=saved.entries
+    traceExplState.sortCol=saved.sortCol
+    traceExplState.sortDir=saved.sortDir
+    traceExplState.scrollTop=saved.scrollTop
+  }else{
+    traceExplState.stack=[]
+    traceExplState.viewingFile=null
+    traceExplState.entries=[]
+    traceExplState.sortCol='name'
+    traceExplState.sortDir='asc'
+    traceExplState.scrollTop=0
+  }
   traceExplState.serverIdx=idx
-  traceExplState.stack=[]
-  traceExplState.viewingFile=null
   const panel=document.getElementById('panel-traceexplorer')
   const s=sess(traceExplState.sid)
   if(s) await traceRender(panel,s)
@@ -2599,25 +2636,38 @@ async function traceCloseFile(){
 }
 
 function renderCsvTable(text,name){
-  const rawLines=text.split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim())
-  if(rawLines.length<2)return '<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>CSV is empty or has no data rows.</span></div>'
-  const sep=rawLines[0].includes(';')?';':','
-  const headerLine=rawLines[0]
-  const headers=headerLine.split(sep)
-  const rows=[]
-  for(let i=1;i<rawLines.length;i++){
-    if(rawLines[i]===headerLine)continue  // skip repeated header (combined files)
-    rows.push(rawLines[i].split(sep))
+  const allLines=text.split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim())
+  if(!allLines.length)return '<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>CSV is empty or has no data rows.</span></div>'
+  // Separate leading #-comment / metadata lines (e.g. "#1;2024-08-18 19:18:02.384000")
+  let li=0
+  const metaLines=[]
+  while(li<allLines.length&&allLines[li].startsWith('#'))metaLines.push(allLines[li++])
+  const dataLines=allLines.slice(li)
+  if(!dataLines.length)return '<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>CSV is empty or has no data rows.</span></div>'
+  const sep=dataLines[0].includes(';')?';':','
+  let headers,rows
+  if(metaLines.length){
+    // No header row — determine column count from first 10 data rows (ignore trailing empty cells)
+    const maxCols=Math.max(...dataLines.slice(0,10).map(l=>{
+      const p=l.split(sep);let n=p.length;while(n>0&&p[n-1]==='')n--;return n
+    }))
+    headers=Array.from({length:maxCols},(_,i)=>`Col ${i+1}`)
+    rows=dataLines
+  }else{
+    headers=dataLines[0].split(sep)
+    rows=dataLines.slice(1).filter(l=>l!==dataLines[0])
   }
-  let html=`<div class="card"><div class="card-title">📊 ${escHtml(name)} <span style="font-weight:400;font-size:11px;color:#605E5C;">${rows.length.toLocaleString()} rows</span></div>`+
+  const metaNote=metaLines.length?`<span style="font-size:10px;color:#A19F9D;margin-left:8px;">${escHtml(metaLines.join(' | '))}</span>`:''
+  let html=`<div class="card"><div class="card-title">📊 ${escHtml(name)} <span style="font-weight:400;font-size:11px;color:#605E5C;">${rows.length.toLocaleString()} rows</span>${metaNote}</div>`+
     `<div style="overflow-x:auto;max-height:calc(100vh - 160px);overflow-y:auto;">`+
     `<table class="data-table" style="white-space:nowrap;width:auto;min-width:100%;">`+
     `<thead style="position:sticky;top:0;z-index:5;"><tr>`
   for(const h of headers)html+=`<th>${escHtml(h)}</th>`
   html+=`</tr></thead><tbody>`
   for(const row of rows){
+    const cells=row.split(sep)
     html+='<tr>'
-    for(let i=0;i<headers.length;i++)html+=`<td><span class="mono">${escHtml(row[i]??'')}</span></td>`
+    for(let i=0;i<headers.length;i++)html+=`<td><span class="mono">${escHtml(cells[i]??'')}</span></td>`
     html+='</tr>'
   }
   html+=`</tbody></table></div></div>`
@@ -2638,6 +2688,8 @@ async function traceShowCsvView(s){
     })
     html+=`<span class="trace-crumb-sep">/</span>`
     html+=`<span class="trace-crumb-cur" style="user-select:text;cursor:text;">${escHtml(vf.name)}</span>`
+    _traceCopyPath=vf.handle?._path||vf.name
+    html+=`<button onclick="traceCopyBreadcrumbPath(this)" title="Copy full path to clipboard" style="margin-left:6px;background:none;border:none;cursor:pointer;font-size:12px;padding:1px 4px;color:#A19F9D;border-radius:2px;line-height:1;" onmouseenter="this.style.color='#323130'" onmouseleave="this.style.color='#A19F9D'">📋</button>`
     bc.innerHTML=html
   }
   const list=document.getElementById('trace-list')
@@ -2685,6 +2737,8 @@ async function traceShowFileView(s){
     })
     html+=`<span class="trace-crumb-sep">/</span>`
     html+=`<span class="trace-crumb-cur" style="user-select:text;cursor:text;" title="Click to select">${escHtml(vf.name)}</span>`
+    _traceCopyPath=vf.handle?._path||vf.name
+    html+=`<button onclick="traceCopyBreadcrumbPath(this)" title="Copy full path to clipboard" style="margin-left:6px;background:none;border:none;cursor:pointer;font-size:12px;padding:1px 4px;color:#A19F9D;border-radius:2px;line-height:1;" onmouseenter="this.style.color='#323130'" onmouseleave="this.style.color='#A19F9D'">📋</button>`
     bc.innerHTML=html
   }
   const list=document.getElementById('trace-list')
@@ -2744,12 +2798,22 @@ async function traceShowFileView(s){
     `</div>`+
     `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">`+
     `<span style="font-size:11px;color:#605E5C;min-width:34px;">Terms</span>`+
-    `<input type="text" id="trace-filter-terms" placeholder="comma separated, e.g.: savepoint, error" style="${inpStyle.replace('width:220px','flex:1;min-width:220px')}">`+
+    `<input type="text" id="trace-filter-terms" placeholder="term, term[[#BG]], term[[#BG,#FG]] — e.g.: savepoint[[#9600FF,#fff]], error[[#FF4444,#fff]]" style="${inpStyle.replace('width:220px','flex:1;min-width:220px')}">`+
     `<select id="trace-filter-preset" style="font-size:11px;padding:2px 4px;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;color:#605E5C;background:#fff;cursor:pointer;" title="Load preset filter"><option value="">📂 preset</option></select>`+
     `<button id="trace-filter-apply-btn" style="${btnStyle}background:#0078D4;color:#fff;border:none;">Apply</button>`+
     `<button id="trace-filter-clear-btn" style="${btnStyle}background:#fff;color:#323130;border:1px solid #C8C6C4;">Clear</button>`+
-    `</div>`
+    `</div>`+
+    `<div style="font-size:10px;color:#605E5C;padding:1px 0 0 40px;">Color syntax: <code style="font-size:10px;">term[[#BG]]</code> or <code style="font-size:10px;">term[[#BG,#FG]]</code> — no color = grey background. Look up hex codes at <a href="https://www.color-hex.com/" target="_blank" style="color:#0078D4;text-decoration:none;">color-hex.com</a></div>`
   list.appendChild(filterPanel)
+  // Restore filter state if this file had active filters
+  if(vf._filterFrom||vf._filterTo||vf._searchTerms?.length){
+    const fi=document.getElementById('trace-filter-from')
+    const ti=document.getElementById('trace-filter-to')
+    const tr=document.getElementById('trace-filter-terms')
+    if(fi&&vf._filterFrom)fi.value=vf._filterFrom
+    if(ti&&vf._filterTo)ti.value=vf._filterTo
+    if(tr&&vf._searchTerms?.length)tr.value=traceSerializeTerms(vf._searchTerms)
+  }
   document.getElementById('trace-filter-apply-btn').addEventListener('click',traceApplyFilter)
   document.getElementById('trace-filter-clear-btn').addEventListener('click',traceClearFilter)
   // Load preset filter files from filter_pre-defined and filter_custom folders
@@ -2852,8 +2916,11 @@ function traceCreateChunk(lines,startIdx,showNums,opts){
     pre.innerHTML=lines.map(line=>{
       let s=escHtml(line)
       for(const t of searchTerms){
-        if(!t.trim())continue
-        try{s=s.replace(new RegExp(t.trim().replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),m=>`<mark style="background:#FFD700;color:#000;">${m}</mark>`)}catch(e){}
+        const tt=typeof t==='string'?t.trim():t.text
+        const bg=typeof t==='string'?'#FFD700':t.bg
+        const fgColor=typeof t==='string'?'#000':(t.fg||'#000')
+        if(!tt)continue
+        try{s=s.replace(new RegExp(tt.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),m=>`<mark style="background:${bg};color:${fgColor};">${m}</mark>`)}catch(e){}
       }
       return s
     }).join('\n')
@@ -2889,12 +2956,16 @@ function traceRenderFromLines(list,vf){
   const from=traceNormalizeFilterVal(vf._filterFrom)
   const to=traceNormalizeFilterVal(vf._filterTo)
   if(from||to){
+    let lastLineVisible=!from  // false when From is set: hide until first matching timestamp
     displayLines=allLines.filter(line=>{
       const ts=traceExtractTimestamp(line)
-      if(!ts)return true
-      if(from&&ts<from)return false
-      if(to&&ts>to)return false
-      return true
+      if(ts){
+        const visible=(!from||ts>=from)&&(!to||ts<=to)
+        lastLineVisible=visible
+        return visible
+      }
+      // No timestamp: inherit visibility of the last timestamped line
+      return lastLineVisible
     })
     infoText=`${displayLines.length.toLocaleString()} / ${allLines.length.toLocaleString()} lines`
   }
@@ -2904,7 +2975,7 @@ function traceRenderFromLines(list,vf){
     vf._termMatchLines=[]
     for(let i=0;i<displayLines.length;i++){
       const lo=displayLines[i].toLowerCase()
-      if(terms.some(t=>{const tt=t.trim().toLowerCase();return tt&&lo.includes(tt)}))vf._termMatchLines.push(i)
+      if(terms.some(t=>{const tt=(typeof t==='string'?t:t.text).trim().toLowerCase();return tt&&lo.includes(tt)}))vf._termMatchLines.push(i)
     }
   } else {
     vf._termMatchLines=[]
@@ -2932,6 +3003,39 @@ function traceRenderFromLines(list,vf){
   if(vf.offset<vf.fileSize)traceAddLoadMoreBtn(list,vf.fileSize)
 }
 
+function traceSerializeTerms(terms){
+  return terms.map(t=>{
+    if(typeof t==='string')return t
+    if(t.bg==='#808080'&&!t.fg)return t.text
+    if(t.fg)return `${t.text}[[${t.bg},${t.fg}]]`
+    return `${t.text}[[${t.bg}]]`
+  }).join(', ')
+}
+function traceParseTerms(raw){
+  const terms=[]
+  const parts=raw.split(',')
+  let cur=''
+  for(const p of parts){
+    cur=cur?cur+','+p:p
+    const opens=(cur.match(/\[\[/g)||[]).length
+    const closes=(cur.match(/\]\]/g)||[]).length
+    if(opens===closes){
+      cur=cur.trim()
+      if(cur){
+        const m=cur.match(/^(.*?)\[\[([^\]]*)\]\]\s*$/)
+        if(m){
+          const colors=m[2].split(',').map(c=>c.trim())
+          terms.push({text:m[1].trim(),bg:colors[0]||'#808080',fg:colors[1]||null})
+        }else{
+          terms.push({text:cur,bg:'#808080',fg:null})
+        }
+      }
+      cur=''
+    }
+  }
+  if(cur.trim())terms.push({text:cur.trim(),bg:'#808080',fg:null})
+  return terms.filter(t=>t.text)
+}
 function traceApplyFilter(){
   const vf=traceExplState?.viewingFile
   if(!vf)return
@@ -2941,7 +3045,7 @@ function traceApplyFilter(){
   vf._filterFrom=newFrom
   vf._filterTo=newTo
   const termsRaw=document.getElementById('trace-filter-terms')?.value?.trim()||''
-  vf._searchTerms=termsRaw?termsRaw.split(',').map(t=>t.trim()).filter(Boolean):[]
+  vf._searchTerms=termsRaw?traceParseTerms(termsRaw):[]
   const btn=document.getElementById('trace-filter-btn')
   const hasFilter=vf._filterFrom||vf._filterTo||vf._searchTerms.length
   if(btn)btn.style.background=hasFilter?'#0078D4':'#fff',btn.style.color=hasFilter?'#fff':'#323130'
@@ -3503,9 +3607,9 @@ const HSI_GROUPS_BASE = {
   'SLD': ['SLD.log','sld_related_nameserver-trace-analyze.log'],
 }
 
-async function loadHSIFolder(){
+async function loadHSIFolder(existingHandle){
   try{
-    const dirHandle = await window.showDirectoryPicker({mode:'read',id:'load-hsi',...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})})
+    const dirHandle = existingHandle || await window.showDirectoryPicker({mode:'read',id:'load-hsi',...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})})
     _lastPickedHandle = dirHandle
     const sid = newSessionId()
     const color = FSID_COLORS[fsidSessions.length % FSID_COLORS.length]
@@ -3716,6 +3820,23 @@ async function loadHSIFolder(){
   }catch(err){ if(err.name!=='AbortError') alert('Error loading HSI folder: '+err.message) }
 }
 
+async function reloadHsiSession(sid){
+  const s=sess(sid)
+  if(!s?.hsiDirHandle) return
+  const dirHandle=s.hsiDirHandle
+  // Remove session and all child FSIDs
+  const toRemove=new Set([sid])
+  fsidSessions.filter(x=>x.hsiParentId===sid).forEach(x=>toRemove.add(x.id))
+  fsidSessions=fsidSessions.filter(x=>!toRemove.has(x.id))
+  activeFsidId=fsidSessions.length?fsidSessions[fsidSessions.length-1].id:null
+  ;['panel-topology','panel-versionhistory','panel-configuration','panel-telemetry','panel-nshistory','panel-availability','panel-rtedumps','panel-hosts','panel-traceexplorer','panel-hsi'].forEach(id=>{
+    const el=document.getElementById(id);if(el){el.innerHTML='';el.style.display='';el.classList.remove('active')}
+  })
+  document.getElementById('empty').style.display='none'
+  renderNavTree()
+  await loadHSIFolder(dirHandle)
+}
+
 // Build the ordered tab list for a session
 function hsiGetTabList(s){
   const order = [...HSI_ORDER]
@@ -3834,7 +3955,7 @@ function buildHsiNavGroup(s){
       zipItem.className = 'fsid-sub-item'
       zipItem.style.paddingLeft = '20px'
       zipItem.innerHTML = `<span style="font-size:12px;">🗜️</span><span style="color:#A19F9D;">${escHtml(z.name)}</span>`
-      zipItem.onclick = () => showFsidZipInfo(z.name, s.label)
+      zipItem.onclick = () => showFsidZipInfo(z.name, s.label, s.id)
       children.appendChild(zipItem)
     }
   }
@@ -4067,13 +4188,13 @@ async function lcmOpenFile(idx){
   s.traceExplState={
     sid:s.id,serverIdx:0,stack,entries:[],
     viewingFile:{name:entry.name,handle:entry.handle,isDir:false,size:null,lastModified:null},
-    sortCol:'name',sortDir:'asc',scrollTop:0
+    sortCol:'name',sortDir:'asc',scrollTop:0,serverStates:{}
   }
   activeFsidId=s.id
   activateNav(null,'traceexplorer')
 }
 
-function showFsidZipInfo(zipName, hsiLabel){
+function showFsidZipInfo(zipName, hsiLabel, sid){
   // Show panel-hsi with an extraction hint for this ZIP
   document.getElementById('empty').style.display = 'none'
   document.querySelectorAll('.content-panel').forEach(p=>{p.classList.remove('active');p.style.display=''})
@@ -4085,11 +4206,12 @@ function showFsidZipInfo(zipName, hsiLabel){
       <div style="font-size:40px;margin-bottom:12px;">🗜️</div>
       <div style="font-size:15px;font-weight:600;color:#323130;margin-bottom:10px;">${escHtml(zipName)}</div>
       <div style="font-size:13px;color:#605E5C;line-height:1.6;margin-bottom:18px;">
-        Dieses FSID liegt als ZIP-Archiv vor und kann nicht direkt geladen werden.<br>
-        Bitte das Archiv im Ordner <code style="font-size:11px;background:#F3F2F1;padding:1px 5px;border-radius:2px;">FSIDs/</code> des HSI entpacken,
-        dann das HSI erneut über <strong>Load HSI / NETTEST</strong> öffnen.
+        This FSID is stored as a ZIP archive and cannot be loaded directly.<br>
+        Please extract the archive into the <code style="font-size:11px;background:#F3F2F1;padding:1px 5px;border-radius:2px;">FSIDs/</code> folder of this HSI,
+        then reload the HSI using <strong>Load HSI / NETTEST</strong>.
       </div>
-      <div style="font-size:11px;color:#A19F9D;">📂 ${escHtml(hsiLabel)} › FSIDs › ${escHtml(zipName)}</div>
+      <button onclick="reloadHsiSession('${escHtml(sid)}')" style="padding:8px 20px;background:#107C10;color:#fff;border:none;border-radius:2px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;">🔄 Reload HSI</button>
+      <div style="margin-top:14px;font-size:11px;color:#A19F9D;">📂 ${escHtml(hsiLabel)} › FSIDs › ${escHtml(zipName)}</div>
     </div>
   </div>`
 }

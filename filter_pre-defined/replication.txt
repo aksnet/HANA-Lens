@@ -1,1 +1,1 @@
-savepoint,starting hdbnsutil
+savepoint, starting hdbnsutil, Delta Replica, from source, Transfer to secondary statistics, minReceiveThroughput, minSendThroughput

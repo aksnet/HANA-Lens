@@ -80,6 +80,20 @@ fn entry_exists(path: String, kind: String) -> bool {
     if kind == "file" { p.is_file() } else { p.is_dir() }
 }
 
+// Check whether a path is accessible within 500 ms.
+// Uses a background thread + channel timeout so that unavailable network
+// paths (mapped drives, UNC shares) do not block the UI.
+#[tauri::command]
+fn path_accessible(path: String) -> bool {
+    use std::sync::mpsc;
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let ok = std::path::Path::new(&path).exists();
+        let _ = tx.send(ok);
+    });
+    rx.recv_timeout(std::time::Duration::from_millis(500)).unwrap_or(false)
+}
+
 // Open an http/https URL in the system default browser
 #[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {    if !url.starts_with("https://") && !url.starts_with("http://") {
@@ -168,6 +182,7 @@ fn main() {
             read_file_range,
             get_file_metadata,
             entry_exists,
+            path_accessible,
             open_external_url,
             read_filter_files,
             open_in_dump_analyzer,
