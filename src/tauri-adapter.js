@@ -33,6 +33,7 @@
       const handle = this
       // Return a File-like object matching the subset used in app.js
       return {
+        name: handle.name,
         get size(){ return handle._meta?.size ?? 0 },
         get lastModified(){ return handle._meta?.lastModified ?? 0 },
         async text(){ return invoke('read_text_file', {path}) },
