@@ -1644,9 +1644,54 @@ Object.defineProperty(window,'nsHistoryHandles',{get(){const s=activeSess();retu
 function newSessionId(){ return 'fsid-'+(Date.now()%1e9)+'-'+Math.floor(Math.random()*9999) }
 // topoData is now a property on each session (defined via Object.defineProperty above)
 
-async function loadFSIDFolder(){
+async function loadSmartFolder(){
+  let dirHandle
   try{
-    const dirHandle=await window.showDirectoryPicker({mode:'read',id:'load-fsid',...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})})
+    dirHandle=await window.showDirectoryPicker({mode:'read',id:'load-smart',...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})})
+  }catch(e){if(e.name!=='AbortError')alert('Error: '+e.message);return}
+  _lastPickedHandle=dirHandle
+  const n=dirHandle.name.toLowerCase()
+  if(n.startsWith('hsi_nettest')){await loadHSIFolder(dirHandle);return}
+  if(n.startsWith('hsi_')){await loadHSIFolder(dirHandle);return}
+  if(n.startsWith('fullsysteminfodump_')){await loadFSIDFolder(dirHandle);return}
+  showLoadTypeDialog(dirHandle)
+}
+
+function showLoadTypeDialog(dirHandle){
+  const existing=document.getElementById('load-type-overlay')
+  if(existing)existing.remove()
+  const overlay=document.createElement('div')
+  overlay.id='load-type-overlay'
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:9999;display:flex;align-items:center;justify-content:center;'
+  const bs='display:block;width:100%;padding:9px 14px;text-align:left;background:#F3F2F1;border:1px solid #EDEBE9;border-radius:2px;font-family:inherit;font-size:13px;color:#323130;cursor:pointer;margin-bottom:6px;transition:background 0.1s;'
+  const dlg=document.createElement('div')
+  dlg.style.cssText='background:#fff;border-radius:4px;padding:24px 28px;max-width:400px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.22);font-family:inherit;'
+  dlg.innerHTML=
+    `<div style="font-size:14px;font-weight:600;color:#323130;margin-bottom:6px;">Dump type not recognized</div>`+
+    `<div style="font-size:12px;color:#605E5C;margin-bottom:18px;word-break:break-all;">"${escHtml(dirHandle.name)}"<br><br>Please select the type:</div>`+
+    `<button data-action="hsi"     style="${bs}">🗂️ &nbsp;<strong>HSI</strong></button>`+
+    `<button data-action="hsi"     style="${bs}">🌐 &nbsp;<strong>HSI_NETTEST</strong></button>`+
+    `<button data-action="fsid"    style="${bs}">📦 &nbsp;<strong>FSID</strong> – Tenant</button>`+
+    `<button data-action="fsid"    style="${bs}">📦 &nbsp;<strong>FSID</strong> – SYSTEMDB</button>`+
+    `<div style="text-align:right;margin-top:10px;"><button data-action="cancel" style="padding:6px 16px;background:#fff;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;font-size:12px;cursor:pointer;">Cancel</button></div>`
+  overlay.appendChild(dlg)
+  document.body.appendChild(overlay)
+  const close=()=>overlay.remove()
+  overlay.addEventListener('click',e=>{if(e.target===overlay)close()})
+  dlg.querySelectorAll('button[data-action]').forEach(btn=>{
+    btn.addEventListener('mouseenter',()=>{if(btn.dataset.action!=='cancel')btn.style.background='#EDEBE9'})
+    btn.addEventListener('mouseleave',()=>{if(btn.dataset.action!=='cancel')btn.style.background='#F3F2F1'})
+    btn.addEventListener('click',async()=>{
+      close()
+      if(btn.dataset.action==='hsi')await loadHSIFolder(dirHandle)
+      else if(btn.dataset.action==='fsid')await loadFSIDFolder(dirHandle)
+    })
+  })
+}
+
+async function loadFSIDFolder(existingHandle){
+  try{
+    const dirHandle=existingHandle||await window.showDirectoryPicker({mode:'read',id:'load-fsid',...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})})
     _lastPickedHandle=dirHandle
     const sid=newSessionId()
     const color=FSID_COLORS[fsidSessions.length%FSID_COLORS.length]
@@ -1860,7 +1905,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     this.value=''
   })
   // close context menus on outside click
-  document.addEventListener('click',()=>{hideFsidCtxMenu();hideRteCtxMenu()})
+  document.addEventListener('click',()=>{hideFsidCtxMenu();hideRteCtxMenu();hideTraceLineCtxMenu()})
 })
 
 // ── Nav Tree (Multi-FSID accordion) ──────────────────────────────────────
@@ -1913,7 +1958,7 @@ function buildFsidGroup(s){
     ...(s.telemetryHandle?[{icon:'📡',label:'Telemetry Data',panel:'telemetry',disabled:false}]:[]),
     ...(s.nsHistoryHandles?.length?[{icon:'📈',label:'Nameserver History',panel:'nshistory',disabled:false}]:[]),
     ...(s.availabilityHandles?.length?[{icon:'🟢',label:'Availability',panel:'availability',disabled:false}]:[]),
-    ...(s.type!=='topo-single'?[{icon:'💥',label:'Runtime Dumps',panel:'rtedumps',disabled:false}]:[]),
+    ...(s.type!=='topo-single'?[{icon:'💥',label:`Runtime Dumps (${s.rteDumpHandles?.length||0})`,panel:'rtedumps',disabled:false}]:[]),
     ...(s.type!=='rtedump-single'&&s.type!=='topo-single'?[{icon:'📂',label:'Trace Explorer',panel:'traceexplorer',disabled:false}]:[]),
   ]
   for(const it of items){
@@ -2006,6 +2051,35 @@ function hideRteCtxMenu(){
   const m=document.getElementById('rte-ctx-menu')
   if(m)m.style.display='none'
   _rteCtxIdx=null
+}
+let _traceLineCtxOrigIdx=null
+function showTraceLineCtxMenu(origIdx,x,y){
+  _traceLineCtxOrigIdx=origIdx
+  const m=document.getElementById('trace-line-ctx-menu')
+  if(!m)return
+  m.style.display='block'
+  m.style.left=x+'px'
+  m.style.top=y+'px'
+  requestAnimationFrame(()=>{
+    const r=m.getBoundingClientRect()
+    if(r.right>window.innerWidth)m.style.left=(x-r.width)+'px'
+    if(r.bottom>window.innerHeight)m.style.top=(y-r.height)+'px'
+  })
+}
+function hideTraceLineCtxMenu(){
+  const m=document.getElementById('trace-line-ctx-menu')
+  if(m)m.style.display='none'
+  _traceLineCtxOrigIdx=null
+}
+function traceJumpToOrigLine(){
+  const origIdx=_traceLineCtxOrigIdx
+  hideTraceLineCtxMenu()
+  if(origIdx==null)return
+  traceClearFilter()
+  requestAnimationFrame(()=>{
+    const list=document.getElementById('trace-list')
+    if(list)list.scrollTop=origIdx*_TRACE_LH-list.clientHeight/2+_TRACE_LH/2
+  })
 }
 function rteDumpOpenInAnalyzer(){
   const idx=_rteCtxIdx
@@ -2701,10 +2775,7 @@ async function traceShowFileView(s){
   const srv=data.servers[traceExplState.serverIdx]
   const vf=traceExplState.viewingFile
   vf._lines=[]
-  vf._filterFrom=null
-  vf._filterTo=null
-  vf._searchTerms=[]
-  vf._bookmarks=new Set()
+  vf._bookmarks=vf._bookmarks||new Set()
   vf._bookmarkCursor=null
   vf._termMatchLines=[]
   vf._termMatchCursor=null
@@ -2776,6 +2847,7 @@ async function traceShowFileView(s){
     `<input type="text" id="trace-filter-from" placeholder="YYYY-MM-DD HH:MM:SS" style="${inpStyle}">`+
     `<span style="font-size:11px;color:#605E5C;">To</span>`+
     `<input type="text" id="trace-filter-to" placeholder="YYYY-MM-DD HH:MM:SS" style="${inpStyle}">`+
+    `<span id="trace-filter-date-hint" style="font-size:10px;color:#A19F9D;font-style:italic;margin-left:6px;"></span>`+
     `</div>`+
     `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">`+
     `<span style="font-size:11px;color:#605E5C;min-width:34px;">Terms</span>`+
@@ -2809,26 +2881,31 @@ async function traceShowFileView(s){
   // Load preset filter files from filter_pre-defined and filter_custom folders
   const presetSel=document.getElementById('trace-filter-preset')
   if(presetSel&&window.__TAURI__?.core?.invoke){
-    window.__TAURI__.core.invoke('read_filter_files').then(presets=>{
-      if(!presets?.length)return
-      const groups={}
-      for(const p of presets){
-        const g=p.source==='filter_pre-defined'?'Pre-defined':'Custom'
-        if(!groups[g])groups[g]=[]
-        groups[g].push(p)
-      }
-      for(const[label,items]of Object.entries(groups)){
-        const grp=document.createElement('optgroup')
-        grp.label=label
-        for(const p of items){
-          const opt=document.createElement('option')
-          opt.value=p.content
-          opt.textContent=p.name
-          grp.appendChild(opt)
+    const loadPresets=sel=>{
+      window.__TAURI__.core.invoke('read_filter_files').then(presets=>{
+        while(sel.children.length>1)sel.removeChild(sel.lastChild)
+        if(!presets?.length)return
+        const groups={}
+        for(const p of presets){
+          const g=p.source==='filter_pre-defined'?'Pre-defined':'Custom'
+          if(!groups[g])groups[g]=[]
+          groups[g].push(p)
         }
-        presetSel.appendChild(grp)
-      }
-    }).catch(()=>{})
+        for(const[label,items]of Object.entries(groups)){
+          const grp=document.createElement('optgroup')
+          grp.label=label
+          for(const p of items){
+            const opt=document.createElement('option')
+            opt.value=p.content
+            opt.textContent=p.name
+            grp.appendChild(opt)
+          }
+          sel.appendChild(grp)
+        }
+      }).catch(()=>{})
+    }
+    loadPresets(presetSel)
+    presetSel.addEventListener('focus',()=>loadPresets(presetSel))
     presetSel.addEventListener('change',()=>{
       if(!presetSel.value)return
       const ti=document.getElementById('trace-filter-terms')
@@ -2850,6 +2927,21 @@ async function traceShowFileView(s){
     const safeLines=rawLines.map(l=>l.length>MAX_LINE?l.slice(0,MAX_LINE)+' … [line truncated]':l)
     let truncatedCount=rawLines.filter((l,i)=>safeLines[i]!==l).length
     vf._lines=safeLines
+    // Auto-suggest date filter from first timestamp (only on fresh open, not on restore)
+    if(!vf._filterFrom&&!vf._filterTo){
+      for(const line of vf._lines){
+        const ts=traceExtractTimestamp(line)
+        if(ts){
+          const fi=document.getElementById('trace-filter-from')
+          const ti=document.getElementById('trace-filter-to')
+          const hint=document.getElementById('trace-filter-date-hint')
+          if(fi)fi.value=ts.replace('T',' ')
+          if(ti)ti.value=traceTimePlusMins(ts,30)
+          if(hint)hint.textContent='start of trace · To = From + 30 min · both editable'
+          break
+        }
+      }
+    }
     traceRenderFromLines(list,vf)
     if(truncatedCount){
       const warn=document.createElement('div')
@@ -2916,6 +3008,15 @@ function traceCreateChunk(lines,startIdx,showNums,opts){
     }).join('\n')
   }else{pre.textContent=lines.join('\n')}
   cv.appendChild(pre)
+  cv.addEventListener('contextmenu',e=>{
+    const vf=traceExplState.viewingFile
+    if(!vf?._displayOrigIndices)return
+    e.preventDefault()
+    const rect=cv.getBoundingClientRect()
+    const localIdx=Math.max(0,Math.min(lines.length-1,Math.floor((e.clientY-rect.top)/_TRACE_LH)))
+    const origIdx=vf._displayOrigIndices[startIdx+localIdx]
+    if(origIdx!=null)showTraceLineCtxMenu(origIdx,e.clientX,e.clientY)
+  })
   return cv
 }
 
@@ -2924,6 +3025,16 @@ function traceCreateChunk(lines,startIdx,showNums,opts){
 function traceExtractTimestamp(line){
   const m=line.match(/\b(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})/)
   return m?m[1]+'T'+m[2]:null
+}
+
+function traceTimePlusMins(ts,mins){
+  // ts: "YYYY-MM-DDTHH:MM:SS" → returns "YYYY-MM-DD HH:MM:SS" shifted by mins
+  const [datePart,timePart]=ts.split('T')
+  const [y,mo,d]=datePart.split('-').map(Number)
+  const [h,mi,sec]=timePart.split(':').map(Number)
+  const dt=new Date(Date.UTC(y,mo-1,d,h,mi+mins,sec))
+  const pad=n=>String(n).padStart(2,'0')
+  return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth()+1)}-${pad(dt.getUTCDate())} ${pad(dt.getUTCHours())}:${pad(dt.getUTCMinutes())}:${pad(dt.getUTCSeconds())}`
 }
 
 function traceNormalizeFilterVal(val){
@@ -2942,21 +3053,20 @@ function traceRenderFromLines(list,vf){
   document.getElementById('trace-load-more-btn')?.remove()
   const allLines=vf._lines||[]
   let displayLines=allLines
+  let origIndices=null  // null = no filter (displayLines === allLines)
   let infoText=`${allLines.length.toLocaleString()} lines loaded`
   const from=traceNormalizeFilterVal(vf._filterFrom)
   const to=traceNormalizeFilterVal(vf._filterTo)
   if(from||to){
-    let lastLineVisible=!from  // false when From is set: hide until first matching timestamp
-    displayLines=allLines.filter(line=>{
+    let lastLineVisible=!from
+    const filtered=[],idxMap=[]
+    for(let i=0;i<allLines.length;i++){
+      const line=allLines[i]
       const ts=traceExtractTimestamp(line)
-      if(ts){
-        const visible=(!from||ts>=from)&&(!to||ts<=to)
-        lastLineVisible=visible
-        return visible
-      }
-      // No timestamp: inherit visibility of the last timestamped line
-      return lastLineVisible
-    })
+      if(ts){const visible=(!from||ts>=from)&&(!to||ts<=to);lastLineVisible=visible}
+      if(lastLineVisible){filtered.push(line);idxMap.push(i)}
+    }
+    displayLines=filtered;origIndices=idxMap
     infoText=`${displayLines.length.toLocaleString()} / ${allLines.length.toLocaleString()} lines`
   }
   // compute term match line indices
@@ -2974,10 +3084,15 @@ function traceRenderFromLines(list,vf){
   // "Show only matching lines" mode: keep only lines that matched a term
   if(vf._termFilterOnly&&terms.length&&vf._termMatchLines.length){
     const matchSet=new Set(vf._termMatchLines)
-    displayLines=displayLines.filter((_,i)=>matchSet.has(i))
+    const filtered=[],idxMap=[]
+    for(let i=0;i<displayLines.length;i++){
+      if(matchSet.has(i)){filtered.push(displayLines[i]);idxMap.push(origIndices?origIndices[i]:i)}
+    }
+    displayLines=filtered;origIndices=idxMap
     vf._termMatchLines=displayLines.map((_,i)=>i)
     infoText=`${displayLines.length.toLocaleString()} / ${allLines.length.toLocaleString()} lines`
   }
+  vf._displayOrigIndices=origIndices
   // update nav buttons and info
   const navUp=document.getElementById('trace-nav-up'),navDown=document.getElementById('trace-nav-down')
   const bmCount=vf._bookmarks?.size||0
@@ -3070,6 +3185,8 @@ function traceClearFilter(){
   if(f)f.value=''
   if(t)t.value=''
   if(tr)tr.value=''
+  const hint=document.getElementById('trace-filter-date-hint')
+  if(hint)hint.textContent=''
   const cb=document.getElementById('trace-filter-only-matches')
   if(cb)cb.checked=false
   const btn=document.getElementById('trace-filter-btn')
@@ -3147,43 +3264,63 @@ function traceScrollToLine(absIdx){
 async function traceAppendChunk(){
   const vf=traceExplState.viewingFile
   if(!vf)return
-  try{
-    const file=await vf.handle.getFile()
-    const MAX=25*1024*1024
-    const end=Math.min(vf.offset+MAX,file.size)
-    const text=await file.slice(vf.offset,end).text()
-    vf.offset=end
-    const MAX_LINE=5000
-    const combined=(traceExplState._partialLine||'')+text
-    traceExplState._partialLine=''
-    let rawLines=combined.split('\n')
-    if(end<file.size){traceExplState._partialLine=rawLines.pop()||''}
-    const safeLines=rawLines.map(l=>l.length>MAX_LINE?l.slice(0,MAX_LINE)+' … [line truncated]':l)
-    const prevCount=vf._lines.length
-    vf._lines.push(...safeLines)
-    const list=document.getElementById('trace-list')
-    if(vf._filterFrom||vf._filterTo){
-      if(list)traceRenderFromLines(list,vf)
-    } else {
-      const wrap=document.getElementById('trace-file-wrap')
-      const showNums=true
-      const opts={searchTerms:vf._searchTerms||[],bookmarks:vf._bookmarks||null,onBookmarkToggle:traceToggleBookmark}
-      if(wrap){for(let s=0;s<safeLines.length;s+=_TRACE_CHUNK){wrap.appendChild(traceCreateChunk(safeLines.slice(s,s+_TRACE_CHUNK),prevCount+s,showNums,opts))}}
-      const info=document.getElementById('trace-filter-info')
-      if(info)info.textContent=`${vf._lines.length.toLocaleString()} lines loaded`
+  const MAX_ATTEMPTS=3
+  for(let attempt=1;attempt<=MAX_ATTEMPTS;attempt++){
+    const savedOffset=vf.offset
+    const savedLineCount=vf._lines.length
+    const savedPartial=traceExplState._partialLine
+    try{
+      if(attempt>1){
+        const btn=document.getElementById('trace-load-more-btn')
+        if(btn)btn.textContent=`Loading… (retry ${attempt-1}/${MAX_ATTEMPTS-1})`
+        await new Promise(r=>setTimeout(r,800*(attempt-1)))
+      }
+      const file=await vf.handle.getFile()
+      const MAX=25*1024*1024
+      const end=Math.min(vf.offset+MAX,file.size)
+      const text=await file.slice(vf.offset,end).text()
+      vf.offset=end
+      const MAX_LINE=5000
+      const combined=(traceExplState._partialLine||'')+text
+      traceExplState._partialLine=''
+      let rawLines=combined.split('\n')
+      if(end<file.size){traceExplState._partialLine=rawLines.pop()||''}
+      const safeLines=rawLines.map(l=>l.length>MAX_LINE?l.slice(0,MAX_LINE)+' … [line truncated]':l)
+      const prevCount=vf._lines.length
+      vf._lines.push(...safeLines)
+      const list=document.getElementById('trace-list')
+      if(vf._filterFrom||vf._filterTo){
+        if(list)traceRenderFromLines(list,vf)
+      } else {
+        const wrap=document.getElementById('trace-file-wrap')
+        const showNums=true
+        const opts={searchTerms:vf._searchTerms||[],bookmarks:vf._bookmarks||null,onBookmarkToggle:traceToggleBookmark}
+        if(wrap){for(let s=0;s<safeLines.length;s+=_TRACE_CHUNK){wrap.appendChild(traceCreateChunk(safeLines.slice(s,s+_TRACE_CHUNK),prevCount+s,showNums,opts))}}
+        const info=document.getElementById('trace-filter-info')
+        if(info)info.textContent=`${vf._lines.length.toLocaleString()} lines loaded`
+        const btn=document.getElementById('trace-load-more-btn')
+        if(btn){
+          if(end>=file.size){btn.remove()}
+          else{btn.disabled=false;btn.textContent=`Load next 25 MB  (${formatBytes(file.size-end)} remaining)`}
+        }
+      }
+      return
+    }catch(e){
+      vf.offset=savedOffset
+      vf._lines.splice(savedLineCount)
+      traceExplState._partialLine=savedPartial
       const btn=document.getElementById('trace-load-more-btn')
-      if(btn){
-        if(end>=file.size){btn.remove()}
-        else{btn.disabled=false;btn.textContent=`Load next 25 MB  (${formatBytes(file.size-end)} remaining)`}
+      if(attempt<MAX_ATTEMPTS){
+        if(btn)btn.textContent=`⏳ Retrying…`
+        console.warn('traceAppendChunk attempt',attempt,'failed:',e)
+      }else{
+        const msg=String(e?.message||e||'unknown error')
+        if(btn){btn.disabled=false;btn.textContent='⚠️ Load failed — click to retry';btn.title=msg;btn.style.borderColor='#CF1322';btn.style.color='#CF1322'}
+        console.error('traceAppendChunk error (all attempts failed):',e)
+        const info=document.getElementById('trace-filter-info')
+        if(info)info.textContent='Load error: '+msg
       }
     }
-  }catch(e){
-    const btn=document.getElementById('trace-load-more-btn')
-    const msg=String(e?.message||e||'unknown error')
-    if(btn){btn.disabled=false;btn.textContent='⚠️ Load failed — click to retry';btn.title=msg;btn.style.borderColor='#CF1322';btn.style.color='#CF1322'}
-    console.error('traceAppendChunk error:',e)
-    const info=document.getElementById('trace-filter-info')
-    if(info)info.textContent='Load error: '+msg
   }
 }
 
@@ -3940,7 +4077,7 @@ function buildHsiNavGroup(s){
         ...(cs.telemetryHandle ? [{icon:'📡', label:'Telemetry Data', panel:'telemetry', disabled:false}] : []),
         ...(cs.nsHistoryHandles?.length ? [{icon:'📈', label:'Nameserver History', panel:'nshistory', disabled:false}] : []),
         ...(cs.availabilityHandles?.length ? [{icon:'🟢', label:'Availability', panel:'availability', disabled:false}] : []),
-        {icon:'💥', label:'Runtime Dumps', panel:'rtedumps', disabled:false},
+        {icon:'💥', label:`Runtime Dumps (${cs.rteDumpHandles?.length||0})`, panel:'rtedumps', disabled:false},
         {icon:'📂', label:'Trace Explorer', panel:'traceexplorer', disabled:false},
       ]
       for(const it of fsidItems){
