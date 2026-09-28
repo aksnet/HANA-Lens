@@ -3726,6 +3726,8 @@ function mdInline(raw){
   s=s.replace(/\*([^*\n]+)\*/g,'<em>$1</em>')
   s=s.replace(/_([^_\n]+)_/g,'<em>$1</em>')
   s=s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" style="color:#0078D4;" target="_blank">$1</a>')
+  s=s.replace(/<strong>WARNING:<\/strong>/g,'<strong style="color:#A4262C;">WARNING:</strong>')
+  s=s.replace(/<strong>PASSED:<\/strong>/g,'<strong style="color:#107C10;">PASSED:</strong>')
   return s
 }
 function renderMdTable(lines){
@@ -3863,6 +3865,7 @@ async function loadHSIFolder(existingHandle){
       for await(const [name, handle] of dirHandle.entries()){
         if(handle.kind==='file' && name.endsWith('.log')) s.hsiFiles[name.toLowerCase()] = handle
         if(handle.kind==='file' && name.toLowerCase().startsWith('md_')) s.hsiMdFiles[name.toLowerCase()] = handle
+        if(handle.kind==='file' && name.endsWith('.md') && !name.toLowerCase().startsWith('md_')) s.hsiFiles[name.toLowerCase()] = handle
       }
     } else {
       for await(const [name, handle] of tempHandle.entries()){
@@ -3871,6 +3874,10 @@ async function loadHSIFolder(existingHandle){
           if(name.startsWith('90_') && name !== '99-LOGFILES.log') s.hsiCustomConfig.push(name)
         }
         if(handle.kind==='file' && name.toLowerCase().startsWith('md_')) s.hsiMdFiles[name.toLowerCase()] = handle
+        if(handle.kind==='file' && name.endsWith('.md') && !name.toLowerCase().startsWith('md_')){
+          s.hsiFiles[name.toLowerCase()] = handle
+          if(name.startsWith('90_') && name !== '99-LOGFILES.md') s.hsiCustomConfig.push(name)
+        }
       }
     }
     s.hsiCustomConfig.sort()
@@ -3908,7 +3915,7 @@ async function loadHSIFolder(existingHandle){
 
     // Try to extract SID + hostname + version + KBA + run date from init log
     try{
-      const initHandle = s.hsiFiles['00_initialization_overview.log']
+      const initHandle = hsiResolveFile(s,'00_initialization_overview.log')?.handle
       if(initHandle){
         const f = await initHandle.getFile()
         const txt = await f.text()
@@ -4071,6 +4078,15 @@ async function reloadHsiSession(sid){
 }
 
 // Build the ordered tab list for a session
+// Resolves .log names to .md if the new HSI format is present
+function hsiResolveFile(s, logName){
+  const lk = logName.toLowerCase()
+  if(s.hsiFiles[lk]) return {handle:s.hsiFiles[lk], resolvedName:logName}
+  const mdKey = lk.replace(/\.log$/, '.md')
+  if(s.hsiFiles[mdKey]) return {handle:s.hsiFiles[mdKey], resolvedName:logName.replace(/\.log$/i,'.md')}
+  return null
+}
+
 function hsiGetTabList(s){
   const order = [...HSI_ORDER]
   // inject custom config group
@@ -4087,18 +4103,18 @@ function hsiGetTabList(s){
       if(grpName==='HANA_Custom_Config' && s.hsiConfigData){
         tabs.push({id:'grp-'+grpName, label:grpName, type:'hsi-config', subfiles:s.hsiConfigData.databases.map(d=>d.name)})
       } else {
-        const subfiles = (groups[grpName]||[]).filter(f => s.hsiFiles[f.toLowerCase()])
+        const subfiles = (groups[grpName]||[]).filter(f => hsiResolveFile(s, f))
         if(!subfiles.length){
           // backward compat: old HSI merged Initialization+Overview into one file
-          if(grpName==='START' && s.hsiFiles['00_initialization_overview.log'])
-            tabs.push({id:'file-00_Initialization_Overview.log', label:'START', type:'file', file:'00_Initialization_Overview.log'})
+          if(grpName==='START' && hsiResolveFile(s,'00_initialization_overview.log'))
+            tabs.push({id:'file-00_Initialization_Overview.log', label:'START', type:'file', file:hsiResolveFile(s,'00_initialization_overview.log').resolvedName})
           continue
         }
         tabs.push({id:'grp-'+grpName, label:grpName, type:'group', subfiles})
       }
     } else {
-      if(!s.hsiFiles[item.toLowerCase()]) continue
-      const clean = item.replace(/^[\d]+_/,'').replace(/\.log$/,'')
+      if(!hsiResolveFile(s, item)) continue
+      const clean = item.replace(/^[\d]+_/,'').replace(/\.(log|md)$/i,'')
       tabs.push({id:'file-'+item, label:clean, type:'file', file:item})
     }
   }
@@ -4247,7 +4263,7 @@ async function activateHsiTab(sid, tabId, subTabFile){
     stBar.className = 'hsi-subtab-bar'
     if(!activeSubFile) activeSubFile = tab.subfiles[0]
     tab.subfiles.forEach(sf=>{
-      const clean = tab.type==='hsi-config' ? sf : sf.replace(/^[\d]+_/,'').replace(/\.log$/,'')
+      const clean = tab.type==='hsi-config' ? sf : sf.replace(/^[\d]+_/,'').replace(/\.(log|md)$/i,'')
       const btn = document.createElement('button')
       btn.className = 'hsi-subtab-btn' + (sf===activeSubFile ? ' active' : '')
       btn.textContent = clean
@@ -4333,21 +4349,32 @@ async function activateHsiTab(sid, tabId, subTabFile){
     return
   }
 
-  // ── Old format: .log file rendering ──────────────────────────────────────
+  // ── .log / .md file rendering ─────────────────────────────────────────────
   const fileToLoad = tab.type==='file' ? tab.file : activeSubFile
   if(!fileToLoad){ contentArea.innerHTML = '<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No file found.</span></div>'; return }
 
-  const fileHandle = s.hsiFiles[fileToLoad.toLowerCase()]
-  if(!fileHandle){ contentArea.innerHTML = `<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>File <code>${escHtml(fileToLoad)}</code> not found in temp folder.</span></div>`; return }
+  const resolved = hsiResolveFile(s, fileToLoad)
+  if(!resolved){ contentArea.innerHTML = `<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>File <code>${escHtml(fileToLoad)}</code> not found in temp folder.</span></div>`; return }
+  const {handle:fileHandle, resolvedName} = resolved
 
   contentArea.innerHTML = '<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
   try{
     const f = await fileHandle.getFile()
     const txt = await f.text()
-    contentArea.innerHTML = renderHsiFile(txt, fileToLoad)
-    if(typeof BUNDLED_FS_REFERENCE!=='undefined'&&fileToLoad.toLowerCase().includes('permissions'))
-      applyBundledFsRef(contentArea)
-    if(fileToLoad.toLowerCase()==='network_test.log'){
+    const isMarkdown = resolvedName.toLowerCase().endsWith('.md')
+    const baseName = resolvedName.toLowerCase().replace(/\.(log|md)$/,'')
+    if(isMarkdown){
+      if(baseName.includes('permissions')){
+        await renderMdPermFile(contentArea, txt)
+      } else {
+        contentArea.innerHTML = `<div class="hsi-md-content">${renderMarkdown(txt)}</div>`
+      }
+    } else {
+      contentArea.innerHTML = renderHsiFile(txt, resolvedName)
+      if(typeof BUNDLED_FS_REFERENCE!=='undefined'&&baseName.includes('permissions'))
+        applyBundledFsRef(contentArea)
+    }
+    if(baseName==='network_test'){
       const btnWrap=document.createElement('div')
       btnWrap.style.cssText='padding:10px 14px 6px;flex-shrink:0;'
       const btn=document.createElement('button')
@@ -4546,7 +4573,41 @@ ${extracted}
 }
 
 // ── HSI file renderer (JS port of bash _render_file) ──────────────────────
-function applyBundledFsRef(container){
+// Permissions renderer for new .md format
+async function renderMdPermFile(contentArea, txt){
+  // Extract ls -lah output from fenced code blocks under ## Captured Filesystemdetails
+  const lines=txt.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n')
+  let inSection=false,inCode=false
+  const capturedLines=[]
+  for(const line of lines){
+    if(/^##\s+Captured Filesystemdetails/i.test(line)){inSection=true;continue}
+    if(inSection){
+      if(/^##?\s/.test(line)&&!/^###/.test(line)){break}
+      if(/^```/.test(line.trim())){inCode=!inCode;continue}
+      if(inCode)capturedLines.push(line)
+    }
+  }
+  const TOP_BTN=`<a href="#hsi-top" style="font-size:0.76em;text-decoration:none;color:#6c757d;padding:2px 8px;border:1px solid #dee2e6;border-radius:12px;white-space:nowrap;flex-shrink:0;" title="Top">▲ TOP</a>`
+  const sections=parsePermSections(capturedLines.join('\n'))
+  const tocEntries=[],parts=[]
+  parts.push(`<a id="hsi-top" style="display:block;"></a>`)
+  parts.push(`<div class="hsi-perm-split" style="margin-bottom:8px;">
+    <div class="hsi-perm-col"><div class="hsi-perm-col-header">Captured Filesystemdetails</div></div>
+    <div class="hsi-perm-col"><div class="hsi-perm-col-header">Comparison of working Filesystemdetails
+      <button class="hsi-upload-btn" onclick="hsiPermUpload(this)">&#128196; Load reference file</button>
+    </div></div>
+  </div>`)
+  let idx=0
+  for(const sec of sections){
+    const anchor=`hsi-perm-${idx++}`
+    tocEntries.push(`<li><a href="#${anchor}">${escHtml(sec.path)}</a></li>`)
+    parts.push(`<div class="hsi-h4" id="${anchor}">${TOP_BTN} ls -lah ${escHtml(sec.path)}</div>`)
+    parts.push(`<div class="hsi-perm-split"><div class="hsi-perm-col"><div class="hsi-log-block">${renderPermContentLines(sec.lines)}</div></div><div class="hsi-perm-col"><div class="hsi-log-block hsi-ref-section" data-ref-path="${escHtml(sec.path)}"><div class="hsi-perm-ref-empty">No reference file loaded.</div></div></div></div>`)
+  }
+  let out=tocEntries.length?`<div class="hsi-toc"><strong>Contents</strong><ul>${tocEntries.join('')}</ul></div>`:''
+  contentArea.innerHTML=out+parts.join('\n')
+  if(typeof BUNDLED_FS_REFERENCE!=='undefined')applyBundledFsRef(contentArea)
+}
   if(typeof BUNDLED_FS_REFERENCE==='undefined'||!container) return
   const refSections=parsePermSections(BUNDLED_FS_REFERENCE)
   const refMap=new Map(refSections.map(s=>[s.path,s]))
