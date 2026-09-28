@@ -3717,6 +3717,93 @@ function renderTopologyApp(data,container){
 // HSI — HANASupportInfo Integration
 // ══════════════════════════════════════════════════════════════════════════
 
+// ── Minimal Markdown renderer (for md_* files) ────────────────────────────
+function mdInline(raw){
+  let s=escHtml(raw)
+  s=s.replace(/`([^`]+)`/g,'<code style="background:#F3F2F1;padding:1px 4px;border-radius:2px;font-family:Consolas,monospace;font-size:0.9em;">$1</code>')
+  s=s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+  s=s.replace(/__([^_]+)__/g,'<strong>$1</strong>')
+  s=s.replace(/\*([^*\n]+)\*/g,'<em>$1</em>')
+  s=s.replace(/_([^_\n]+)_/g,'<em>$1</em>')
+  s=s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" style="color:#0078D4;" target="_blank">$1</a>')
+  return s
+}
+function renderMdTable(lines){
+  const rows=lines.map(l=>l.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim()))
+  const sepIdx=rows.findIndex(r=>r.every(c=>/^[-: ]+$/.test(c)))
+  const head=rows[0]||[]
+  const body=rows.slice(sepIdx>=0?sepIdx+1:1)
+  let t='<table style="border-collapse:collapse;font-size:12px;margin:10px 0;width:100%;">'
+  t+='<thead><tr>'+head.map(c=>`<th style="border:1px solid #EDEBE9;padding:6px 10px;background:#F3F2F1;font-weight:600;text-align:left;white-space:nowrap;">${mdInline(c)}</th>`).join('')+'</tr></thead>'
+  t+='<tbody>'+body.map((r,ri)=>'<tr>'+r.map(c=>`<td style="border:1px solid #EDEBE9;padding:5px 10px;${ri%2?'background:#FAFAFA;':''}">${mdInline(c)}</td>`).join('')+'</tr>').join('')+'</tbody>'
+  return t+'</table>'
+}
+function renderMarkdown(md){
+  const lines=md.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n')
+  let html='',i=0
+  while(i<lines.length){
+    const line=lines[i]
+    // Fenced code block
+    if(/^```/.test(line.trim())){
+      const codeLines=[];i++
+      while(i<lines.length&&!/^```/.test(lines[i].trim())){codeLines.push(lines[i]);i++}
+      i++
+      html+=`<pre style="background:#F3F2F1;border:1px solid #EDEBE9;border-radius:3px;padding:10px 12px;overflow-x:auto;font-family:Consolas,monospace;font-size:11px;line-height:1.5;margin:8px 0;"><code>${escHtml(codeLines.join('\n'))}</code></pre>`
+      continue
+    }
+    // Heading
+    const hm=line.match(/^(#{1,6})\s+(.+)/)
+    if(hm){
+      const lvl=hm[1].length
+      const sz=['1.5em','1.3em','1.15em','1.05em','1em','1em'][lvl-1]
+      const bb=lvl<=2?'border-bottom:1px solid #EDEBE9;padding-bottom:4px;':''
+      html+=`<h${lvl} style="margin:${lvl<=2?18:12}px 0 6px;font-size:${sz};font-weight:${lvl<=2?700:600};${bb}color:#1a1a1a;">${mdInline(hm[2])}</h${lvl}>`
+      i++;continue
+    }
+    // Horizontal rule
+    if(/^[-*_]{3,}\s*$/.test(line)){html+='<hr style="border:none;border-top:1px solid #EDEBE9;margin:14px 0;">';i++;continue}
+    // Blockquote
+    if(/^>\s/.test(line)){
+      const bqLines=[]
+      while(i<lines.length&&/^>\s?/.test(lines[i])){bqLines.push(lines[i].replace(/^>\s?/,''));i++}
+      html+=`<blockquote style="border-left:3px solid #0078D4;margin:8px 0;padding:4px 12px;background:#F5F9FF;color:#323130;">${bqLines.map(l=>mdInline(l)).join('<br>')}</blockquote>`
+      continue
+    }
+    // Table
+    if(line.includes('|')&&i+1<lines.length&&/^\|?[-: |]+\|/.test(lines[i+1])){
+      const tLines=[]
+      while(i<lines.length&&lines[i].includes('|')){tLines.push(lines[i]);i++}
+      html+=renderMdTable(tLines);continue
+    }
+    // Unordered list
+    if(/^[-*+]\s/.test(line)){
+      const items=[]
+      while(i<lines.length&&(/^[-*+]\s/.test(lines[i])||/^\s{2,}[-*+]\s/.test(lines[i]))){
+        if(/^[-*+]\s/.test(lines[i]))items.push(lines[i].replace(/^[-*+]\s+/,'').trim())
+        i++
+      }
+      html+='<ul style="margin:6px 0;padding-left:22px;">'+items.map(it=>`<li style="margin:2px 0;">${mdInline(it)}</li>`).join('')+'</ul>'
+      continue
+    }
+    // Ordered list
+    if(/^\d+\.\s/.test(line)){
+      const items=[]
+      while(i<lines.length&&/^\d+\.\s/.test(lines[i])){items.push(lines[i].replace(/^\d+\.\s+/,'').trim());i++}
+      html+='<ol style="margin:6px 0;padding-left:22px;">'+items.map(it=>`<li style="margin:2px 0;">${mdInline(it)}</li>`).join('')+'</ol>'
+      continue
+    }
+    // Blank line
+    if(line.trim()===''){i++;continue}
+    // Paragraph
+    const paraLines=[]
+    while(i<lines.length&&lines[i].trim()!==''&&!/^#{1,6}\s/.test(lines[i])&&!/^[-*+]\s/.test(lines[i])&&!/^\d+\.\s/.test(lines[i])&&!/^```/.test(lines[i].trim())&&!/^[-*_]{3,}\s*$/.test(lines[i])&&!/^>\s/.test(lines[i])&&!lines[i].includes('|')){
+      paraLines.push(lines[i]);i++
+    }
+    if(paraLines.length)html+=`<p style="margin:6px 0;line-height:1.6;">${paraLines.map(l=>mdInline(l)).join('<br>')}</p>`
+  }
+  return html
+}
+
 // Fixed tab order + group definitions (mirrors the bash script)
 const HSI_ORDER = [
   'GROUP:START',
@@ -3759,6 +3846,7 @@ async function loadHSIFolder(existingHandle){
       hsiMeta: {},         // { sid, hostname, version, kba, runDate }
       hsiConfigData: null, // { databases:[{name,iniHandles}], refHandles:{}, parsedRef:null } from Configuration/
       hsiLcmLogsData: null, // { tools:[{name, flatFiles:[{name,handle}], opFolders:[{name,files:[{name,handle}]}]}] }
+      hsiMdFiles: {},       // filename.toLowerCase() -> FileSystemFileHandle for md_* files
       hsiZipFsids: [],      // [{name}] — ZIP files found in FSIDs/ that need extraction
       hsiDirHandle: dirHandle,
       // FSID fields unused but keep shape consistent
@@ -3774,6 +3862,7 @@ async function loadHSIFolder(existingHandle){
       // maybe the user selected the temp folder directly
       for await(const [name, handle] of dirHandle.entries()){
         if(handle.kind==='file' && name.endsWith('.log')) s.hsiFiles[name.toLowerCase()] = handle
+        if(handle.kind==='file' && name.toLowerCase().startsWith('md_')) s.hsiMdFiles[name.toLowerCase()] = handle
       }
     } else {
       for await(const [name, handle] of tempHandle.entries()){
@@ -3781,6 +3870,7 @@ async function loadHSIFolder(existingHandle){
           s.hsiFiles[name.toLowerCase()] = handle
           if(name.startsWith('90_') && name !== '99-LOGFILES.log') s.hsiCustomConfig.push(name)
         }
+        if(handle.kind==='file' && name.toLowerCase().startsWith('md_')) s.hsiMdFiles[name.toLowerCase()] = handle
       }
     }
     s.hsiCustomConfig.sort()
@@ -4014,6 +4104,11 @@ function hsiGetTabList(s){
   }
   if(s.hsiLcmLogsData && s.hsiLcmLogsData.tools.length)
     tabs.push({id:'lcm-logs', label:'LCM Logs', type:'lcm-logs'})
+  // Markdown files (md_*) — appended after Warning_Overview
+  const mdKeys = Object.keys(s.hsiMdFiles||{}).sort()
+  for(const fname of mdKeys){
+    tabs.push({id:'md-'+fname, label:fname.replace(/\.[^.]+$/,''), type:'md-file', file:fname})
+  }
   return tabs
 }
 
@@ -4220,6 +4315,21 @@ async function activateHsiTab(sid, tabId, subTabFile){
       }
     }
     contentArea.innerHTML = parts.join('') || '<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No .ini files found.</span></div>'
+    return
+  }
+
+  // ── Markdown file rendering ────────────────────────────────────────────────
+  if(tab.type==='md-file'){
+    const fileHandle = s.hsiMdFiles?.[tab.file]
+    if(!fileHandle){ contentArea.innerHTML = `<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>File <code>${escHtml(tab.file)}</code> not found.</span></div>`; return }
+    contentArea.innerHTML = '<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
+    try{
+      const f = await fileHandle.getFile()
+      const txt = await f.text()
+      contentArea.innerHTML = `<div class="hsi-md-content">${renderMarkdown(txt)}</div>`
+    }catch(e){
+      contentArea.innerHTML = `<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Could not read file: ${escHtml(String(e))}</span></div>`
+    }
     return
   }
 

@@ -47,6 +47,10 @@ html, body { height: 100%; font-family: 'Segoe UI', system-ui, -apple-system, sa
 #trace-line-ctx-menu { position: fixed; background: #fff; border: 1px solid #EDEBE9; border-radius: 2px; box-shadow: 0 4px 12px rgba(0,0,0,.12); z-index: 9999; min-width: 220px; padding: 4px 0; display: none; font-size: 12px; }
 #trace-line-ctx-menu .ctx-item { padding: 7px 16px; cursor: pointer; color: #323130; display: flex; align-items: center; gap: 8px; }
 #trace-line-ctx-menu .ctx-item:hover { background: #EFF6FC; }
+.hsi-md-content { padding: 16px 20px; font-size: 13px; line-height: 1.6; color: #323130; max-width: 960px; }
+.hsi-md-content h1, .hsi-md-content h2 { border-bottom: 1px solid #EDEBE9; padding-bottom: 4px; }
+.hsi-md-content table { border-collapse: collapse; }
+.hsi-md-content pre { font-size: 11px; }
 .nav-icon { font-size: 13px; }
 #contentArea { flex: 1; overflow-y: auto; background: #FFFFFF; }
 #empty { padding: 80px 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; color: #A19F9D; }
