@@ -4608,6 +4608,7 @@ async function renderMdPermFile(contentArea, txt){
   contentArea.innerHTML=out+parts.join('\n')
   if(typeof BUNDLED_FS_REFERENCE!=='undefined')applyBundledFsRef(contentArea)
 }
+function applyBundledFsRef(container){
   if(typeof BUNDLED_FS_REFERENCE==='undefined'||!container) return
   const refSections=parsePermSections(BUNDLED_FS_REFERENCE)
   const refMap=new Map(refSections.map(s=>[s.path,s]))
