@@ -1956,7 +1956,7 @@ function buildFsidGroup(s){
     ...(s.type!=='rtedump-single'&&s.type!=='topo-single'?[{icon:'⚙️',label:'Configuration',panel:'configuration',disabled:false}]:[]),
     ...(s.hostsFileHandle?[{icon:'🌐',label:'HOSTS',panel:'hosts',disabled:false}]:[]),
     ...(s.telemetryHandle?[{icon:'📡',label:'Telemetry Data',panel:'telemetry',disabled:false}]:[]),
-    ...(s.nsHistoryHandles?.length?[{icon:'📈',label:'Nameserver History',panel:'nshistory',disabled:false}]:[]),
+    ...(s.nsHistoryHandles?.length?[{icon:'📈',label:'Nameserver History',panel:'nshistory',disabled:false},{icon:'📉',label:'Nameserver History (old)',panel:'nshistory-old',disabled:false}]:[]),
     ...(s.availabilityHandles?.length?[{icon:'🟢',label:'Availability',panel:'availability',disabled:false}]:[]),
     ...(s.type!=='topo-single'?[{icon:'💥',label:`Runtime Dumps (${s.rteDumpHandles?.length||0})`,panel:'rtedumps',disabled:false}]:[]),
     ...(s.type!=='rtedump-single'&&s.type!=='topo-single'?[{icon:'📂',label:'Trace Explorer',panel:'traceexplorer',disabled:false}]:[]),
@@ -1995,6 +1995,7 @@ function activateNavItem(sid,panelKey){
     document.getElementById('panel-configuration').innerHTML=''
     document.getElementById('panel-telemetry').innerHTML=''
     document.getElementById('panel-nshistory').innerHTML=''
+    document.getElementById('panel-nshistory-old').innerHTML=''
     document.getElementById('panel-availability').innerHTML=''
     document.getElementById('panel-rtedumps').innerHTML=''
     document.getElementById('panel-hosts').innerHTML=''
@@ -2111,7 +2112,7 @@ function fsidCtxRemove(){
   fsidSessions=fsidSessions.filter(x=>!toRemove.has(x.id))
   if(toRemove.has(activeFsidId)){
     activeFsidId=fsidSessions.length?fsidSessions[fsidSessions.length-1].id:null
-    ;['panel-topology','panel-versionhistory','panel-configuration','panel-telemetry','panel-nshistory','panel-availability','panel-rtedumps','panel-hosts','panel-traceexplorer','panel-hsi'].forEach(id=>{const el=document.getElementById(id);if(el){el.innerHTML='';el.style.display='';el.classList.remove('active')}})
+    ;['panel-topology','panel-versionhistory','panel-configuration','panel-telemetry','panel-nshistory','panel-nshistory-old','panel-availability','panel-rtedumps','panel-hosts','panel-traceexplorer','panel-hsi'].forEach(id=>{const el=document.getElementById(id);if(el){el.innerHTML='';el.style.display='';el.classList.remove('active')}})
     document.getElementById('empty').style.display=fsidSessions.length?'none':'flex'
   }
   hideFsidCtxMenu()
@@ -2224,6 +2225,14 @@ async function activateNav(clickedItem,panelKey){
 
   if(panelKey==='nshistory'){
     const panel=document.getElementById('panel-nshistory')
+    panel.classList.add('active')
+    panel.innerHTML=''
+    const s=activeSess()
+    nsChartPanel(panel,s)
+  }
+
+  if(panelKey==='nshistory-old'){
+    const panel=document.getElementById('panel-nshistory-old')
     panel.classList.add('active')
     panel.innerHTML=''
     const s=activeSess()
@@ -3584,6 +3593,261 @@ function toggleAvailOk(tbodyId){
   tbody.querySelectorAll('tr[data-hideable="1"]').forEach(tr=>{tr.style.display=hiding?'none':''})
 }
 
+
+// ══════════════════════════════════════════════════════════════════════════
+// Nameserver History — Chart.js viewer
+// ══════════════════════════════════════════════════════════════════════════
+
+const _NSC_PALETTE=['#0078D4','#107C10','#D83B01','#8764B8','#038387','#D47500','#A4262C','#B146C2','#00B7C3','#004E8C','#881798','#69797E','#01B8AA','#E81123','#0099BC']
+const _NSC_DEFAULT=new Set(['indexserverCpu','indexserverCpuSys','indexserverMemUsed','indexserverMemLimit','sqlStatements'])
+const _nsChartState={}
+
+function _nscAxisId(unit){
+  if(!unit)return 'y-rate'
+  if(unit.includes('%'))return 'y-pct'
+  if(unit.toLowerCase().includes('byte'))return 'y-bytes'
+  return 'y-rate'
+}
+function _nscFmtBytes(v){const a=Math.abs(v);if(a>=1e9)return(v/1e9).toFixed(1)+'G';if(a>=1e6)return(v/1e6).toFixed(1)+'M';if(a>=1e3)return(v/1e3).toFixed(1)+'K';return v.toFixed(0)}
+function _nscFmtTs(ms){const d=new Date(ms),p=n=>String(n).padStart(2,'0');return`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`}
+
+function _nscLttb(ts,ys,n){
+  const pts=ts.map((x,i)=>({x,y:ys[i]})).filter(p=>Number.isFinite(p.y))
+  if(!pts.length)return{xs:[],ys:[]}
+  const len=pts.length
+  if(len<=n)return{xs:pts.map(p=>p.x),ys:pts.map(p=>p.y)}
+  const outX=[pts[0].x],outY=[pts[0].y]
+  const bSz=(len-2)/(n-2);let a=0
+  for(let i=0;i<n-2;i++){
+    const aS=Math.floor((i+1)*bSz)+1,aE=Math.min(Math.floor((i+2)*bSz)+1,len)
+    let avgX=0,avgY=0;for(let j=aS;j<aE;j++){avgX+=pts[j].x;avgY+=pts[j].y}
+    avgX/=(aE-aS);avgY/=(aE-aS)
+    const bS=Math.floor(i*bSz)+1,bE=Math.min(Math.floor((i+1)*bSz)+1,len)
+    let maxA=-1,maxI=bS
+    for(let j=bS;j<bE;j++){const area=Math.abs((pts[a].x-avgX)*(pts[j].y-pts[a].y)-(pts[a].x-pts[j].x)*(avgY-pts[a].y))*0.5;if(area>maxA){maxA=area;maxI=j}}
+    outX.push(pts[maxI].x);outY.push(pts[maxI].y);a=maxI
+  }
+  outX.push(pts[len-1].x);outY.push(pts[len-1].y)
+  return{xs:outX,ys:outY}
+}
+
+function _nscCat(name){
+  const n=name.toLowerCase()
+  if(n.includes('cpu')||n.includes('sys'))return'cpu'
+  if(n.includes('mem')||n.includes('heap')||n.includes('swap'))return'mem'
+  if(n.includes('sql')||n.includes('statement')||n.includes('transaction')||n.includes('connection'))return'sql'
+  if(n.includes('thread'))return'thread'
+  return'other'
+}
+
+function nsChartParse(txt){
+  const rawLines=txt.split('\n')
+  let hi=0;while(hi<rawLines.length&&!rawLines[hi].trim())hi++
+  if(hi>=rawLines.length)return null
+  const rawH=rawLines[hi].split(';').map(h=>h.trim())
+  const clean=rawH.map(h=>h.replace(/\s*\[.*?\]$/,'').trim())
+  const units=rawH.map(h=>{const m=h.match(/\[([^\]]+)\]$/);return m?m[1]:''})
+  const iHost=clean.indexOf('host'),iPort=clean.indexOf('port'),iTime=clean.indexOf('time')
+  if(iHost<0||iTime<0)return null
+  const mCols=clean.map((_,i)=>i).filter(i=>i!==iHost&&i!==iPort&&i!==iTime)
+  const metrics=mCols.map(i=>({idx:i,name:clean[i],unit:units[i],label:rawH[i]}))
+  const prev=new Float64Array(rawH.length)
+  const byPort={}
+  for(let ri=hi+1;ri<rawLines.length;ri++){
+    const line=rawLines[ri];if(!line||!line.trim())continue
+    const parts=line.split(';')
+    const rawHost=(parts[iHost]||'').trim()
+    const rawPort=iPort>=0?(parts[iPort]||'').trim():''
+    const isHostRow=rawHost&&!/^[\d><]/.test(rawHost)
+    const isServiceRow=!isHostRow&&rawPort&&/^[\d><]/.test(rawPort)
+    for(let ci=0;ci<parts.length&&ci<prev.length;ci++){
+      const v=(parts[ci]||'').trim();if(!v)continue
+      if(v[0]==='>'){prev[ci]+=parseFloat(v.slice(1))||0}
+      else if(v[0]==='<'){prev[ci]-=parseFloat(v.slice(1))||0}
+      else{const n=parseFloat(v);if(!isNaN(n))prev[ci]=n}
+    }
+    if(isServiceRow){
+      const portStr=String(Math.round(prev[iPort]))
+      if(!byPort[portStr])byPort[portStr]={timestamps:[],values:mCols.map(()=>[])}
+      byPort[portStr].timestamps.push(prev[iTime]*1000)
+      mCols.forEach((ci,mi)=>byPort[portStr].values[mi].push(prev[ci]))
+    }
+  }
+  return{metrics,ports:Object.keys(byPort).sort(),byPort}
+}
+
+async function nsChartPanel(panel,s){
+  if(!s?.nsHistoryHandles?.length){
+    panel.innerHTML='<div class="not-found-msg" style="margin:16px;"><span class="nf-icon">⚠️</span><span>No <strong>nameserver_history.trc</strong> found at <code>HDB&lt;inst&gt;/&lt;host&gt;/trace/</code>.</span></div>'
+    return
+  }
+  if(typeof Chart==='undefined'){
+    panel.innerHTML='<div class="not-found-msg" style="margin:16px;"><span class="nf-icon">⚠️</span><span><strong>chartjs.min.js</strong> not found — Chart.js 4 UMD build must be in the app folder.</span></div>'
+    return
+  }
+  panel.style.display='flex';panel.style.flexDirection='column';panel.style.overflow='hidden'
+  panel.innerHTML=''
+  const tabBar=document.createElement('div')
+  tabBar.style.cssText='display:flex;border-bottom:1px solid #EDEBE9;background:#F3F2F1;padding:0 12px;overflow-x:auto;white-space:nowrap;position:sticky;top:0;z-index:10;flex-shrink:0;'
+  panel.appendChild(tabBar)
+  const contentDiv=document.createElement('div')
+  contentDiv.style.cssText='flex:1;overflow-y:auto;'
+  panel.appendChild(contentDiv)
+  let activeHost=null
+  function _switchTab(hn){
+    tabBar.querySelectorAll('button').forEach(b=>{
+      const a=b.dataset.host===hn
+      b.style.color=a?'#0078D4':'#605E5C';b.style.borderBottom=a?'2px solid #0078D4':'2px solid transparent'
+      b.style.fontWeight=a?'600':'normal';b.style.background=a?'#EFF6FC':'transparent'
+    })
+  }
+  for(const{hostName,handle}of s.nsHistoryHandles){
+    const btn=document.createElement('button')
+    btn.dataset.host=hostName
+    btn.style.cssText='display:inline-flex;align-items:center;gap:5px;height:36px;padding:0 14px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:12px;color:#605E5C;cursor:pointer;white-space:nowrap;'
+    btn.innerHTML=`🖥️ ${escHtml(hostName)}`
+    btn.onclick=async()=>{
+      if(activeHost===hostName)return
+      activeHost=hostName;_switchTab(hostName)
+      await nsChartLoadHost(contentDiv,hostName,handle)
+    }
+    tabBar.appendChild(btn)
+  }
+  tabBar.querySelector('button')?.click()
+}
+
+async function nsChartLoadHost(container,hostName,handle){
+  container.innerHTML='<div style="color:#A19F9D;font-size:12px;padding:16px;">Parsing nameserver_history.trc…</div>'
+  try{
+    const file=await handle.getFile()
+    const txt=await file.text()
+    const parsed=nsChartParse(txt)
+    if(!parsed||!parsed.ports.length){
+      container.innerHTML='<div class="not-found-msg" style="margin:16px;"><span class="nf-icon">⚠️</span><span>No data found in nameserver_history.trc.</span></div>'
+      return
+    }
+    const cid='nsc-'+hostName.replace(/[^a-z0-9]/gi,'-')
+    if(_nsChartState[cid]?.chart){_nsChartState[cid].chart.destroy();delete _nsChartState[cid].chart}
+    const defVis=new Set(parsed.metrics.filter(m=>_NSC_DEFAULT.has(m.name)).map(m=>m.name))
+    if(!defVis.size)parsed.metrics.slice(0,5).forEach(m=>defVis.add(m.name))
+    _nsChartState[cid]={parsedData:parsed,hostName,visiblePort:parsed.ports[0],visibleMetrics:defVis}
+    nsChartBuildUI(container,cid)
+    nsChartDraw(cid)
+  }catch(e){
+    container.innerHTML=`<div class="not-found-msg" style="margin:16px;"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`
+  }
+}
+
+function nsChartBuildUI(container,cid){
+  const st=_nsChartState[cid]
+  const{parsedData:{metrics,ports},hostName,visiblePort,visibleMetrics}=st
+  const cats=['cpu','mem','sql','thread','other']
+  const catLbl={cpu:'CPU',mem:'Memory',sql:'SQL',thread:'Threads',other:'Other'}
+  const byCat={};cats.forEach(c=>byCat[c]=[])
+  metrics.forEach(m=>byCat[_nscCat(m.name)].push(m))
+  const portSvcMap={}
+  if(topoData){const h=topoData.hosts.find(h=>h.name===hostName);if(h)h.services.forEach(s=>portSvcMap[String(s.port)]=s.name)}
+  const portLbl=p=>{const s=portSvcMap[p];return s?`${p} — ${s}`:p}
+
+  let html='<div style="padding:10px 14px;">'
+  if(ports.length>1){
+    html+=`<div id="${cid}-ports" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">`
+    ports.forEach(p=>{
+      const a=p===visiblePort
+      html+=`<button data-port="${escHtml(p)}" onclick="nsChartSwitchPort('${cid}','${escHtml(p)}')" style="padding:4px 10px;border:1px solid ${a?'#0078D4':'#EDEBE9'};background:${a?'#EFF6FC':'#fff'};color:${a?'#0078D4':'#323130'};border-radius:2px;font-family:inherit;font-size:11px;cursor:pointer;font-weight:${a?'600':'normal'};">${escHtml(portLbl(p))}</button>`
+    })
+    html+=`</div>`
+  }
+  html+=`<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:6px;"><span style="font-size:11px;color:#605E5C;">Quick:</span>`
+  cats.forEach(c=>{if(byCat[c].length)html+=`<button onclick="nsChartSelCat('${cid}','${c}')" style="padding:2px 8px;border:1px solid #EDEBE9;background:#F3F2F1;border-radius:2px;font-family:inherit;font-size:11px;cursor:pointer;">${catLbl[c]}</button>`})
+  html+=`<button onclick="nsChartSelCat('${cid}','all')" style="padding:2px 8px;border:1px solid #EDEBE9;background:#F3F2F1;border-radius:2px;font-family:inherit;font-size:11px;cursor:pointer;">All</button>`
+  html+=`<button onclick="nsChartSelCat('${cid}','none')" style="padding:2px 8px;border:1px solid #EDEBE9;background:#F3F2F1;border-radius:2px;font-family:inherit;font-size:11px;cursor:pointer;">None</button>`
+  html+=`<span id="${cid}-info" style="font-size:10px;color:#A19F9D;margin-left:6px;"></span></div>`
+  html+=`<div id="${cid}-metrics" style="max-height:90px;overflow-y:auto;display:flex;flex-direction:column;flex-wrap:wrap;align-content:flex-start;gap:2px 20px;padding:6px 8px;background:#F8F8F7;border:1px solid #EDEBE9;border-radius:2px;margin-bottom:10px;">`
+  cats.forEach(c=>byCat[c].forEach(m=>{
+    const chk=visibleMetrics.has(m.name)?'checked':''
+    html+=`<label style="font-size:11px;color:#323130;display:flex;align-items:center;gap:3px;cursor:pointer;white-space:nowrap;"><input type="checkbox" ${chk} data-metric="${escHtml(m.name)}" onchange="nsChartToggleMetric('${cid}',this.dataset.metric,this.checked)" style="cursor:pointer;margin:0;width:12px;height:12px;"> ${escHtml(m.label)}</label>`
+  }))
+  html+=`</div><div style="position:relative;height:400px;"><canvas id="${cid}-canvas"></canvas></div></div>`
+  container.innerHTML=html
+}
+
+function nsChartDraw(cid){
+  const st=_nsChartState[cid];if(!st)return
+  const canvas=document.getElementById(cid+'-canvas');if(!canvas)return
+  const{parsedData,visiblePort,visibleMetrics}=st
+  const portData=parsedData.byPort[visiblePort];if(!portData)return
+  if(st.chart){st.chart.destroy();st.chart=null}
+  const ts=portData.timestamps
+  const MAX=1500
+  const usedAxes=new Set()
+  const datasets=parsedData.metrics.map((m,mi)=>{
+    const hidden=!visibleMetrics.has(m.name)
+    const axId=_nscAxisId(m.unit)
+    if(!hidden)usedAxes.add(axId)
+    const{xs,ys}=_nscLttb(ts,portData.values[mi],MAX)
+    return{
+      label:m.label,data:xs.map((x,i)=>({x,y:ys[i]})),
+      borderColor:_NSC_PALETTE[mi%_NSC_PALETTE.length],
+      backgroundColor:_NSC_PALETTE[mi%_NSC_PALETTE.length]+'18',
+      borderWidth:1.5,pointRadius:0,pointHoverRadius:3,tension:0,
+      yAxisID:axId,hidden
+    }
+  })
+  const scales={x:{type:'linear',ticks:{maxTicksLimit:8,callback:v=>{const d=new Date(v);return`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`},maxRotation:0},grid:{color:'rgba(0,0,0,0.05)'}}}
+  let firstGrid=true
+  for(const[axId,pos,lbl,extra]of[['y-pct','left','%',{suggestedMin:0,suggestedMax:100}],['y-bytes','right','bytes',{}],['y-rate','right','/s',{}]]){
+    if(!usedAxes.has(axId))continue
+    const drawOnChart=firstGrid;firstGrid=false
+    scales[axId]={type:'linear',display:true,position:pos,title:{display:!!lbl,text:lbl,font:{size:10}},grid:{drawOnChartArea:drawOnChart},...extra}
+    if(axId==='y-bytes')scales[axId].ticks={callback:v=>_nscFmtBytes(v)}
+  }
+  if(!usedAxes.size){scales['y-rate']={type:'linear',display:false,position:'left'};datasets.forEach(d=>d.yAxisID='y-rate')}
+  st.chart=new Chart(canvas,{type:'line',data:{datasets},options:{
+    responsive:true,maintainAspectRatio:false,animation:false,
+    interaction:{intersect:false,mode:'index'},
+    plugins:{
+      legend:{display:true,position:'bottom',labels:{font:{size:10},boxWidth:12,padding:6,usePointStyle:true}},
+      tooltip:{callbacks:{
+        title:items=>_nscFmtTs(items[0]?.parsed?.x||0),
+        label:item=>`${item.dataset.label}: ${typeof item.parsed.y==='number'?item.parsed.y.toFixed(2):'-'}`
+      }}
+    },
+    scales
+  }})
+  const info=document.getElementById(cid+'-info')
+  if(info)info.textContent=`${ts.length.toLocaleString()} pts · port ${visiblePort}${ts.length>MAX?` · LTTB→${MAX}`:''}`
+}
+
+function nsChartSwitchPort(cid,port){
+  const st=_nsChartState[cid];if(!st||st.visiblePort===port)return
+  st.visiblePort=port
+  const bar=document.getElementById(cid+'-ports')
+  if(bar)bar.querySelectorAll('button').forEach(b=>{
+    const a=b.dataset.port===port
+    b.style.border=`1px solid ${a?'#0078D4':'#EDEBE9'}`;b.style.background=a?'#EFF6FC':'#fff'
+    b.style.color=a?'#0078D4':'#323130';b.style.fontWeight=a?'600':'normal'
+  })
+  nsChartDraw(cid)
+}
+
+function nsChartToggleMetric(cid,name,visible){
+  const st=_nsChartState[cid];if(!st)return
+  if(visible)st.visibleMetrics.add(name);else st.visibleMetrics.delete(name)
+  nsChartDraw(cid)
+}
+
+function nsChartSelCat(cid,cat){
+  const st=_nsChartState[cid];if(!st)return
+  const metrics=st.parsedData.metrics
+  if(cat==='all')metrics.forEach(m=>st.visibleMetrics.add(m.name))
+  else if(cat==='none')st.visibleMetrics.clear()
+  else metrics.filter(m=>_nscCat(m.name)===cat).forEach(m=>st.visibleMetrics.add(m.name))
+  const div=document.getElementById(cid+'-metrics')
+  if(div)div.querySelectorAll('input[type=checkbox]').forEach(cb=>cb.checked=st.visibleMetrics.has(cb.dataset.metric))
+  nsChartDraw(cid)
+}
+
 function renderNsHistory(text,hostName){
   const lines=text.split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim())
   if(lines.length<2)return '<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>nameserver_history.trc is empty.</span></div>'
@@ -4069,7 +4333,7 @@ async function reloadHsiSession(sid){
   fsidSessions.filter(x=>x.hsiParentId===sid).forEach(x=>toRemove.add(x.id))
   fsidSessions=fsidSessions.filter(x=>!toRemove.has(x.id))
   activeFsidId=fsidSessions.length?fsidSessions[fsidSessions.length-1].id:null
-  ;['panel-topology','panel-versionhistory','panel-configuration','panel-telemetry','panel-nshistory','panel-availability','panel-rtedumps','panel-hosts','panel-traceexplorer','panel-hsi'].forEach(id=>{
+  ;['panel-topology','panel-versionhistory','panel-configuration','panel-telemetry','panel-nshistory','panel-nshistory-old','panel-availability','panel-rtedumps','panel-hosts','panel-traceexplorer','panel-hsi'].forEach(id=>{
     const el=document.getElementById(id);if(el){el.innerHTML='';el.style.display='';el.classList.remove('active')}
   })
   document.getElementById('empty').style.display='none'
@@ -4186,7 +4450,7 @@ function buildHsiNavGroup(s){
         {icon:'⚙️', label:'Configuration', panel:'configuration', disabled:false},
         ...(cs.hostsFileHandle ? [{icon:'🌐', label:'HOSTS', panel:'hosts', disabled:false}] : []),
         ...(cs.telemetryHandle ? [{icon:'📡', label:'Telemetry Data', panel:'telemetry', disabled:false}] : []),
-        ...(cs.nsHistoryHandles?.length ? [{icon:'📈', label:'Nameserver History', panel:'nshistory', disabled:false}] : []),
+        ...(cs.nsHistoryHandles?.length ? [{icon:'📈', label:'Nameserver History', panel:'nshistory', disabled:false},{icon:'📉', label:'Nameserver History (old)', panel:'nshistory-old', disabled:false}] : []),
         ...(cs.availabilityHandles?.length ? [{icon:'🟢', label:'Availability', panel:'availability', disabled:false}] : []),
         {icon:'💥', label:`Runtime Dumps (${cs.rteDumpHandles?.length||0})`, panel:'rtedumps', disabled:false},
         {icon:'📂', label:'Trace Explorer', panel:'traceexplorer', disabled:false},
