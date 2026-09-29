@@ -3691,7 +3691,7 @@ async function nsChartPanel(panel,s){
   tabBar.style.cssText='display:flex;border-bottom:1px solid #EDEBE9;background:#F3F2F1;padding:0 12px;overflow-x:auto;white-space:nowrap;position:sticky;top:0;z-index:10;flex-shrink:0;'
   panel.appendChild(tabBar)
   const contentDiv=document.createElement('div')
-  contentDiv.style.cssText='flex:1;overflow-y:auto;'
+  contentDiv.style.cssText='flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;'
   panel.appendChild(contentDiv)
   let activeHost=null
   function _switchTab(hn){
@@ -3730,7 +3730,14 @@ async function nsChartLoadHost(container,hostName,handle){
     if(_nsChartState[cid]?.chart){_nsChartState[cid].chart.destroy();delete _nsChartState[cid].chart}
     const defVis=new Set(parsed.metrics.filter(m=>_NSC_DEFAULT.has(m.name)).map(m=>m.name))
     if(!defVis.size)parsed.metrics.slice(0,5).forEach(m=>defVis.add(m.name))
-    _nsChartState[cid]={parsedData:parsed,hostName,visiblePort:parsed.ports[0],visibleMetrics:defVis}
+    const sgMaxes={}
+    parsed.metrics.forEach((m,mi)=>{
+      const sg=_nscScaleGroup(m.name,m.unit)
+      if(!sgMaxes[sg])sgMaxes[sg]=0
+      for(const p of parsed.ports){const vals=parsed.byPort[p].values[mi];for(const v of vals)if(Number.isFinite(v)&&v>sgMaxes[sg])sgMaxes[sg]=v}
+    })
+    const yScaleArray=parsed.metrics.map(m=>_nscCalcYScale(sgMaxes[_nscScaleGroup(m.name,m.unit)]||0))
+    _nsChartState[cid]={parsedData:parsed,hostName,visiblePort:parsed.ports[0],visibleMetrics:defVis,fromMs:null,toMs:null,yScaleArray}
     nsChartBuildUI(container,cid)
     nsChartDraw(cid)
   }catch(e){
@@ -3738,102 +3745,240 @@ async function nsChartLoadHost(container,hostName,handle){
   }
 }
 
+function _nscScaleGroup(name,unit){
+  const n=name.toLowerCase(),u=(unit||'').toLowerCase()
+  if(u.includes('%'))return'pct'
+  if(n.includes('disk'))return'disk'
+  if(n.includes('network'))return'net'
+  if(n.includes('swap'))return'swap'
+  if(u.includes('byte'))return'memory'
+  if(n.includes('connection')||n.includes('session'))return'conn'
+  if(n.includes('statement')||n.includes('sql')||n.includes('execution'))return'stmt'
+  if(n.includes('transaction'))return'trans'
+  if(n.includes('thread'))return'thread'
+  return'other'
+}
+
+function _nscCalcYScale(maxVal){
+  if(!Number.isFinite(maxVal)||maxVal<=0)return 100
+  const exp=Math.floor(Math.log10(maxVal))
+  const pow=Math.pow(10,exp)
+  const m=maxVal/pow
+  return(m<=2?2:m<=5?5:10)*pow
+}
+
+function _nscFmtYScale(v){if(!Number.isFinite(v))return'—';if(v>=1e9)return(v/1e9).toFixed(0)+'B';if(v>=1e6)return(v/1e6).toFixed(0)+'M';if(v>=1000)return(v/1000).toFixed(0)+'K';return String(Math.round(v))}
+
+
+function _nscMsToDatetimeLocal(ms){const d=new Date(ms),p=n=>String(n).padStart(2,'0');return`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`}
+function _nscAxisLabel(unit){if(!unit)return 'Auto';if(unit.includes('%'))return '0–100%';if(unit.toLowerCase().includes('byte'))return 'Auto';return 'Auto'}
+function _nscFmtStat(v,unit){if(!Number.isFinite(v))return '—';if(unit?.toLowerCase().includes('byte'))return _nscFmtBytes(v);if(Math.abs(v)>=1e6)return(v/1e6).toFixed(1)+'M';if(Math.abs(v)>=1000)return Math.round(v).toLocaleString();return v%1===0?String(v):v.toFixed(2)}
+
 function nsChartBuildUI(container,cid){
   const st=_nsChartState[cid]
   const{parsedData:{metrics,ports},hostName,visiblePort,visibleMetrics}=st
-  const cats=['cpu','mem','sql','thread','other']
-  const catLbl={cpu:'CPU',mem:'Memory',sql:'SQL',thread:'Threads',other:'Other'}
-  const byCat={};cats.forEach(c=>byCat[c]=[])
-  metrics.forEach(m=>byCat[_nscCat(m.name)].push(m))
+
   const portSvcMap={}
   if(topoData){const h=topoData.hosts.find(h=>h.name===hostName);if(h)h.services.forEach(s=>portSvcMap[String(s.port)]=s.name)}
   const portLbl=p=>{const s=portSvcMap[p];return s?`${p} — ${s}`:p}
 
-  let html='<div style="padding:10px 14px;">'
-  if(ports.length>1){
-    html+=`<div id="${cid}-ports" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">`
-    ports.forEach(p=>{
-      const a=p===visiblePort
-      html+=`<button data-port="${escHtml(p)}" onclick="nsChartSwitchPort('${cid}','${escHtml(p)}')" style="padding:4px 10px;border:1px solid ${a?'#0078D4':'#EDEBE9'};background:${a?'#EFF6FC':'#fff'};color:${a?'#0078D4':'#323130'};border-radius:2px;font-family:inherit;font-size:11px;cursor:pointer;font-weight:${a?'600':'normal'};">${escHtml(portLbl(p))}</button>`
+  const GROUPS=[
+    {id:'sql',label:'SQL / Connections',test:m=>{const n=m.name.toLowerCase();return['sql','statement','connection','transaction','execution'].some(k=>n.includes(k))}},
+    {id:'thr',label:'Threads',test:m=>m.name.toLowerCase().includes('thread')},
+    {id:'rst',label:'Row Store',test:m=>{const n=m.name.toLowerCase();return n.includes('rowstore')||n.includes('row_store')}},
+    {id:'cst',label:'Column Store',test:m=>{const n=m.name.toLowerCase();return n.includes('columnstore')||n.includes('column_store')||n.includes('colstore')}},
+    {id:'per',label:'Persistence',test:m=>{const n=m.name.toLowerCase();return['savepoint','delta','logused','logseg','backup'].some(k=>n.includes(k))}},
+    {id:'idx',label:'Index Server',test:m=>m.name.toLowerCase().startsWith('indexserver')},
+    {id:'sys',label:'Host',test:()=>true},
+  ]
+  const assigned=new Set()
+  const groups=GROUPS.map(g=>({...g,metrics:metrics.filter((m,mi)=>{
+    if(g.id!=='sys'){if(assigned.has(mi))return false;const ok=g.test(m);if(ok)assigned.add(mi);return ok}
+    return !assigned.has(mi)
+  })})).filter(g=>g.metrics.length)
+
+  const portData=st.parsedData.byPort[visiblePort]
+  const dtFrom=portData?.timestamps.length?_nscMsToDatetimeLocal(portData.timestamps[0]):''
+  const dtTo=portData?.timestamps.length?_nscMsToDatetimeLocal(portData.timestamps[portData.timestamps.length-1]):''
+  const tzLabel=Intl.DateTimeFormat().resolvedOptions().timeZone
+  const rangeInfo=portData?.timestamps.length?` (${_nscFmtTs(portData.timestamps[0])} – ${_nscFmtTs(portData.timestamps[portData.timestamps.length-1])})`:''
+
+  const portSel=ports.length>1
+    ?`<select id="${cid}-portsel" class="nsc-select" onchange="nsChartSwitchPortSel('${cid}')">${ports.map(p=>`<option value="${escHtml(p)}"${p===visiblePort?' selected':''}>${escHtml(portLbl(p))}</option>`).join('')}</select>`
+    :`<span class="nsc-port-tag">${escHtml(portLbl(visiblePort))}</span>`
+
+  let html=`<div class="nsc-toolbar">
+    <label>Date Time Range From:</label>
+    <input type="datetime-local" id="${cid}-from" class="nsc-dt-input" value="${dtFrom}">
+    <label>To:</label>
+    <input type="datetime-local" id="${cid}-to" class="nsc-dt-input" value="${dtTo}">
+    <span class="nsc-tz">${escHtml(tzLabel)}</span>
+    ${portSel}
+    <button class="nsc-btn-primary" onclick="nsChartShow('${cid}')">Show</button>
+    <button class="nsc-btn" onclick="nsChartReset('${cid}')">Reset Chart</button>
+    <span id="${cid}-info" class="nsc-tz"></span>
+  </div>
+  <div class="nsc-range-info" id="${cid}-range-info">${escHtml(hostName)} · ${escHtml(portLbl(visiblePort))}${escHtml(rangeInfo)}</div>
+  <div class="nsc-body">
+    <div class="nsc-chart-area"><canvas id="${cid}-canvas"></canvas></div>
+    <div class="nsc-param-panel">
+      <input type="search" id="${cid}-search" class="nsc-search" placeholder="🔍 Enter Search Terms Here" oninput="nsChartFilter('${cid}',this.value)">
+      <div class="nsc-param-header">
+        <span>KPI</span><span style="text-align:center;">Y-Scale</span><span style="text-align:center;">Unit</span>
+        <span style="text-align:right;">Min</span><span style="text-align:right;">Max</span><span style="text-align:right;">Average</span>
+      </div>
+      <div class="nsc-param-rows" id="${cid}-param-rows">`
+
+  groups.forEach(g=>{
+    html+=`<div class="nsc-param-group" id="${cid}-grp-${g.id}"><div class="nsc-group-hdr" onclick="nsChartToggleGroup(this)">▼ ${escHtml(g.label)}</div>`
+    g.metrics.forEach(m=>{
+      const mi=metrics.indexOf(m)
+      const color=_NSC_PALETTE[mi%_NSC_PALETTE.length]
+      const chk=visibleMetrics.has(m.name)
+      html+=`<div class="nsc-param-row${chk?' checked':''}" data-metric="${escHtml(m.name)}" id="${cid}-row-${_nscSid(m.name)}" style="border-left-color:${chk?color:'transparent'};">
+        <span class="nsc-param-kpi">
+          <input type="checkbox"${chk?' checked':''} data-metric="${escHtml(m.name)}" data-color="${color}" onchange="nsChartToggleMetric('${cid}',this.dataset.metric,this.checked)" style="cursor:pointer;margin:0;flex-shrink:0;">
+          <span title="${escHtml(m.label)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(m.label)}</span>
+        </span>
+        <span class="nsc-param-scale" style="text-align:center;cursor:default;" title="Auto-computed Y-axis max">${escHtml(_nscFmtYScale(st.yScaleArray?.[mi]))}</span>
+        <span class="nsc-param-unit">${escHtml(m.unit||'')}</span>
+        <span class="nsc-param-stat" id="${cid}-min-${_nscSid(m.name)}">—</span>
+        <span class="nsc-param-stat" id="${cid}-max-${_nscSid(m.name)}">—</span>
+        <span class="nsc-param-stat" id="${cid}-avg-${_nscSid(m.name)}">—</span>
+      </div>`
     })
     html+=`</div>`
-  }
-  html+=`<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:6px;"><span style="font-size:11px;color:#605E5C;">Quick:</span>`
-  cats.forEach(c=>{if(byCat[c].length)html+=`<button onclick="nsChartSelCat('${cid}','${c}')" style="padding:2px 8px;border:1px solid #EDEBE9;background:#F3F2F1;border-radius:2px;font-family:inherit;font-size:11px;cursor:pointer;">${catLbl[c]}</button>`})
-  html+=`<button onclick="nsChartSelCat('${cid}','all')" style="padding:2px 8px;border:1px solid #EDEBE9;background:#F3F2F1;border-radius:2px;font-family:inherit;font-size:11px;cursor:pointer;">All</button>`
-  html+=`<button onclick="nsChartSelCat('${cid}','none')" style="padding:2px 8px;border:1px solid #EDEBE9;background:#F3F2F1;border-radius:2px;font-family:inherit;font-size:11px;cursor:pointer;">None</button>`
-  html+=`<span id="${cid}-info" style="font-size:10px;color:#A19F9D;margin-left:6px;"></span></div>`
-  html+=`<div id="${cid}-metrics" style="max-height:90px;overflow-y:auto;display:flex;flex-direction:column;flex-wrap:wrap;align-content:flex-start;gap:2px 20px;padding:6px 8px;background:#F8F8F7;border:1px solid #EDEBE9;border-radius:2px;margin-bottom:10px;">`
-  cats.forEach(c=>byCat[c].forEach(m=>{
-    const chk=visibleMetrics.has(m.name)?'checked':''
-    html+=`<label style="font-size:11px;color:#323130;display:flex;align-items:center;gap:3px;cursor:pointer;white-space:nowrap;"><input type="checkbox" ${chk} data-metric="${escHtml(m.name)}" onchange="nsChartToggleMetric('${cid}',this.dataset.metric,this.checked)" style="cursor:pointer;margin:0;width:12px;height:12px;"> ${escHtml(m.label)}</label>`
-  }))
-  html+=`</div><div style="position:relative;height:400px;"><canvas id="${cid}-canvas"></canvas></div></div>`
+  })
+  html+=`</div></div></div>`
   container.innerHTML=html
+}
+
+function nsChartUpdateStats(cid){
+  const st=_nsChartState[cid];if(!st)return
+  const portData=st.parsedData.byPort[st.visiblePort];if(!portData)return
+  const ts=portData.timestamps
+  const{fromMs,toMs}=st
+  let iStart=0,iEnd=ts.length
+  if(fromMs!=null){for(let i=0;i<ts.length;i++){if(ts[i]>=fromMs){iStart=i;break}}}
+  if(toMs!=null){for(let i=ts.length-1;i>=iStart;i--){if(ts[i]<=toMs){iEnd=i+1;break}}}
+  st.parsedData.metrics.forEach((m,mi)=>{
+    const vals=portData.values[mi]
+    let min=Infinity,max=-Infinity,sum=0,cnt=0
+    for(let i=iStart;i<iEnd;i++){const v=vals[i];if(!Number.isFinite(v))continue;if(v<min)min=v;if(v>max)max=v;sum+=v;cnt++}
+    const fmt=v=>_nscFmtStat(v,m.unit)
+    const sid=_nscSid(m.name)
+    const em=document.getElementById(cid+'-min-'+sid),eMx=document.getElementById(cid+'-max-'+sid),eAv=document.getElementById(cid+'-avg-'+sid)
+    if(em)em.textContent=cnt?fmt(min):'—'
+    if(eMx)eMx.textContent=cnt?fmt(max):'—'
+    if(eAv)eAv.textContent=cnt?fmt(sum/cnt):'—'
+  })
+}
+
+function nsChartUpdateRowVisuals(cid){
+  const st=_nsChartState[cid];if(!st)return
+  st.parsedData.metrics.forEach((m,mi)=>{
+    const row=document.getElementById(cid+'-row-'+_nscSid(m.name));if(!row)return
+    const vis=st.visibleMetrics.has(m.name)
+    const color=_NSC_PALETTE[mi%_NSC_PALETTE.length]
+    row.style.borderLeftColor=vis?color:'transparent'
+    row.classList.toggle('checked',vis)
+    const cb=row.querySelector('input[type=checkbox]');if(cb)cb.checked=vis
+  })
 }
 
 function nsChartDraw(cid){
   const st=_nsChartState[cid];if(!st)return
   const canvas=document.getElementById(cid+'-canvas');if(!canvas)return
-  const{parsedData,visiblePort,visibleMetrics}=st
+  const{parsedData,visiblePort,visibleMetrics,fromMs,toMs}=st
   const portData=parsedData.byPort[visiblePort];if(!portData)return
   if(st.chart){st.chart.destroy();st.chart=null}
   const ts=portData.timestamps
+  let iStart=0,iEnd=ts.length
+  if(fromMs!=null){for(let i=0;i<ts.length;i++){if(ts[i]>=fromMs){iStart=i;break}}}
+  if(toMs!=null){for(let i=ts.length-1;i>=iStart;i--){if(ts[i]<=toMs){iEnd=i+1;break}}}
+  const filteredTs=ts.slice(iStart,iEnd)
   const MAX=1500
-  const usedAxes=new Set()
   const datasets=parsedData.metrics.map((m,mi)=>{
     const hidden=!visibleMetrics.has(m.name)
-    const axId=_nscAxisId(m.unit)
-    if(!hidden)usedAxes.add(axId)
-    const{xs,ys}=_nscLttb(ts,portData.values[mi],MAX)
+    const{xs,ys}=_nscLttb(filteredTs,portData.values[mi].slice(iStart,iEnd),MAX)
     return{
       label:m.label,data:xs.map((x,i)=>({x,y:ys[i]})),
       borderColor:_NSC_PALETTE[mi%_NSC_PALETTE.length],
       backgroundColor:_NSC_PALETTE[mi%_NSC_PALETTE.length]+'18',
-      borderWidth:1.5,pointRadius:0,pointHoverRadius:3,tension:0,
-      yAxisID:axId,hidden
+      borderWidth:1.5,pointRadius:0,pointHoverRadius:3,tension:0,hidden
     }
   })
-  const scales={x:{type:'linear',ticks:{maxTicksLimit:8,callback:v=>{const d=new Date(v);return`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`},maxRotation:0},grid:{color:'rgba(0,0,0,0.05)'}}}
-  let firstGrid=true
-  for(const[axId,pos,lbl,extra]of[['y-pct','left','%',{suggestedMin:0,suggestedMax:100}],['y-bytes','right','bytes',{}],['y-rate','right','/s',{}]]){
-    if(!usedAxes.has(axId))continue
-    const drawOnChart=firstGrid;firstGrid=false
-    scales[axId]={type:'linear',display:true,position:pos,title:{display:!!lbl,text:lbl,font:{size:10}},grid:{drawOnChartArea:drawOnChart},...extra}
-    if(axId==='y-bytes')scales[axId].ticks={callback:v=>_nscFmtBytes(v)}
-  }
-  if(!usedAxes.size){scales['y-rate']={type:'linear',display:false,position:'left'};datasets.forEach(d=>d.yAxisID='y-rate')}
+  const spanMs=filteredTs.length>1?filteredTs[filteredTs.length-1]-filteredTs[0]:0
+  const MNTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const xTickCb=v=>{const d=new Date(v),hh=String(d.getHours()).padStart(2,'0'),mm=String(d.getMinutes()).padStart(2,'0');return spanMs>86400000?`${MNTHS[d.getMonth()]}${d.getDate()} ${hh}:${mm}`:`${hh}:${mm}`}
+  const scales={x:{type:'linear',ticks:{maxTicksLimit:8,callback:xTickCb,maxRotation:0},grid:{color:'rgba(0,0,0,0.05)'}}}
+  const yScaleArr=st.yScaleArray||new Array(parsedData.metrics.length).fill(100)
+  const firstVisIdx=datasets.findIndex(d=>!d.hidden)
+  datasets.forEach((dataset,mi)=>{
+    const ys=yScaleArr[mi]||100
+    scales['y-'+mi]={type:'linear',display:false,min:0,max:ys,grid:{drawOnChartArea:mi===(firstVisIdx>=0?firstVisIdx:0),color:'rgba(0,0,0,0.06)'}}
+    dataset.yAxisID='y-'+mi
+  })
   st.chart=new Chart(canvas,{type:'line',data:{datasets},options:{
     responsive:true,maintainAspectRatio:false,animation:false,
     interaction:{intersect:false,mode:'index'},
     plugins:{
-      legend:{display:true,position:'bottom',labels:{font:{size:10},boxWidth:12,padding:6,usePointStyle:true}},
+      legend:{display:false},
       tooltip:{callbacks:{
         title:items=>_nscFmtTs(items[0]?.parsed?.x||0),
-        label:item=>`${item.dataset.label}: ${typeof item.parsed.y==='number'?item.parsed.y.toFixed(2):'-'}`
+        label:item=>item.dataset.hidden?null:`${item.dataset.label}: ${typeof item.parsed.y==='number'?item.parsed.y.toFixed(2):'-'}`
       }}
     },
     scales
   }})
   const info=document.getElementById(cid+'-info')
-  if(info)info.textContent=`${ts.length.toLocaleString()} pts · port ${visiblePort}${ts.length>MAX?` · LTTB→${MAX}`:''}`
+  if(info)info.textContent=`${filteredTs.length.toLocaleString()} pts${filteredTs.length>MAX?` · LTTB→${MAX}`:''}`
+  nsChartUpdateStats(cid)
+}
+
+function nsChartShow(cid){
+  const st=_nsChartState[cid];if(!st)return
+  const fv=document.getElementById(cid+'-from')?.value
+  const tv=document.getElementById(cid+'-to')?.value
+  st.fromMs=fv?new Date(fv).getTime():null
+  st.toMs=tv?new Date(tv).getTime():null
+  nsChartDraw(cid)
+}
+
+function nsChartReset(cid){
+  const st=_nsChartState[cid];if(!st)return
+  st.fromMs=null;st.toMs=null
+  const portData=st.parsedData.byPort[st.visiblePort]
+  if(portData?.timestamps.length){
+    const fe=document.getElementById(cid+'-from'),te=document.getElementById(cid+'-to')
+    if(fe)fe.value=_nscMsToDatetimeLocal(portData.timestamps[0])
+    if(te)te.value=_nscMsToDatetimeLocal(portData.timestamps[portData.timestamps.length-1])
+  }
+  nsChartDraw(cid)
 }
 
 function nsChartSwitchPort(cid,port){
   const st=_nsChartState[cid];if(!st||st.visiblePort===port)return
-  st.visiblePort=port
-  const bar=document.getElementById(cid+'-ports')
-  if(bar)bar.querySelectorAll('button').forEach(b=>{
-    const a=b.dataset.port===port
-    b.style.border=`1px solid ${a?'#0078D4':'#EDEBE9'}`;b.style.background=a?'#EFF6FC':'#fff'
-    b.style.color=a?'#0078D4':'#323130';b.style.fontWeight=a?'600':'normal'
-  })
+  st.visiblePort=port;st.fromMs=null;st.toMs=null
+  const portData=st.parsedData.byPort[port]
+  if(portData?.timestamps.length){
+    const fe=document.getElementById(cid+'-from'),te=document.getElementById(cid+'-to')
+    if(fe)fe.value=_nscMsToDatetimeLocal(portData.timestamps[0])
+    if(te)te.value=_nscMsToDatetimeLocal(portData.timestamps[portData.timestamps.length-1])
+  }
+  const ri=document.getElementById(cid+'-range-info')
+  if(ri){const portSvcMap={};if(topoData){const h=topoData.hosts.find(h=>h.name===st.hostName);if(h)h.services.forEach(s=>portSvcMap[String(s.port)]=s.name)};const s=portSvcMap[port];const lbl=s?`${port} — ${s}`:port;ri.textContent=`${st.hostName} · ${lbl}`+(portData?.timestamps.length?` (${_nscFmtTs(portData.timestamps[0])} – ${_nscFmtTs(portData.timestamps[portData.timestamps.length-1])})`:'')}
   nsChartDraw(cid)
 }
+
+function nsChartSwitchPortSel(cid){const sel=document.getElementById(cid+'-portsel');if(sel)nsChartSwitchPort(cid,sel.value)}
 
 function nsChartToggleMetric(cid,name,visible){
   const st=_nsChartState[cid];if(!st)return
   if(visible)st.visibleMetrics.add(name);else st.visibleMetrics.delete(name)
+  const mi=st.parsedData.metrics.findIndex(m=>m.name===name)
+  const row=document.getElementById(cid+'-row-'+_nscSid(name))
+  if(row){row.style.borderLeftColor=visible?_NSC_PALETTE[mi%_NSC_PALETTE.length]:'transparent';row.classList.toggle('checked',visible)}
   nsChartDraw(cid)
 }
 
@@ -3843,9 +3988,21 @@ function nsChartSelCat(cid,cat){
   if(cat==='all')metrics.forEach(m=>st.visibleMetrics.add(m.name))
   else if(cat==='none')st.visibleMetrics.clear()
   else metrics.filter(m=>_nscCat(m.name)===cat).forEach(m=>st.visibleMetrics.add(m.name))
-  const div=document.getElementById(cid+'-metrics')
-  if(div)div.querySelectorAll('input[type=checkbox]').forEach(cb=>cb.checked=st.visibleMetrics.has(cb.dataset.metric))
+  nsChartUpdateRowVisuals(cid)
   nsChartDraw(cid)
+}
+
+function nsChartFilter(cid,query){
+  const q=query.toLowerCase().trim()
+  const rows=document.getElementById(cid+'-param-rows');if(!rows)return
+  rows.querySelectorAll('.nsc-param-row').forEach(r=>{r.style.display=!q||(r.dataset.metric||'').toLowerCase().includes(q)?'':'none'})
+  rows.querySelectorAll('.nsc-param-group').forEach(g=>{g.style.display=[...g.querySelectorAll('.nsc-param-row')].some(r=>r.style.display!=='none')?'':'none'})
+}
+
+function nsChartToggleGroup(hdr){
+  const open=hdr.textContent.startsWith('▼')
+  hdr.textContent=(open?'▶':'▼')+hdr.textContent.slice(1)
+  hdr.parentElement.querySelectorAll('.nsc-param-row').forEach(r=>r.style.display=open?'none':'')
 }
 
 function renderNsHistory(text,hostName){
