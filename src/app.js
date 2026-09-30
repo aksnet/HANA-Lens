@@ -1607,6 +1607,108 @@ function renderRteDumpFileContent(text,filename){
 // ============================================================
 // CRASH DUMPS
 // ============================================================
+const _HDBCFS_QUERY=`
+    mutation SearchCrashdump($file: Upload!) {
+  searchCrashdump(file: $file) {
+    ...SearchAttrs
+  }
+}
+
+    fragment SearchAttrs on CrashSearchResult {
+  crash {
+    ...CrashAttrs
+  }
+  problemIds
+  similarCallstacks {
+    name
+    callstackSha1sum
+    stackframes {
+      seq
+      functionSignature
+      sourceFile
+      component
+    }
+    similars {
+      callstackSha1sum
+      score
+      bugCount
+      crashCount
+      maxTime
+    }
+  }
+}
+
+    fragment CrashAttrs on Crash {
+  crashCallStacksSha1sum
+  crashdumpSha1sum
+  crashdumpType
+  ceVersion
+  buildVersion
+  buildRevision
+  buildSPNumber
+  buildPatchLevel
+  buildHost
+  buildTime
+  buildPlatform
+  buildCompilerInfo
+  buildCompilerName
+  buildCompilerVersion
+  buildMakeType
+  buildBranch
+  buildGitHash
+  buildGitMergeTime
+  buildWeekstone
+  crashProcessStartTime
+  crashExceptionTime
+  crashSignal
+  crashSignalSymbol
+  crashSigCode
+  crashSigCodeSymbol
+  crashSigCodeMessage
+  crashSID
+  crashInsNum
+  crashOSType
+  crashHost
+  crashOSRelease
+  crashOSMachId
+  crashCtxName
+  crashCtxType
+  crashCtxId
+  crashCtxUpdateTransactionId
+  crashCtxTransactionId
+  crashCtxConnectionId
+  crashCtxLogicalConnectionnId
+  crashCtxStatementId
+  crashCtxStatementHash
+  crashCtxStatementExecutionId
+  crashCtxCommandText
+  crashCtxSqlUsername
+  crashCtxAppUsername
+  callStackString
+  filename
+  symbolicStackBacktrace {
+    stackframes {
+      seq
+      functionSignature
+      sourceFile
+      component
+    }
+  }
+  pendingExceptions {
+    exceptionMessage
+    exceptionCallstack {
+      stackframes {
+        seq
+        functionSignature
+        sourceFile
+        component
+      }
+    }
+  }
+  problemId
+  metadata
+}
+    `
 function renderCrashDumps(dumps,scannedPaths){
   const count=dumps.length
   const pathList=scannedPaths.length?scannedPaths.map(p=>`<code>${escHtml(p)}</code>`).join(', '):'<span style="color:#A19F9D;">none</span>'
@@ -1724,6 +1826,7 @@ async function crashDumpOpenInHdbcfs(){
     return
   }
   const fname=d.filename,fpath=path
+  const _opsStr=JSON.stringify({operationName:'SearchCrashdump',query:_HDBCFS_QUERY,variables:{file:null}})
   const label='hdbcfs-upload'
   // This script is eval()-injected into the HDBCFS WebviewWindow after it loads.
   // Because it runs in the hdbcfs.me.sap.corp origin, the browser automatically
@@ -1739,7 +1842,7 @@ async function crashDumpOpenInHdbcfs(){
       const bin=atob(b64),ba=new Uint8Array(bin.length);
       for(let i=0;i<bin.length;i++)ba[i]=bin.charCodeAt(i);
       const file=new File([ba],${JSON.stringify(fname)},{type:'application/octet-stream'});
-      const ops=JSON.stringify({operationName:'SearchCrashdump',query:'mutation SearchCrashdump($file:Upload!){searchCrashdump(file:$file){__typename}}',variables:{file:null}});
+      const ops=${JSON.stringify(_opsStr)};
       const fd=new FormData();
       fd.append('operations',ops);fd.append('map','{"0":["variables.file"]}');fd.append('0',file,${JSON.stringify(fname)});
       const r=await fetch('/api/gql',{method:'POST',body:fd,credentials:'include'});
