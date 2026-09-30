@@ -855,6 +855,24 @@ function parseRteDumpFilename(fname){
   return{filename:fname,serviceName,virtualHost,port,datetime,reason,seq}
 }
 
+function parseCrashDumpFilename(fname){
+  const idx=fname.indexOf('.crashdump.')
+  if(idx===-1)return null
+  const left=fname.substring(0,idx)
+  const right=fname.substring(idx+11)
+  const usIdx=left.indexOf('_')
+  if(usIdx===-1)return null
+  const serviceName=left.substring(0,usIdx)
+  const hostPort=left.substring(usIdx+1)
+  const dotIdx=hostPort.lastIndexOf('.')
+  const virtualHost=dotIdx>=0?hostPort.substring(0,dotIdx):hostPort
+  const port=dotIdx>=0?hostPort.substring(dotIdx+1):''
+  const parts=right.split('.')
+  const datetime=parts[0]||''
+  const seq=parts[1]||''
+  return{filename:fname,serviceName,virtualHost,port,datetime,seq,reason:'crashdump'}
+}
+
 function renderRteDumpKnowledge(){
   const links=[
     {
@@ -1111,7 +1129,7 @@ async function rteDumpLoadSingle(){
     versionHistoryHandle:null,configFileHandles:[],configRefHandles:{},configRefData:{},
     telemetryHandle:null,nsHistoryHandles:[],
     rteDumpHandles:[{...parsed,handle:fileHandle,scannedPath:fileHandle._path||fname,tenant:'',_idx:0}],
-    rteDumpScannedPaths:[],rteDumpHdbFound:true,
+    rteDumpScannedPaths:[],rteDumpHdbFound:true,crashDumpHandles:[],
     topoData:null,hsiLcmLogsData:null,hsiZipFsids:[]
   }
   fsidSessions.push(s)
@@ -1587,6 +1605,128 @@ function renderRteDumpFileContent(text,filename){
 }
 
 // ============================================================
+// CRASH DUMPS
+// ============================================================
+function renderCrashDumps(dumps,scannedPaths){
+  const count=dumps.length
+  const pathList=scannedPaths.length?scannedPaths.map(p=>`<code>${escHtml(p)}</code>`).join(', '):'<span style="color:#A19F9D;">none</span>'
+  let html=`<div class="card">
+  <div class="card-title">🛑 Crash Dumps
+    <span style="font-weight:400;font-size:11px;color:#605E5C;margin-left:6px;">${count} dump${count!==1?'s':''} found</span>
+  </div>
+  <div style="padding:6px 12px 8px 12px;font-size:11px;color:#605E5C;border-bottom:1px solid #EDEBE9;background:#F8F8F7;">
+    Scanned: ${pathList}
+  </div>
+  <div class="card-body" style="padding:0;">
+  <table style="width:100%;border-collapse:collapse;font-size:12px;">
+  <thead><tr style="background:#F3F2F1;">
+    <th style="padding:6px 12px;text-align:left;font-weight:600;border-bottom:1px solid #EDEBE9;">Date/Time</th>
+    <th style="padding:6px 12px;text-align:left;font-weight:600;border-bottom:1px solid #EDEBE9;">Service</th>
+    <th style="padding:6px 12px;text-align:left;font-weight:600;border-bottom:1px solid #EDEBE9;">Host</th>
+    <th style="padding:6px 12px;text-align:left;font-weight:600;border-bottom:1px solid #EDEBE9;">Port</th>
+    <th style="padding:6px 12px;text-align:left;font-weight:600;border-bottom:1px solid #EDEBE9;">Tenant</th>
+    <th style="padding:6px 12px;text-align:left;font-weight:600;border-bottom:1px solid #EDEBE9;">File</th>
+  </tr></thead><tbody>`
+  let lastHost=''
+  for(const d of dumps){
+    let dtDisplay=d.datetime
+    const dtm=d.datetime.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/)
+    if(dtm)dtDisplay=`${dtm[1]}-${dtm[2]}-${dtm[3]} ${dtm[4]}:${dtm[5]}:${dtm[6]}`
+    const tenantCell=d.tenant?tag('tag-purple',d.tenant):'<span style="color:#A19F9D;">SYSTEMDB</span>'
+    const isIpmm=d.filename.includes('.ipmm.')
+    const fileTag=isIpmm?`<span title="${escHtml(d.filename)}" style="font-size:10px;color:#605E5C;font-family:monospace;">${escHtml(d.filename)} ${tag('tag-red','binary')}</span>`:`<span class="mono" style="font-size:10px;color:#605E5C;">${escHtml(d.filename)}</span>`
+    if(d.virtualHost!==lastHost){
+      lastHost=d.virtualHost
+      html+=`<tr><td colspan="6" style="background:#F3F2F1;color:#605E5C;font-size:11px;font-weight:600;padding:5px 12px;border-top:2px solid #EDEBE9;border-bottom:1px solid #EDEBE9;">
+        🖥️ ${escHtml(d.virtualHost)}
+      </td></tr>`
+    }
+    html+=`<tr style="cursor:pointer;${isIpmm?'opacity:0.65;':''}" onclick="${isIpmm?`alert('Binary crash dump file (.ipmm.trc) — cannot be displayed as text. Use HDBCFS to analyze this file.')`:`crashDumpOpenTab(${d._idx})`}" oncontextmenu="event.preventDefault();showCrashDumpCtxMenu(${d._idx},event.clientX,event.clientY)" title="${isIpmm?'Binary file — right-click to open in HDBCFS':'Click to view file content'}">
+      <td style="padding:5px 12px;border-bottom:1px solid #F3F2F1;"><span class="mono">${escHtml(dtDisplay)}</span></td>
+      <td style="padding:5px 12px;border-bottom:1px solid #F3F2F1;">${tag('tag-cyan',d.serviceName)}</td>
+      <td style="padding:5px 12px;border-bottom:1px solid #F3F2F1;"><span class="mono">${escHtml(d.virtualHost)}</span></td>
+      <td style="padding:5px 12px;border-bottom:1px solid #F3F2F1;"><code>${escHtml(d.port)}</code></td>
+      <td style="padding:5px 12px;border-bottom:1px solid #F3F2F1;">${tenantCell}</td>
+      <td style="padding:5px 12px;border-bottom:1px solid #F3F2F1;">${fileTag}</td>
+    </tr>`
+  }
+  html+=`</tbody></table></div></div>`
+  return html
+}
+
+function crashTabSwitch(id){
+  const tabBar=document.getElementById('crash-tabbar')
+  const tabContent=document.getElementById('crash-tabcontent')
+  if(!tabBar||!tabContent)return
+  tabBar.querySelectorAll('button[data-crashid]').forEach(b=>{
+    const a=b.dataset.crashid===id
+    b.style.color=a?'#0078D4':'#605E5C';b.style.borderBottom=a?'2px solid #0078D4':'2px solid transparent'
+    b.style.fontWeight=a?'600':'normal';b.style.background=a?'#EFF6FC':'transparent'
+  })
+  tabContent.querySelectorAll('[data-crashpanel]').forEach(p=>p.style.display='none')
+  const active=tabContent.querySelector(`[data-crashpanel="${id}"]`)
+  if(active)active.style.display='block'
+}
+
+async function crashDumpOpenTab(idx){
+  const d=crashDumpHandles[parseInt(idx)]
+  if(!d)return
+  const tabId='crash-dump-'+idx
+  const tabBar=document.getElementById('crash-tabbar')
+  const tabContent=document.getElementById('crash-tabcontent')
+  if(!tabBar||!tabContent)return
+  if(tabBar.querySelector(`[data-crashid="${tabId}"]`)){crashTabSwitch(tabId);return}
+  let dtDisplay=d.datetime
+  const dtm=d.datetime.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/)
+  if(dtm)dtDisplay=`${dtm[2]}-${dtm[3]} ${dtm[4]}:${dtm[5]}`
+  const label=`${d.serviceName} · ${dtDisplay}`
+  const btn=document.createElement('button')
+  btn.dataset.crashid=tabId
+  btn.style.cssText='display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 10px 0 14px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:11px;color:#605E5C;cursor:pointer;white-space:nowrap;max-width:280px;'
+  const labelSpan=document.createElement('span');labelSpan.title=d.filename;labelSpan.style.cssText='overflow:hidden;text-overflow:ellipsis;';labelSpan.textContent=label
+  const closeBtn=document.createElement('span');closeBtn.textContent='×';closeBtn.style.cssText='font-size:14px;line-height:1;opacity:0.5;padding:0 2px;'
+  closeBtn.onclick=(e)=>{e.stopPropagation();btn.remove();const pnl=tabContent.querySelector(`[data-crashpanel="${tabId}"]`);if(pnl)pnl.remove();const fb=tabBar.querySelector('button[data-crashid="overview"]');if(fb)fb.click()}
+  btn.appendChild(labelSpan);btn.appendChild(closeBtn);btn.onclick=()=>crashTabSwitch(tabId);tabBar.appendChild(btn)
+  const panel=document.createElement('div');panel.dataset.crashpanel=tabId;panel.style.cssText='display:none;overflow-y:auto;height:100%;'
+  panel.innerHTML='<div style="padding:16px;color:#A19F9D;font-size:12px;">Loading…</div>'
+  tabContent.appendChild(panel);crashTabSwitch(tabId)
+  try{
+    const file=await d.handle.getFile()
+    const text=await file.text()
+    panel.innerHTML=renderRteDumpFileContent(text,d.filename)
+  }catch(e){
+    const relPath=(loadedFolderName?loadedFolderName+'/':'')+  (d.scannedPath?d.scannedPath+'/':'')+d.filename
+    const isPermission=e.name==='NotFoundError'||e.name==='NotAllowedError'||e.name==='SecurityError'
+    const msg=isPermission?`Could not read <strong>${escHtml(d.filename)}</strong> — the browser lost access to the directory.`:`Error: ${escHtml(String(e))}`
+    panel.innerHTML=`<div style="padding:16px;"><div class="not-found-msg" style="flex-direction:column;align-items:flex-start;gap:8px;"><span class="nf-icon">⚠️</span><span style="line-height:1.6;">${msg}</span></div></div>`
+  }
+}
+
+function showCrashDumpCtxMenu(idx,x,y){
+  _crashCtxIdx=idx
+  const m=document.getElementById('crash-ctx-menu')
+  m.style.display='block';m.style.left=x+'px';m.style.top=y+'px'
+  requestAnimationFrame(()=>{const r=m.getBoundingClientRect();if(r.right>window.innerWidth)m.style.left=(x-r.width)+'px';if(r.bottom>window.innerHeight)m.style.top=(y-r.height)+'px'})
+}
+function hideCrashDumpCtxMenu(){
+  const m=document.getElementById('crash-ctx-menu');if(m)m.style.display='none';_crashCtxIdx=null
+}
+function crashDumpOpenInHdbcfs(){
+  const idx=_crashCtxIdx;hideCrashDumpCtxMenu()
+  const d=crashDumpHandles[idx]
+  if(!d){return}
+  const path=d.handle?._path
+  if(window.__TAURI__?.core?.invoke){
+    window.__TAURI__.core.invoke('open_external_url',{url:'https://hdbcfs.me.sap.corp/app'})
+      .catch(e=>console.error('open_external_url failed:',e))
+  }
+  if(path){
+    const info=`HDBCFS was opened in your browser.\n\nFile path (copy for manual upload):\n${path}`
+    setTimeout(()=>alert(info),300)
+  }
+}
+
+// ============================================================
 // STATE + APP LOGIC
 // ============================================================
 // ── Multi-FSID Session Management ─────────────────────────────────────────
@@ -1616,6 +1756,7 @@ function traceCopyBreadcrumbPath(btn){
 // ── ctx-menu state ─────────────────────────────────────────────────────────
 let ctxTargetId = null
 let _rteCtxIdx = null
+let _crashCtxIdx = null
 
 // ── back-compat: these globals point into the active session ───────────────
 function sess(id){ return fsidSessions.find(s=>s.id===id)||null }
@@ -1633,6 +1774,7 @@ Object.defineProperty(window,'loadedFolderName',{get(){return get_loadedFolderNa
 Object.defineProperty(window,'loadedFiles',{get(){return get_loadedFiles()},set(v){const s=activeSess();if(s)s.loadedFiles=v}})
 Object.defineProperty(window,'rteDumpHandles',{get(){return get_rteDumpHandles()},set(v){const s=activeSess();if(s)s.rteDumpHandles=v}})
 Object.defineProperty(window,'rteDumpScannedPaths',{get(){return get_rteDumpScannedPaths()},set(v){const s=activeSess();if(s)s.rteDumpScannedPaths=v}})
+Object.defineProperty(window,'crashDumpHandles',{get(){const s=activeSess();return s?s.crashDumpHandles:[]},set(v){const s=activeSess();if(s)s.crashDumpHandles=v}})
 // legacy panel-key vars used in activateNav
 Object.defineProperty(window,'versionHistoryHandle',{get(){const s=activeSess();return s?s.versionHistoryHandle:null},set(v){const s=activeSess();if(s)s.versionHistoryHandle=v}})
 Object.defineProperty(window,'configFileHandles',{get(){const s=activeSess();return s?s.configFileHandles:[]},set(v){const s=activeSess();if(s)s.configFileHandles=v}})
@@ -1699,7 +1841,7 @@ async function loadFSIDFolder(existingHandle){
       id:sid, label:dirHandle.name, color, captureInfo:'',
       loadedFiles:{}, loadedFolderName:dirHandle.name,
       versionHistoryHandle:null, configDirHandle:null, _configScanned:false, configFileHandles:[], configRefHandles:{}, configRefData:{},
-      telemetryHandle:null, nsHistoryHandles:[], availabilityHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[], rteDumpHdbFound:false,
+      telemetryHandle:null, nsHistoryHandles:[], availabilityHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[], rteDumpHdbFound:false, crashDumpHandles:[],
       hostsFileHandle:null,
       topoData:null, traceExplorerData:null
     }
@@ -1755,6 +1897,9 @@ async function loadFSIDFolder(existingHandle){
               if(fh.kind==='file'&&fname.includes('.rtedump.')){
                 const parsed=parseRteDumpFilename(fname)
                 if(parsed){s.rteDumpHandles.push({...parsed,handle:fh,scannedPath:tracePath});foundHere=true}
+              } else if(fh.kind==='file'&&fname.includes('.crashdump.')){
+                const parsed=parseCrashDumpFilename(fname)
+                if(parsed)s.crashDumpHandles.push({...parsed,handle:fh,scannedPath:tracePath})
               } else if(fh.kind==='directory'&&fname.startsWith('DB_')){
                 const tenantTracePath=`${tracePath}/${fname}`
                 let foundTenant=false
@@ -1763,6 +1908,9 @@ async function loadFSIDFolder(existingHandle){
                     if(th.kind==='file'&&tf.includes('.rtedump.')){
                       const parsed=parseRteDumpFilename(tf)
                       if(parsed){s.rteDumpHandles.push({...parsed,handle:th,tenant:fname.replace(/^DB_/,''),scannedPath:tenantTracePath});foundTenant=true}
+                    } else if(th.kind==='file'&&tf.includes('.crashdump.')){
+                      const parsed=parseCrashDumpFilename(tf)
+                      if(parsed)s.crashDumpHandles.push({...parsed,handle:th,tenant:fname.replace(/^DB_/,''),scannedPath:tenantTracePath})
                     }
                   }
                 }catch(e){}
@@ -1782,6 +1930,8 @@ async function loadFSIDFolder(existingHandle){
         return b.datetime.localeCompare(a.datetime)
       })
       s.rteDumpHandles.forEach((d,i)=>d._idx=i)
+      s.crashDumpHandles.sort((a,b)=>{const h=a.virtualHost.localeCompare(b.virtualHost);if(h!==0)return h;const sv=a.serviceName.localeCompare(b.serviceName);if(sv!==0)return sv;return b.datetime.localeCompare(a.datetime)})
+      s.crashDumpHandles.forEach((d,i)=>d._idx=i)
     }catch(e){s.rteDumpHandles=[]}
     // parse capture info from log.txt
     try{
@@ -1814,6 +1964,7 @@ async function loadFSIDFolder(existingHandle){
     fsidSessions.push(s)
     // reset rtedumps panel so it rebuilds with new FSID data
     document.getElementById('panel-rtedumps').innerHTML=''
+    document.getElementById('panel-crashdumps').innerHTML=''
     renderNavTree()
     activateNavItem(sid,'topology')
   }catch(err){if(err.name!=='AbortError')alert('Error loading folder: '+err.message)}
@@ -1879,12 +2030,13 @@ document.addEventListener('DOMContentLoaded',()=>{
           id:sid, label:'📄 '+file.name, type:'topo-single', color, captureInfo:'',
           loadedFiles:{}, loadedFolderName:'',
           versionHistoryHandle:null, configFileHandles:[], configRefHandles:{}, configRefData:{},
-          telemetryHandle:null, nsHistoryHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[], rteDumpHdbFound:false,
+          telemetryHandle:null, nsHistoryHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[], rteDumpHdbFound:false, crashDumpHandles:[],
           topoData:null
         }
         fsidSessions.push(s)
         activeFsidId=sid
         document.getElementById('panel-rtedumps').innerHTML=''
+        document.getElementById('panel-crashdumps').innerHTML=''
         const data=parseTopology(content)
         s.topoData=data
         renderNavTree()
@@ -1905,7 +2057,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     this.value=''
   })
   // close context menus on outside click
-  document.addEventListener('click',()=>{hideFsidCtxMenu();hideRteCtxMenu();hideTraceLineCtxMenu()})
+  document.addEventListener('click',()=>{hideFsidCtxMenu();hideRteCtxMenu();hideCrashDumpCtxMenu();hideTraceLineCtxMenu()})
 })
 
 // ── Nav Tree (Multi-FSID accordion) ──────────────────────────────────────
@@ -1959,6 +2111,7 @@ function buildFsidGroup(s){
     ...(s.nsHistoryHandles?.length?[{icon:'📈',label:'Nameserver History',panel:'nshistory',disabled:false},{icon:'📉',label:'Nameserver History (old)',panel:'nshistory-old',disabled:false}]:[]),
     ...(s.availabilityHandles?.length?[{icon:'🟢',label:'Availability',panel:'availability',disabled:false}]:[]),
     ...(s.type!=='topo-single'?[{icon:'💥',label:`Runtime Dumps (${s.rteDumpHandles?.length||0})`,panel:'rtedumps',disabled:false}]:[]),
+    ...(s.type!=='topo-single'&&s.crashDumpHandles?.length?[{icon:'🛑',label:`Crash Dumps (${s.crashDumpHandles.length})`,panel:'crashdumps',disabled:false}]:[]),
     ...(s.type!=='rtedump-single'&&s.type!=='topo-single'?[{icon:'📂',label:'Trace Explorer',panel:'traceexplorer',disabled:false}]:[]),
   ]
   for(const it of items){
@@ -1990,6 +2143,7 @@ function activateNavItem(sid,panelKey){
   if(activeFsidId!==sid){
     activeFsidId=sid
     // clear panels that hold session-specific content
+    Object.values(_nsChartState).forEach(st=>{if(st?.chart){st.chart.destroy();st.chart=null}})
     document.getElementById('panel-topology').innerHTML=''
     document.getElementById('panel-versionhistory').innerHTML=''
     document.getElementById('panel-configuration').innerHTML=''
@@ -1998,6 +2152,7 @@ function activateNavItem(sid,panelKey){
     document.getElementById('panel-nshistory-old').innerHTML=''
     document.getElementById('panel-availability').innerHTML=''
     document.getElementById('panel-rtedumps').innerHTML=''
+    document.getElementById('panel-crashdumps').innerHTML=''
     document.getElementById('panel-hosts').innerHTML=''
     document.getElementById('panel-traceexplorer').innerHTML=''
   }
@@ -2112,7 +2267,8 @@ function fsidCtxRemove(){
   fsidSessions=fsidSessions.filter(x=>!toRemove.has(x.id))
   if(toRemove.has(activeFsidId)){
     activeFsidId=fsidSessions.length?fsidSessions[fsidSessions.length-1].id:null
-    ;['panel-topology','panel-versionhistory','panel-configuration','panel-telemetry','panel-nshistory','panel-nshistory-old','panel-availability','panel-rtedumps','panel-hosts','panel-traceexplorer','panel-hsi'].forEach(id=>{const el=document.getElementById(id);if(el){el.innerHTML='';el.style.display='';el.classList.remove('active')}})
+    Object.values(_nsChartState).forEach(st=>{if(st?.chart){st.chart.destroy();st.chart=null}})
+    ;['panel-topology','panel-versionhistory','panel-configuration','panel-telemetry','panel-nshistory','panel-nshistory-old','panel-availability','panel-rtedumps','panel-crashdumps','panel-hosts','panel-traceexplorer','panel-hsi'].forEach(id=>{const el=document.getElementById(id);if(el){el.innerHTML='';el.style.display='';el.classList.remove('active')}})
     document.getElementById('empty').style.display=fsidSessions.length?'none':'flex'
   }
   hideFsidCtxMenu()
@@ -2373,6 +2529,37 @@ async function activateNav(clickedItem,panelKey){
     }
   }
 
+  if(panelKey==='crashdumps'){
+    const panel=document.getElementById('panel-crashdumps')
+    panel.classList.add('active')
+    panel.innerHTML=''
+    const topRow=document.createElement('div')
+    topRow.style.cssText='display:flex;align-items:center;border-bottom:1px solid #EDEBE9;background:#F3F2F1;flex-shrink:0;'
+    const tabBar=document.createElement('div')
+    tabBar.id='crash-tabbar'
+    tabBar.style.cssText='display:flex;flex:1;padding:0 12px;overflow-x:auto;white-space:nowrap;'
+    topRow.appendChild(tabBar);panel.appendChild(topRow)
+    const tabContent=document.createElement('div')
+    tabContent.id='crash-tabcontent'
+    tabContent.style.cssText='flex:1;overflow-y:auto;'
+    panel.appendChild(tabContent)
+    const s=activeSess()
+    const dumps=s?.crashDumpHandles||[]
+    const scanned=s?.rteDumpScannedPaths||[]
+    const overviewBtn=document.createElement('button')
+    overviewBtn.dataset.crashid='overview'
+    overviewBtn.style.cssText='display:inline-flex;align-items:center;gap:5px;height:36px;padding:0 14px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:12px;color:#605E5C;cursor:pointer;white-space:nowrap;'
+    overviewBtn.innerHTML='🛑 Overview'
+    overviewBtn.onclick=()=>crashTabSwitch('overview')
+    tabBar.appendChild(overviewBtn)
+    const overviewPanel=document.createElement('div')
+    overviewPanel.dataset.crashpanel='overview'
+    overviewPanel.style.cssText='padding:16px;'
+    overviewPanel.innerHTML=dumps.length?renderCrashDumps(dumps,scanned):`<div class="not-found-msg" style="margin:16px;"><span class="nf-icon">⚠️</span><span>No crash dump files found.</span></div>`
+    tabContent.appendChild(overviewPanel)
+    crashTabSwitch('overview')
+  }
+
   if(panelKey==='traceexplorer'){
     const panel=document.getElementById('panel-traceexplorer')
     panel.classList.add('active')
@@ -2607,11 +2794,12 @@ function traceRenderDirList(){
     `<span class="trace-header-cell" style="text-align:right;" onclick="traceSort('size')">Size${sc==='size'?arr:''}</span>`
   list.appendChild(hdr)
 
-  // .rtedump. files → Runtime Dumps panel; nameserver_history.trc + system_availability_*.trc → dedicated nav items
+  // .rtedump. files → Runtime Dumps panel; .crashdump. → Crash Dumps panel; nameserver_history.trc + system_availability_*.trc → dedicated nav items
   const rawFiles=traceExplState.entries.filter(e=>{
     if(e.isDir)return false
     const n=e.name.toLowerCase()
     if(n.includes('.rtedump.'))return false
+    if(n.includes('.crashdump.'))return false
     if(n==='nameserver_history.trc')return false
     if(n.startsWith('system_availability_')&&n.endsWith('.trc'))return false
     return true
@@ -2926,7 +3114,7 @@ async function traceShowFileView(s){
   try{
     const file=await vf.handle.getFile()
     vf.fileSize=file.size
-    const MAX=25*1024*1024
+    const MAX=50*1024*1024
     const end=Math.min(MAX,file.size)
     const text=await file.slice(0,end).text()
     vf.offset=end
@@ -2974,7 +3162,7 @@ function traceAddLoadMoreBtn(list,fileSize){
   const btn=document.createElement('button')
   btn.id='trace-load-more-btn'
   btn.style.cssText='display:block;margin:8px 14px 16px;padding:5px 14px;background:#EFF6FC;border:1px solid #0078D4;border-radius:2px;font-family:inherit;font-size:11px;color:#0078D4;cursor:pointer;'
-  btn.textContent=`Load next 25 MB  (${formatBytes(remaining)} remaining)`
+  btn.textContent=`Load next 50 MB  (${formatBytes(remaining)} remaining)`
   btn.onclick=async()=>{btn.disabled=true;btn.textContent='Loading…';await traceAppendChunk()}
   list.appendChild(btn)
 }
@@ -3285,7 +3473,7 @@ async function traceAppendChunk(){
         await new Promise(r=>setTimeout(r,800*(attempt-1)))
       }
       const file=await vf.handle.getFile()
-      const MAX=25*1024*1024
+      const MAX=50*1024*1024
       const end=Math.min(vf.offset+MAX,file.size)
       const text=await file.slice(vf.offset,end).text()
       vf.offset=end
@@ -3296,7 +3484,7 @@ async function traceAppendChunk(){
       if(end<file.size){traceExplState._partialLine=rawLines.pop()||''}
       const safeLines=rawLines.map(l=>l.length>MAX_LINE?l.slice(0,MAX_LINE)+' … [line truncated]':l)
       const prevCount=vf._lines.length
-      vf._lines.push(...safeLines)
+      vf._lines=vf._lines.concat(safeLines)
       const list=document.getElementById('trace-list')
       if(vf._filterFrom||vf._filterTo){
         if(list)traceRenderFromLines(list,vf)
@@ -3305,12 +3493,16 @@ async function traceAppendChunk(){
         const showNums=true
         const opts={searchTerms:vf._searchTerms||[],bookmarks:vf._bookmarks||null,onBookmarkToggle:traceToggleBookmark}
         if(wrap){for(let s=0;s<safeLines.length;s+=_TRACE_CHUNK){wrap.appendChild(traceCreateChunk(safeLines.slice(s,s+_TRACE_CHUNK),prevCount+s,showNums,opts))}}
+        if(vf._searchTerms?.length&&vf._termMatchLines){
+          const terms=vf._searchTerms.map(t=>(typeof t==='string'?t:t.text).trim().toLowerCase()).filter(Boolean)
+          if(terms.length)safeLines.forEach((line,i)=>{if(terms.some(t=>line.toLowerCase().includes(t)))vf._termMatchLines.push(prevCount+i)})
+        }
         const info=document.getElementById('trace-filter-info')
         if(info)info.textContent=`${vf._lines.length.toLocaleString()} lines loaded`
         const btn=document.getElementById('trace-load-more-btn')
         if(btn){
           if(end>=file.size){btn.remove()}
-          else{btn.disabled=false;btn.textContent=`Load next 25 MB  (${formatBytes(file.size-end)} remaining)`}
+          else{btn.disabled=false;btn.textContent=`Load next 50 MB  (${formatBytes(file.size-end)} remaining)`}
         }
       }
       return
@@ -3438,6 +3630,21 @@ async function configPickRefFolder(){
   if(!wrap) return
   wrap.innerHTML='<div style="color:#A19F9D;font-size:12px;">Loading…</div>'
   await renderConfigContent(s,wrap)
+}
+
+async function hsiConfigPickRefFolder(sid,tabId,dbName){
+  const s=sess(sid);if(!s||!s.hsiConfigData)return
+  let dirHandle
+  try{
+    dirHandle=await window.showDirectoryPicker({mode:'read',id:'hsi-config-ref',...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})})
+  }catch(e){if(e.name!=='AbortError')console.error(e);return}
+  _lastPickedHandle=dirHandle
+  const refs={}
+  try{for await(const[n,h]of dirHandle.entries()){if(h.kind==='file'&&n.endsWith('.ini'))refs[n]=h}}catch(e){}
+  s.hsiConfigData.refHandles=refs
+  s.hsiConfigData.parsedRef=null
+  if(!s.configViewMode)s.configViewMode='explained'
+  await activateHsiTab(sid,tabId,dbName)
 }
 
 async function configPickFolder(){
@@ -3599,8 +3806,73 @@ function toggleAvailOk(tbodyId){
 // ══════════════════════════════════════════════════════════════════════════
 
 const _NSC_PALETTE=['#0078D4','#107C10','#D83B01','#8764B8','#038387','#D47500','#A4262C','#B146C2','#00B7C3','#004E8C','#881798','#69797E','#01B8AA','#E81123','#0099BC']
-const _NSC_DEFAULT=new Set(['indexserverCpu','indexserverCpuSys','indexserverMemUsed','indexserverMemLimit','sqlStatements'])
+const _NSC_DEFAULT=new Set(['cpuUsed','indexserverMemUsed','mvccNum'])
 const _nsChartState={}
+
+// Hardcoded metric → display group (10 groups matching reference tool)
+const _NSC_GROUPS={
+  'cpuUsed':'Host','memoryResident':'Host','memoryTotalResident':'Host','memoryUsed':'Host','memoryLimit':'Host','memorySize':'Host','diskUsed':'Host','diskSize':'Host','networkIn':'Host','networkOut':'Host','swapIn':'Host','swapOut':'Host',
+  'indexserverCpu':'Service','indexserverCpuSys':'Service','indexserverMemUsed':'Service','indexserverMemLimit':'Service','indexserverHandles':'Service','indexserverPingtime':'Service','indexserverSwapIn':'Service',
+  'sqlConnections':'SQL','internalConnections':'SQL','externalConnections':'SQL','idleConnections':'SQL','sqlTransactions':'SQL','internalTransactions':'SQL','externalTransactions':'SQL','userTransactions':'SQL','sqlBlockedTrans':'SQL','sqlStatements':'SQL','cidRange':'SQL','tidRange':'SQL','pendingRequestCount':'SQL',
+  'mvccNum':'Row Store','acquiredRecordLocks':'Row Store',
+  'searchCount':'Column Store','indexingCount':'Column Store','mergeCount':'Column Store','unloadCount':'Column Store',
+  'indexserverThreads':'Threads','waitingThreads':'Threads','totalThreads':'Threads','activeSqlExecutors':'Threads','waitingSqlExecutors':'Threads','totalSqlExecutors':'Threads',
+  'dataWriteSize':'Persistence','dataWriteTime':'Persistence','logWriteSize':'Persistence','logWriteTime':'Persistence','dataReadSize':'Persistence','dataReadTime':'Persistence','logReadSize':'Persistence','logReadTime':'Persistence',
+  'dataBackupWriteSize':'Backup','dataBackupWriteTime':'Backup','logBackupWriteSize':'Backup','logBackupWriteTime':'Backup',
+  'mutexCollisionCount':'Synchronization Primitives','readWriteLockCollisionCount':'Synchronization Primitives',
+  'admissinControlAdmitCount':'Session Admission Control','admissionControlRejectCount':'Session Admission Control','admissionControlWaitingRequests':'Session Admission Control','admissionControlWaitTime':'Session Admission Control','admissionControlEnqueueCount':'Session Admission Control','admissionControlDequeueCount':'Session Admission Control','admissionControlTimeoutCount':'Session Admission Control',
+}
+// Metric → scale group (same-group metrics share Y-Scale; 'unknown' = individual)
+const _NSC_SGROUPS={
+  'cpuUsed':'pct','indexserverCpu':'pct','indexserverCpuSys':'pct',
+  'memoryResident':'memory','memoryTotalResident':'memory','memoryUsed':'memory','memoryLimit':'memory','memorySize':'memory','indexserverMemUsed':'memory','indexserverMemLimit':'memory',
+  'diskUsed':'disk','diskSize':'disk',
+  'networkIn':'net','networkOut':'net',
+  'swapIn':'swap','swapOut':'swap','indexserverSwapIn':'swap',
+  'searchCount':'req','indexingCount':'req','mergeCount':'req','unloadCount':'req',
+  'sqlStatements':'stmt',
+  'dataWriteSize':'wrsize','logWriteSize':'wrsize','dataReadSize':'wrsize','logReadSize':'wrsize','dataBackupWriteSize':'wrsize','logBackupWriteSize':'wrsize',
+  'dataWriteTime':'wrtime','logWriteTime':'wrtime','dataReadTime':'wrtime','logReadTime':'wrtime','dataBackupWriteTime':'wrtime','logBackupWriteTime':'wrtime',
+  'sqlConnections':'conn','internalConnections':'conn','externalConnections':'conn','idleConnections':'conn',
+  'sqlTransactions':'trans','internalTransactions':'trans','externalTransactions':'trans','userTransactions':'trans',
+}
+// Metric → unit conversion type
+const _NSC_CONV={
+  'memoryResident':'mb','memoryTotalResident':'mb','memoryUsed':'mb','memoryLimit':'mb','memorySize':'mb','indexserverMemUsed':'mb','indexserverMemLimit':'mb',
+  'diskUsed':'gb','diskSize':'gb',
+  'networkIn':'mb_rate','networkOut':'mb_rate','swapIn':'mb_rate','swapOut':'mb_rate','indexserverSwapIn':'mb_rate',
+  'dataWriteSize':'mb_rate','logWriteSize':'mb_rate','dataReadSize':'mb_rate','logReadSize':'mb_rate','dataBackupWriteSize':'mb_rate','logBackupWriteSize':'mb_rate',
+  'dataWriteTime':'us_rate','logWriteTime':'us_rate','dataReadTime':'us_rate','logReadTime':'us_rate','dataBackupWriteTime':'us_rate','logBackupWriteTime':'us_rate',
+  'searchCount':'rate','indexingCount':'rate','mergeCount':'rate','unloadCount':'rate',
+  'sqlStatements':'rate',
+  'mutexCollisionCount':'rate','readWriteLockCollisionCount':'rate',
+  'admissinControlAdmitCount':'rate','admissionControlRejectCount':'rate','admissionControlWaitingRequests':'rate','admissionControlWaitTime':'rate','admissionControlEnqueueCount':'rate','admissionControlDequeueCount':'rate','admissionControlTimeoutCount':'rate',
+}
+// Apply unit conversions to parsed data (in-place):
+//   mb = bytes→MB (÷1048576), gb = bytes→GB (÷1073741824)
+//   rate = per-interval count÷interval_s, mb_rate = bytes÷1048576÷interval_s, us_rate = µs÷1e6÷interval_s
+function _nscApplyConversions(parsed){
+  parsed.metrics.forEach((m,mi)=>{
+    const ct=_NSC_CONV[m.name];if(!ct)return
+    for(const port of parsed.ports){
+      const pd=parsed.byPort[port],vals=pd.values[mi],ts=pd.timestamps
+      if(ct==='mb'){
+        for(let i=0;i<vals.length;i++)if(Number.isFinite(vals[i]))vals[i]/=1048576
+      }else if(ct==='gb'){
+        for(let i=0;i<vals.length;i++)if(Number.isFinite(vals[i]))vals[i]/=1073741824
+      }else if(ct==='rate'){
+        vals[0]=0
+        for(let i=1;i<vals.length;i++){const dt=(ts[i]-ts[i-1])/1000;vals[i]=(dt>0&&Number.isFinite(vals[i]))?Math.max(0,vals[i]/dt):NaN}
+      }else if(ct==='mb_rate'){
+        vals[0]=0
+        for(let i=1;i<vals.length;i++){const dt=(ts[i]-ts[i-1])/1000;vals[i]=(dt>0&&Number.isFinite(vals[i]))?Math.max(0,vals[i]/1048576/dt):NaN}
+      }else if(ct==='us_rate'){
+        vals[0]=0
+        for(let i=1;i<vals.length;i++){const dt=(ts[i]-ts[i-1])/1000;vals[i]=(dt>0&&Number.isFinite(vals[i]))?Math.max(0,vals[i]/1e6/dt):NaN}
+      }
+    }
+  })
+}
 
 function _nscAxisId(unit){
   if(!unit)return 'y-rate'
@@ -3693,7 +3965,7 @@ async function nsChartPanel(panel,s){
   const contentDiv=document.createElement('div')
   contentDiv.style.cssText='flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;'
   panel.appendChild(contentDiv)
-  let activeHost=null
+  let activeHost=null,_loadGen=0
   function _switchTab(hn){
     tabBar.querySelectorAll('button').forEach(b=>{
       const a=b.dataset.host===hn
@@ -3709,35 +3981,55 @@ async function nsChartPanel(panel,s){
     btn.onclick=async()=>{
       if(activeHost===hostName)return
       activeHost=hostName;_switchTab(hostName)
-      await nsChartLoadHost(contentDiv,hostName,handle)
+      const gen=++_loadGen
+      await nsChartLoadHost(contentDiv,hostName,handle,()=>gen!==_loadGen)
     }
     tabBar.appendChild(btn)
   }
   tabBar.querySelector('button')?.click()
 }
 
-async function nsChartLoadHost(container,hostName,handle){
+async function nsChartLoadHost(container,hostName,handle,isCancelled){
   container.innerHTML='<div style="color:#A19F9D;font-size:12px;padding:16px;">Parsing nameserver_history.trc…</div>'
   try{
     const file=await handle.getFile()
     const txt=await file.text()
+    if(isCancelled?.())return
     const parsed=nsChartParse(txt)
+    if(isCancelled?.())return
     if(!parsed||!parsed.ports.length){
       container.innerHTML='<div class="not-found-msg" style="margin:16px;"><span class="nf-icon">⚠️</span><span>No data found in nameserver_history.trc.</span></div>'
       return
     }
     const cid='nsc-'+hostName.replace(/[^a-z0-9]/gi,'-')
     if(_nsChartState[cid]?.chart){_nsChartState[cid].chart.destroy();delete _nsChartState[cid].chart}
+    _nscApplyConversions(parsed)
+    // Prefer indexserver port; skip nameserver/preprocessor/stats/xsengine (last 2 digits in skip list)
+    const _SKIP_SFXS=new Set(['01','02','04','05','06','07','10','11','12','29'])
+    const preferredPort=parsed.ports.find(p=>!_SKIP_SFXS.has(p.slice(-2)))||parsed.ports[0]
     const defVis=new Set(parsed.metrics.filter(m=>_NSC_DEFAULT.has(m.name)).map(m=>m.name))
     if(!defVis.size)parsed.metrics.slice(0,5).forEach(m=>defVis.add(m.name))
-    const sgMaxes={}
+    // Y-Scale: shared per known scale group; individual for unknown
+    const sgMaxes={},indMaxes=new Array(parsed.metrics.length).fill(0)
     parsed.metrics.forEach((m,mi)=>{
-      const sg=_nscScaleGroup(m.name,m.unit)
-      if(!sgMaxes[sg])sgMaxes[sg]=0
-      for(const p of parsed.ports){const vals=parsed.byPort[p].values[mi];for(const v of vals)if(Number.isFinite(v)&&v>sgMaxes[sg])sgMaxes[sg]=v}
+      const sg=_NSC_SGROUPS[m.name]||'unknown'
+      if(sg!=='unknown'&&sgMaxes[sg]==null)sgMaxes[sg]=0
+      for(const p of parsed.ports){
+        const vals=parsed.byPort[p].values[mi]
+        for(const v of vals){
+          if(!Number.isFinite(v))continue
+          if(sg==='unknown'){if(v>indMaxes[mi])indMaxes[mi]=v}
+          else{if(v>sgMaxes[sg])sgMaxes[sg]=v}
+        }
+      }
     })
-    const yScaleArray=parsed.metrics.map(m=>_nscCalcYScale(sgMaxes[_nscScaleGroup(m.name,m.unit)]||0))
-    _nsChartState[cid]={parsedData:parsed,hostName,visiblePort:parsed.ports[0],visibleMetrics:defVis,fromMs:null,toMs:null,yScaleArray}
+    const yScaleArray=parsed.metrics.map((m,mi)=>{
+      const sg=_NSC_SGROUPS[m.name]||'unknown'
+      if(sg==='pct')return 100
+      return _nscCalcYScale(sg==='unknown'?indMaxes[mi]:sgMaxes[sg]||0)
+    })
+    if(isCancelled?.())return
+    _nsChartState[cid]={parsedData:parsed,hostName,visiblePort:preferredPort,visibleMetrics:defVis,fromMs:null,toMs:null,yScaleArray}
     nsChartBuildUI(container,cid)
     nsChartDraw(cid)
   }catch(e){
@@ -3768,6 +4060,7 @@ function _nscCalcYScale(maxVal){
 }
 
 function _nscFmtYScale(v){if(!Number.isFinite(v))return'—';if(v>=1e9)return(v/1e9).toFixed(0)+'B';if(v>=1e6)return(v/1e6).toFixed(0)+'M';if(v>=1000)return(v/1000).toFixed(0)+'K';return String(Math.round(v))}
+function _nscSid(s){return s.replace(/[^a-zA-Z0-9]/g,'_')}
 
 
 function _nscMsToDatetimeLocal(ms){const d=new Date(ms),p=n=>String(n).padStart(2,'0');return`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`}
@@ -3782,20 +4075,11 @@ function nsChartBuildUI(container,cid){
   if(topoData){const h=topoData.hosts.find(h=>h.name===hostName);if(h)h.services.forEach(s=>portSvcMap[String(s.port)]=s.name)}
   const portLbl=p=>{const s=portSvcMap[p];return s?`${p} — ${s}`:p}
 
-  const GROUPS=[
-    {id:'sql',label:'SQL / Connections',test:m=>{const n=m.name.toLowerCase();return['sql','statement','connection','transaction','execution'].some(k=>n.includes(k))}},
-    {id:'thr',label:'Threads',test:m=>m.name.toLowerCase().includes('thread')},
-    {id:'rst',label:'Row Store',test:m=>{const n=m.name.toLowerCase();return n.includes('rowstore')||n.includes('row_store')}},
-    {id:'cst',label:'Column Store',test:m=>{const n=m.name.toLowerCase();return n.includes('columnstore')||n.includes('column_store')||n.includes('colstore')}},
-    {id:'per',label:'Persistence',test:m=>{const n=m.name.toLowerCase();return['savepoint','delta','logused','logseg','backup'].some(k=>n.includes(k))}},
-    {id:'idx',label:'Index Server',test:m=>m.name.toLowerCase().startsWith('indexserver')},
-    {id:'sys',label:'Host',test:()=>true},
-  ]
-  const assigned=new Set()
-  const groups=GROUPS.map(g=>({...g,metrics:metrics.filter((m,mi)=>{
-    if(g.id!=='sys'){if(assigned.has(mi))return false;const ok=g.test(m);if(ok)assigned.add(mi);return ok}
-    return !assigned.has(mi)
-  })})).filter(g=>g.metrics.length)
+  // Use hardcoded group map (reference tool order); unknown metrics fall into 'Other'
+  const GROUP_ORDER=['Host','Service','SQL','Row Store','Column Store','Threads','Persistence','Backup','Synchronization Primitives','Session Admission Control','Other']
+  const groupMap={}
+  metrics.forEach(m=>{const g=_NSC_GROUPS[m.name]||'Other';if(!groupMap[g])groupMap[g]=[];groupMap[g].push(m)})
+  const groups=GROUP_ORDER.filter(g=>groupMap[g]?.length).map(g=>({id:g.toLowerCase().replace(/[^a-z0-9]/g,'-'),label:g,metrics:groupMap[g]}))
 
   const portData=st.parsedData.byPort[visiblePort]
   const dtFrom=portData?.timestamps.length?_nscMsToDatetimeLocal(portData.timestamps[0]):''
@@ -3825,7 +4109,7 @@ function nsChartBuildUI(container,cid){
       <input type="search" id="${cid}-search" class="nsc-search" placeholder="🔍 Enter Search Terms Here" oninput="nsChartFilter('${cid}',this.value)">
       <div class="nsc-param-header">
         <span>KPI</span><span style="text-align:center;">Y-Scale</span><span style="text-align:center;">Unit</span>
-        <span style="text-align:right;">Min</span><span style="text-align:right;">Max</span><span style="text-align:right;">Average</span>
+        <span style="text-align:right;">Max</span><span style="text-align:right;">Average</span><span style="text-align:right;">Last</span>
       </div>
       <div class="nsc-param-rows" id="${cid}-param-rows">`
 
@@ -3835,16 +4119,16 @@ function nsChartBuildUI(container,cid){
       const mi=metrics.indexOf(m)
       const color=_NSC_PALETTE[mi%_NSC_PALETTE.length]
       const chk=visibleMetrics.has(m.name)
-      html+=`<div class="nsc-param-row${chk?' checked':''}" data-metric="${escHtml(m.name)}" id="${cid}-row-${_nscSid(m.name)}" style="border-left-color:${chk?color:'transparent'};">
+      html+=`<div class="nsc-param-row${chk?' checked':''}" data-metric="${escHtml(m.name)}" data-label="${escHtml(m.label)}" id="${cid}-row-${_nscSid(m.name)}" style="border-left-color:${chk?color:'transparent'};">
         <span class="nsc-param-kpi">
           <input type="checkbox"${chk?' checked':''} data-metric="${escHtml(m.name)}" data-color="${color}" onchange="nsChartToggleMetric('${cid}',this.dataset.metric,this.checked)" style="cursor:pointer;margin:0;flex-shrink:0;">
           <span title="${escHtml(m.label)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(m.label)}</span>
         </span>
         <span class="nsc-param-scale" style="text-align:center;cursor:default;" title="Auto-computed Y-axis max">${escHtml(_nscFmtYScale(st.yScaleArray?.[mi]))}</span>
         <span class="nsc-param-unit">${escHtml(m.unit||'')}</span>
-        <span class="nsc-param-stat" id="${cid}-min-${_nscSid(m.name)}">—</span>
         <span class="nsc-param-stat" id="${cid}-max-${_nscSid(m.name)}">—</span>
         <span class="nsc-param-stat" id="${cid}-avg-${_nscSid(m.name)}">—</span>
+        <span class="nsc-param-stat" id="${cid}-last-${_nscSid(m.name)}">—</span>
       </div>`
     })
     html+=`</div>`
@@ -3859,18 +4143,18 @@ function nsChartUpdateStats(cid){
   const ts=portData.timestamps
   const{fromMs,toMs}=st
   let iStart=0,iEnd=ts.length
-  if(fromMs!=null){for(let i=0;i<ts.length;i++){if(ts[i]>=fromMs){iStart=i;break}}}
-  if(toMs!=null){for(let i=ts.length-1;i>=iStart;i--){if(ts[i]<=toMs){iEnd=i+1;break}}}
+  if(fromMs!=null){let found=false;for(let i=0;i<ts.length;i++){if(ts[i]>=fromMs){iStart=i;found=true;break}};if(!found)iStart=ts.length}
+  if(toMs!=null){let found=false;for(let i=ts.length-1;i>=iStart;i--){if(ts[i]<=toMs){iEnd=i+1;found=true;break}};if(!found)iEnd=iStart}
   st.parsedData.metrics.forEach((m,mi)=>{
     const vals=portData.values[mi]
-    let min=Infinity,max=-Infinity,sum=0,cnt=0
-    for(let i=iStart;i<iEnd;i++){const v=vals[i];if(!Number.isFinite(v))continue;if(v<min)min=v;if(v>max)max=v;sum+=v;cnt++}
+    let last=NaN,max=-Infinity,sum=0,cnt=0
+    for(let i=iStart;i<iEnd;i++){const v=vals[i];if(!Number.isFinite(v))continue;if(v>max)max=v;sum+=v;cnt++;last=v}
     const fmt=v=>_nscFmtStat(v,m.unit)
     const sid=_nscSid(m.name)
-    const em=document.getElementById(cid+'-min-'+sid),eMx=document.getElementById(cid+'-max-'+sid),eAv=document.getElementById(cid+'-avg-'+sid)
-    if(em)em.textContent=cnt?fmt(min):'—'
+    const eMx=document.getElementById(cid+'-max-'+sid),eAv=document.getElementById(cid+'-avg-'+sid),eLast=document.getElementById(cid+'-last-'+sid)
     if(eMx)eMx.textContent=cnt?fmt(max):'—'
     if(eAv)eAv.textContent=cnt?fmt(sum/cnt):'—'
+    if(eLast)eLast.textContent=cnt?fmt(last):'—'
   })
 }
 
@@ -3894,8 +4178,8 @@ function nsChartDraw(cid){
   if(st.chart){st.chart.destroy();st.chart=null}
   const ts=portData.timestamps
   let iStart=0,iEnd=ts.length
-  if(fromMs!=null){for(let i=0;i<ts.length;i++){if(ts[i]>=fromMs){iStart=i;break}}}
-  if(toMs!=null){for(let i=ts.length-1;i>=iStart;i--){if(ts[i]<=toMs){iEnd=i+1;break}}}
+  if(fromMs!=null){let found=false;for(let i=0;i<ts.length;i++){if(ts[i]>=fromMs){iStart=i;found=true;break}};if(!found)iStart=ts.length}
+  if(toMs!=null){let found=false;for(let i=ts.length-1;i>=iStart;i--){if(ts[i]<=toMs){iEnd=i+1;found=true;break}};if(!found)iEnd=iStart}
   const filteredTs=ts.slice(iStart,iEnd)
   const MAX=1500
   const datasets=parsedData.metrics.map((m,mi)=>{
@@ -3905,7 +4189,7 @@ function nsChartDraw(cid){
       label:m.label,data:xs.map((x,i)=>({x,y:ys[i]})),
       borderColor:_NSC_PALETTE[mi%_NSC_PALETTE.length],
       backgroundColor:_NSC_PALETTE[mi%_NSC_PALETTE.length]+'18',
-      borderWidth:1.5,pointRadius:0,pointHoverRadius:3,tension:0,hidden
+      borderWidth:1.5,pointRadius:0,pointHoverRadius:3,tension:0.2,hidden
     }
   })
   const spanMs=filteredTs.length>1?filteredTs[filteredTs.length-1]-filteredTs[0]:0
@@ -3926,7 +4210,7 @@ function nsChartDraw(cid){
       legend:{display:false},
       tooltip:{callbacks:{
         title:items=>_nscFmtTs(items[0]?.parsed?.x||0),
-        label:item=>item.dataset.hidden?null:`${item.dataset.label}: ${typeof item.parsed.y==='number'?item.parsed.y.toFixed(2):'-'}`
+        label:item=>{if(item.dataset.hidden)return null;const m=parsedData.metrics[item.datasetIndex];const unit=m?.unit||'';const v=item.parsed.y;const valStr=typeof v==='number'?v.toLocaleString(undefined,{maximumFractionDigits:2}):'-';return unit&&!unit.includes('%')?`${item.dataset.label}: ${valStr} ${unit}`:`${item.dataset.label}: ${valStr}`}
       }}
     },
     scales
@@ -3995,7 +4279,7 @@ function nsChartSelCat(cid,cat){
 function nsChartFilter(cid,query){
   const q=query.toLowerCase().trim()
   const rows=document.getElementById(cid+'-param-rows');if(!rows)return
-  rows.querySelectorAll('.nsc-param-row').forEach(r=>{r.style.display=!q||(r.dataset.metric||'').toLowerCase().includes(q)?'':'none'})
+  rows.querySelectorAll('.nsc-param-row').forEach(r=>{r.style.display=!q||((r.dataset.label||'').toLowerCase().includes(q)||(r.dataset.metric||'').toLowerCase().includes(q))?'':'none'})
   rows.querySelectorAll('.nsc-param-group').forEach(g=>{g.style.display=[...g.querySelectorAll('.nsc-param-row')].some(r=>r.style.display!=='none')?'':'none'})
 }
 
@@ -4275,7 +4559,7 @@ async function loadHSIFolder(existingHandle){
       // FSID fields unused but keep shape consistent
       loadedFiles:{}, loadedFolderName: dirHandle.name,
       versionHistoryHandle:null, configFileHandles:[], configRefHandles:{}, configRefData:{},
-      telemetryHandle:null, nsHistoryHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[], rteDumpHdbFound:false,
+      telemetryHandle:null, nsHistoryHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[], rteDumpHdbFound:false, crashDumpHandles:[],
       topoData:null
     }
     // Scan temp/ subfolder
@@ -4375,7 +4659,7 @@ async function loadHSIFolder(existingHandle){
           type: 'fsid', hsiParentId: sid,  // link to parent HSI session
           loadedFiles:{}, loadedFolderName: name,
           versionHistoryHandle:null, configDirHandle:null, _configScanned:false, configFileHandles:[], configRefHandles:{}, configRefData:{},
-          telemetryHandle:null, nsHistoryHandles:[], availabilityHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[], rteDumpHdbFound:false,
+          telemetryHandle:null, nsHistoryHandles:[], availabilityHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[], rteDumpHdbFound:false, crashDumpHandles:[],
           hostsFileHandle:null, topoData:null, traceExplorerData:null
         }
         for await(const [fname, fh] of handle.entries()){
@@ -4416,7 +4700,8 @@ async function loadHSIFolder(existingHandle){
                 let foundHere=false
                 for await(const [fname,fh] of trace.entries()){
                   if(fh.kind==='file'&&fname.includes('.rtedump.')){const parsed=parseRteDumpFilename(fname);if(parsed){cs.rteDumpHandles.push({...parsed,handle:fh,scannedPath:tracePath});foundHere=true}}
-                  else if(fh.kind==='directory'&&fname.startsWith('DB_')){const ttp=`${tracePath}/${fname}`;let foundTenant=false;try{for await(const [tf,th] of fh.entries()){if(th.kind==='file'&&tf.includes('.rtedump.')){const parsed=parseRteDumpFilename(tf);if(parsed){cs.rteDumpHandles.push({...parsed,handle:th,tenant:fname.replace(/^DB_/,''),scannedPath:ttp});foundTenant=true}}}}catch(e){};if(foundTenant)cs.rteDumpScannedPaths.push(ttp)}
+                  else if(fh.kind==='file'&&fname.includes('.crashdump.')){const parsed=parseCrashDumpFilename(fname);if(parsed)cs.crashDumpHandles.push({...parsed,handle:fh,scannedPath:tracePath})}
+                  else if(fh.kind==='directory'&&fname.startsWith('DB_')){const ttp=`${tracePath}/${fname}`;let foundTenant=false;try{for await(const [tf,th] of fh.entries()){if(th.kind==='file'&&tf.includes('.rtedump.')){const parsed=parseRteDumpFilename(tf);if(parsed){cs.rteDumpHandles.push({...parsed,handle:th,tenant:fname.replace(/^DB_/,''),scannedPath:ttp});foundTenant=true}}else if(th.kind==='file'&&tf.includes('.crashdump.')){const parsed=parseCrashDumpFilename(tf);if(parsed)cs.crashDumpHandles.push({...parsed,handle:th,tenant:fname.replace(/^DB_/,''),scannedPath:ttp})}}}catch(e){};if(foundTenant)cs.rteDumpScannedPaths.push(ttp)}
                 }
                 if(foundHere)cs.rteDumpScannedPaths.push(tracePath)
               }catch(e){}
@@ -4427,6 +4712,8 @@ async function loadHSIFolder(existingHandle){
           cs.rteDumpScannedPaths=[...new Set(cs.rteDumpScannedPaths)]
           cs.rteDumpHandles.sort((a,b)=>{const h=a.virtualHost.localeCompare(b.virtualHost);if(h!==0)return h;const sv=a.serviceName.localeCompare(b.serviceName);if(sv!==0)return sv;return b.datetime.localeCompare(a.datetime)})
           cs.rteDumpHandles.forEach((d,i)=>d._idx=i)
+          cs.crashDumpHandles.sort((a,b)=>{const h=a.virtualHost.localeCompare(b.virtualHost);if(h!==0)return h;const sv=a.serviceName.localeCompare(b.serviceName);if(sv!==0)return sv;return b.datetime.localeCompare(a.datetime)})
+          cs.crashDumpHandles.forEach((d,i)=>d._idx=i)
         }catch(e){}
         // capture info from log.txt
         try{const logH=cs.loadedFiles['log.txt'];if(logH){const lf=await logH.getFile();const lt=await lf.text();const wl=lt.split('\n').find(l=>l.trim().startsWith('Writing to file'));if(wl){const m=wl.match(/fullsysteminfodump_[^_]+_[^_]+_(.+?)_(\d{4})_(\d{2})_(\d{2})_(\d{2})_(\d{2})_(\d{2})\.(zip|tar)/);if(m)cs.captureInfo=`captured on ${m[1]} at ${m[2]}-${m[3]}-${m[4]} ${m[5]}:${m[6]}:${m[7]} UTC`}}}catch(e){}
@@ -4490,7 +4777,7 @@ async function reloadHsiSession(sid){
   fsidSessions.filter(x=>x.hsiParentId===sid).forEach(x=>toRemove.add(x.id))
   fsidSessions=fsidSessions.filter(x=>!toRemove.has(x.id))
   activeFsidId=fsidSessions.length?fsidSessions[fsidSessions.length-1].id:null
-  ;['panel-topology','panel-versionhistory','panel-configuration','panel-telemetry','panel-nshistory','panel-nshistory-old','panel-availability','panel-rtedumps','panel-hosts','panel-traceexplorer','panel-hsi'].forEach(id=>{
+  ;['panel-topology','panel-versionhistory','panel-configuration','panel-telemetry','panel-nshistory','panel-nshistory-old','panel-availability','panel-rtedumps','panel-crashdumps','panel-hosts','panel-traceexplorer','panel-hsi'].forEach(id=>{
     const el=document.getElementById(id);if(el){el.innerHTML='';el.style.display='';el.classList.remove('active')}
   })
   document.getElementById('empty').style.display='none'
@@ -4610,6 +4897,7 @@ function buildHsiNavGroup(s){
         ...(cs.nsHistoryHandles?.length ? [{icon:'📈', label:'Nameserver History', panel:'nshistory', disabled:false},{icon:'📉', label:'Nameserver History (old)', panel:'nshistory-old', disabled:false}] : []),
         ...(cs.availabilityHandles?.length ? [{icon:'🟢', label:'Availability', panel:'availability', disabled:false}] : []),
         {icon:'💥', label:`Runtime Dumps (${cs.rteDumpHandles?.length||0})`, panel:'rtedumps', disabled:false},
+        ...(cs.crashDumpHandles?.length?[{icon:'🛑', label:`Crash Dumps (${cs.crashDumpHandles.length})`, panel:'crashdumps', disabled:false}]:[]),
         {icon:'📂', label:'Trace Explorer', panel:'traceexplorer', disabled:false},
       ]
       for(const it of fsidItems){

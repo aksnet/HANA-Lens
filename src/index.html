@@ -13,7 +13,8 @@
 <body>
 <div id="app">
   <div id="topbar">
-    <h1>&#9881; HANA-Lens <span style="font-size:10px;font-weight:400;color:#605E5C;">v.2026_09_29_12</span> <a href="https://me.sap.com/notes/3771222" target="_blank" style="font-size:10px;font-weight:400;color:#0078D4;text-decoration:none;margin-left:4px;">KBA 3771222</a></h1>
+    <h1>&#9881; HANA-Lens <span style="font-size:10px;font-weight:400;color:#605E5C;">v.2026_09_30_06</span> <a href="https://me.sap.com/notes/3771222" target="_blank" style="font-size:10px;font-weight:400;color:#0078D4;text-decoration:none;margin-left:4px;">KBA 3771222</a></h1>
+    <span style="font-size:12px;font-weight:700;color:#C50F1F;flex-shrink:0;">This tool is strictly internal and may only be used within the SAP network!</span>
     <button id="loadTopoBtn" onclick="loadTopologyFile()">Load topology file only</button>
     <button id="loadRteBtn" onclick="rteDumpLoadSingle()" style="height:28px;padding:0 14px;background:#8764B8;color:#fff;border:none;border-radius:2px;font-size:12px;font-family:inherit;cursor:pointer;font-weight:500;white-space:nowrap;flex-shrink:0;">Load runtime dump only</button>
     <input type="file" id="topoFileInput" accept=".txt,.json,text/plain,application/json" style="display:none;">
@@ -45,6 +46,7 @@
       <div id="panel-nshistory-old" class="content-panel"></div>
       <div id="panel-availability" class="content-panel"></div>
       <div id="panel-rtedumps" class="content-panel"></div>
+      <div id="panel-crashdumps" class="content-panel"></div>
       <div id="panel-hosts" class="content-panel"></div>
       <div id="panel-traceexplorer" class="content-panel" style="display:flex;flex-direction:column;overflow:hidden;"></div>
       <div id="panel-hsi" class="content-panel" style="height:100%;overflow:hidden;display:none;flex-direction:column;"></div>
@@ -57,6 +59,9 @@
 </div>
 <div id="rte-ctx-menu">
   <div class="ctx-item" onclick="rteDumpOpenInAnalyzer()">🔍 Open in HanaDumpAnalyzer</div>
+</div>
+<div id="crash-ctx-menu">
+  <div class="ctx-item" onclick="crashDumpOpenInHdbcfs()">🌐 Open in HDBCFS</div>
 </div>
 <div id="trace-line-ctx-menu">
   <div class="ctx-item" onclick="traceJumpToOrigLine()">↗ Jump to line without filter</div>
