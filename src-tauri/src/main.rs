@@ -176,6 +176,17 @@ fn read_filter_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
     result
 }
 
+// Read an entire file and return its content as a standard Base64-encoded string.
+// Used by the HDBCFS crash-dump uploader to transfer binary file data into the
+// HDBCFS WebviewWindow so it can POST a GraphQL multipart upload without leaving
+// the hdbcfs.me.sap.corp origin (keeping SSO cookies in scope).
+#[tauri::command]
+fn read_file_base64(path: String) -> Result<String, String> {
+    use base64::{Engine as _, engine::general_purpose};
+    let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+    Ok(general_purpose::STANDARD.encode(&bytes))
+}
+
 #[tauri::command]
 fn open_in_dump_analyzer(app: tauri::AppHandle, dump_path: String) -> Result<(), String> {
     let mut bases: Vec<std::path::PathBuf> = Vec::new();
@@ -208,6 +219,7 @@ fn main() {
             open_folder,
             read_filter_files,
             open_in_dump_analyzer,
+            read_file_base64,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

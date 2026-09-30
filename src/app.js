@@ -1711,19 +1711,60 @@ function showCrashDumpCtxMenu(idx,x,y){
 function hideCrashDumpCtxMenu(){
   const m=document.getElementById('crash-ctx-menu');if(m)m.style.display='none';_crashCtxIdx=null
 }
-function crashDumpOpenInHdbcfs(){
+async function crashDumpOpenInHdbcfs(){
   const idx=_crashCtxIdx;hideCrashDumpCtxMenu()
   const d=crashDumpHandles[idx]
-  if(!d){return}
+  if(!d)return
   const path=d.handle?._path
-  if(window.__TAURI__?.core?.invoke){
-    window.__TAURI__.core.invoke('open_external_url',{url:'https://hdbcfs.me.sap.corp/app'})
-      .catch(e=>console.error('open_external_url failed:',e))
+  if(!path)return
+  const invoke=window.__TAURI__?.core?.invoke
+  const WebviewWindow=window.__TAURI__?.webviewWindow?.WebviewWindow
+  if(!invoke||!WebviewWindow){
+    if(invoke)invoke('open_external_url',{url:'https://hdbcfs.me.sap.corp/app'}).catch(()=>{})
+    return
   }
-  if(path){
-    const info=`HDBCFS was opened in your browser.\n\nFile path (copy for manual upload):\n${path}`
-    setTimeout(()=>alert(info),300)
+  const fname=d.filename,fpath=path
+  const label='hdbcfs-upload'
+  // This script is eval()-injected into the HDBCFS WebviewWindow after it loads.
+  // Because it runs in the hdbcfs.me.sap.corp origin, the browser automatically
+  // includes SSO session cookies with the fetch — no token extraction needed.
+  const injectScript=`(async()=>{
+    if(!window.location.hostname.includes('hdbcfs.me.sap.corp'))return;
+    if(window._hlUploading&&Date.now()-window._hlUploading<30000)return;
+    window._hlUploading=Date.now();
+    try{
+      const inv=window.__TAURI__?.core?.invoke;
+      if(!inv){window._hlUploading=0;return}
+      const b64=await inv('read_file_base64',{path:${JSON.stringify(fpath)}});
+      const bin=atob(b64),ba=new Uint8Array(bin.length);
+      for(let i=0;i<bin.length;i++)ba[i]=bin.charCodeAt(i);
+      const file=new File([ba],${JSON.stringify(fname)},{type:'application/octet-stream'});
+      const ops=JSON.stringify({operationName:'SearchCrashdump',query:'mutation SearchCrashdump($file:Upload!){searchCrashdump(file:$file){__typename}}',variables:{file:null}});
+      const fd=new FormData();
+      fd.append('operations',ops);fd.append('map','{"0":["variables.file"]}');fd.append('0',file,${JSON.stringify(fname)});
+      const r=await fetch('/api/gql',{method:'POST',body:fd,credentials:'include'});
+      if(r.ok){const j=await r.json();console.log('[HANA-Lens] HDBCFS response:',JSON.stringify(j));window.location.href='/app/search';}
+      else{console.error('[HANA-Lens] HDBCFS upload HTTP',r.status);window._hlUploading=0;}
+    }catch(e){console.error('[HANA-Lens] HDBCFS error:',e);window._hlUploading=0;}
+  })()`
+  let win
+  try{
+    win=WebviewWindow.getByLabel(label)
+    if(win){win.setTitle('HDBCFS — '+fname).catch(()=>{})}
+    else{win=new WebviewWindow(label,{url:'https://hdbcfs.me.sap.corp/app',title:'HDBCFS — '+fname,width:1300,height:900,center:true})}
+  }catch(e){
+    invoke('open_external_url',{url:'https://hdbcfs.me.sap.corp/app'}).catch(()=>{})
+    return
   }
+  // Retry injection up to 5 times (3 s apart, starting after 2.5 s) to survive SSO redirects.
+  // The _hlUploading guard in the injected script prevents double-uploads.
+  let attempts=0
+  const tryInject=()=>{
+    if(attempts++>=5)return
+    win.eval(injectScript).catch(()=>{})
+    setTimeout(tryInject,3000)
+  }
+  setTimeout(tryInject,2500)
 }
 
 // ============================================================
