@@ -116,6 +116,7 @@ a.sap-note:hover { color: #0078D4; text-decoration: underline; }
 /* HSI panel styles */
 #panel-hsi.active { display: flex !important; }
 #panel-traceexplorer.active { display: flex !important; height: 100%; }
+#panel-nshistory.active { display: flex !important; height: 100%; }
 .hsi-tab-bar { display: flex; border-bottom: 2px solid #dee2e6; background: #F3F2F1; padding: 0 12px; overflow-x: auto; white-space: nowrap; position: sticky; top: 0; z-index: 10; flex-shrink: 0; }
 .hsi-tab-btn { display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border: none; border-bottom: 2px solid transparent; background: transparent; font-family: inherit; font-size: 12px; color: #605E5C; cursor: pointer; white-space: nowrap; margin-bottom: -2px; }
 .hsi-tab-btn:hover { background: #EFF6FC; color: #1a3a5c; }

@@ -1607,108 +1607,6 @@ function renderRteDumpFileContent(text,filename){
 // ============================================================
 // CRASH DUMPS
 // ============================================================
-const _HDBCFS_QUERY=`
-    mutation SearchCrashdump($file: Upload!) {
-  searchCrashdump(file: $file) {
-    ...SearchAttrs
-  }
-}
-
-    fragment SearchAttrs on CrashSearchResult {
-  crash {
-    ...CrashAttrs
-  }
-  problemIds
-  similarCallstacks {
-    name
-    callstackSha1sum
-    stackframes {
-      seq
-      functionSignature
-      sourceFile
-      component
-    }
-    similars {
-      callstackSha1sum
-      score
-      bugCount
-      crashCount
-      maxTime
-    }
-  }
-}
-
-    fragment CrashAttrs on Crash {
-  crashCallStacksSha1sum
-  crashdumpSha1sum
-  crashdumpType
-  ceVersion
-  buildVersion
-  buildRevision
-  buildSPNumber
-  buildPatchLevel
-  buildHost
-  buildTime
-  buildPlatform
-  buildCompilerInfo
-  buildCompilerName
-  buildCompilerVersion
-  buildMakeType
-  buildBranch
-  buildGitHash
-  buildGitMergeTime
-  buildWeekstone
-  crashProcessStartTime
-  crashExceptionTime
-  crashSignal
-  crashSignalSymbol
-  crashSigCode
-  crashSigCodeSymbol
-  crashSigCodeMessage
-  crashSID
-  crashInsNum
-  crashOSType
-  crashHost
-  crashOSRelease
-  crashOSMachId
-  crashCtxName
-  crashCtxType
-  crashCtxId
-  crashCtxUpdateTransactionId
-  crashCtxTransactionId
-  crashCtxConnectionId
-  crashCtxLogicalConnectionnId
-  crashCtxStatementId
-  crashCtxStatementHash
-  crashCtxStatementExecutionId
-  crashCtxCommandText
-  crashCtxSqlUsername
-  crashCtxAppUsername
-  callStackString
-  filename
-  symbolicStackBacktrace {
-    stackframes {
-      seq
-      functionSignature
-      sourceFile
-      component
-    }
-  }
-  pendingExceptions {
-    exceptionMessage
-    exceptionCallstack {
-      stackframes {
-        seq
-        functionSignature
-        sourceFile
-        component
-      }
-    }
-  }
-  problemId
-  metadata
-}
-    `
 function renderCrashDumps(dumps,scannedPaths){
   const count=dumps.length
   const pathList=scannedPaths.length?scannedPaths.map(p=>`<code>${escHtml(p)}</code>`).join(', '):'<span style="color:#A19F9D;">none</span>'
@@ -1820,54 +1718,15 @@ async function crashDumpOpenInHdbcfs(){
   const path=d.handle?._path
   if(!path)return
   const invoke=window.__TAURI__?.core?.invoke
-  const WebviewWindow=window.__TAURI__?.webviewWindow?.WebviewWindow
-  if(!invoke||!WebviewWindow){
-    if(invoke)invoke('open_external_url',{url:'https://hdbcfs.me.sap.corp/app'}).catch(()=>{})
-    return
-  }
-  const fname=d.filename,fpath=path
-  const _opsStr=JSON.stringify({operationName:'SearchCrashdump',query:_HDBCFS_QUERY,variables:{file:null}})
-  const label='hdbcfs-upload'
-  // This script is eval()-injected into the HDBCFS WebviewWindow after it loads.
-  // Because it runs in the hdbcfs.me.sap.corp origin, the browser automatically
-  // includes SSO session cookies with the fetch — no token extraction needed.
-  const injectScript=`(async()=>{
-    if(!window.location.hostname.includes('hdbcfs.me.sap.corp'))return;
-    if(window._hlUploading&&Date.now()-window._hlUploading<30000)return;
-    window._hlUploading=Date.now();
-    try{
-      const inv=window.__TAURI__?.core?.invoke;
-      if(!inv){window._hlUploading=0;return}
-      const b64=await inv('read_file_base64',{path:${JSON.stringify(fpath)}});
-      const bin=atob(b64),ba=new Uint8Array(bin.length);
-      for(let i=0;i<bin.length;i++)ba[i]=bin.charCodeAt(i);
-      const file=new File([ba],${JSON.stringify(fname)},{type:'application/octet-stream'});
-      const ops=${JSON.stringify(_opsStr)};
-      const fd=new FormData();
-      fd.append('operations',ops);fd.append('map','{"0":["variables.file"]}');fd.append('0',file,${JSON.stringify(fname)});
-      const r=await fetch('/api/gql',{method:'POST',body:fd,credentials:'include'});
-      if(r.ok){const j=await r.json();console.log('[HANA-Lens] HDBCFS response:',JSON.stringify(j));window.location.href='/app/search';}
-      else{console.error('[HANA-Lens] HDBCFS upload HTTP',r.status);window._hlUploading=0;}
-    }catch(e){console.error('[HANA-Lens] HDBCFS error:',e);window._hlUploading=0;}
-  })()`
-  let win
-  try{
-    win=WebviewWindow.getByLabel(label)
-    if(win){win.setTitle('HDBCFS — '+fname).catch(()=>{})}
-    else{win=new WebviewWindow(label,{url:'https://hdbcfs.me.sap.corp/app',title:'HDBCFS — '+fname,width:1300,height:900,center:true})}
-  }catch(e){
+  if(invoke){
     invoke('open_external_url',{url:'https://hdbcfs.me.sap.corp/app'}).catch(()=>{})
-    return
   }
-  // Retry injection up to 5 times (3 s apart, starting after 2.5 s) to survive SSO redirects.
-  // The _hlUploading guard in the injected script prevents double-uploads.
-  let attempts=0
-  const tryInject=()=>{
-    if(attempts++>=5)return
-    win.eval(injectScript).catch(()=>{})
-    setTimeout(tryInject,3000)
-  }
-  setTimeout(tryInject,2500)
+  try{await navigator.clipboard.writeText(path)}catch(_){}
+  const t=document.createElement('div')
+  t.textContent='📋 File path copied — paste into HDBCFS'
+  t.style.cssText='position:fixed;bottom:24px;right:24px;background:#323130;color:#fff;padding:9px 16px;border-radius:3px;font-size:12px;z-index:99999;pointer-events:none;opacity:1;transition:opacity 0.4s;'
+  document.body.appendChild(t)
+  setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),400)},2800)
 }
 
 // ============================================================
@@ -2223,7 +2082,7 @@ function renderNavTree(){
 
 function buildFsidGroup(s){
   if(s.type==='hsi') return buildHsiNavGroup(s)
-  const hasTopology='topology.txt' in s.loadedFiles
+  const hasTopology=s.topoData!=null||'topology.txt' in s.loadedFiles
   const grp=document.createElement('div')
   grp.className='fsid-group open'
   grp.dataset.sid=s.id
@@ -2247,7 +2106,7 @@ function buildFsidGroup(s){
   const children=document.createElement('div')
   children.className='fsid-group-children'
   const items=[
-    ...(s.type!=='rtedump-single'?[{icon:'🗺️',label:'Topology',panel:'topology',disabled:false}]:[]),
+    ...(s.type!=='rtedump-single'&&hasTopology?[{icon:'🗺️',label:'Topology',panel:'topology',disabled:false}]:[]),
     ...(s.versionHistoryHandle&&s.type!=='rtedump-single'&&s.type!=='topo-single'?[{icon:'📋',label:'Version History',panel:'versionhistory',disabled:false}]:[]),
     ...(s.type!=='rtedump-single'&&s.type!=='topo-single'?[{icon:'⚙️',label:'Configuration',panel:'configuration',disabled:false}]:[]),
     ...(s.hostsFileHandle?[{icon:'🌐',label:'HOSTS',panel:'hosts',disabled:false}]:[]),
@@ -2417,7 +2276,7 @@ function fsidCtxRemove(){
   }
   hideFsidCtxMenu()
   renderNavTree()
-  if(activeFsidId)activateNavItem(activeFsidId,'topology')
+  if(activeFsidId){const _s=sess(activeFsidId);const _defPanel=_s&&(_s.topoData!=null||'topology.txt' in(_s.loadedFiles||{}))?'topology':'configuration';activateNavItem(activeFsidId,_defPanel)}
 }
 
 // ── activateNav: renders content for the active session ───────────────────
@@ -3992,6 +3851,33 @@ const _NSC_CONV={
   'mutexCollisionCount':'rate','readWriteLockCollisionCount':'rate',
   'admissinControlAdmitCount':'rate','admissionControlRejectCount':'rate','admissionControlWaitingRequests':'rate','admissionControlWaitTime':'rate','admissionControlEnqueueCount':'rate','admissionControlDequeueCount':'rate','admissionControlTimeoutCount':'rate',
 }
+// Human-readable display labels for each metric (matching original ngx-hana-nameserver-history-viewer)
+const _NSC_LABELS={
+  'cpuUsed':'CPU Used','memoryResident':'Database Resident Memory','memoryTotalResident':'Total Resident Memory',
+  'memoryUsed':'Memory Used','memoryLimit':'Memory Limit','memorySize':'Memory Size',
+  'diskUsed':'Disk Used','diskSize':'Disk Size','networkIn':'Network In','networkOut':'Network Out','swapIn':'Swap In','swapOut':'Swap Out',
+  'indexserverCpu':'IndexServer CPU','indexserverCpuSys':'IndexServer CPU Sys',
+  'indexserverMemUsed':'IndexServer Memory Used','indexserverMemLimit':'IndexServer Memory Limit',
+  'indexserverHandles':'IndexServer Handles','indexserverPingtime':'IndexServer Ping Time','indexserverSwapIn':'IndexServer Swap In',
+  'sqlConnections':'SQL Connections','internalConnections':'Internal Connections','externalConnections':'External Connections',
+  'idleConnections':'Idle Connections','sqlTransactions':'SQL Transactions','internalTransactions':'Internal Transactions',
+  'externalTransactions':'External Transactions','userTransactions':'User Transactions',
+  'sqlBlockedTrans':'SQL Blocked Transactions','sqlStatements':'SQL Statements',
+  'cidRange':'CID Range','tidRange':'TID Range','pendingRequestCount':'Pending Request Count',
+  'mvccNum':'MVCC Versions','acquiredRecordLocks':'Acquired Record Locks',
+  'searchCount':'Search Count','indexingCount':'Indexing Count','mergeCount':'Merge Count','unloadCount':'Unload Count',
+  'indexserverThreads':'IndexServer Threads','waitingThreads':'Waiting Threads','totalThreads':'Total Threads',
+  'activeSqlExecutors':'Active SQL Executors','waitingSqlExecutors':'Waiting SQL Executors','totalSqlExecutors':'Total SQL Executors',
+  'dataWriteSize':'Data Write Size','dataWriteTime':'Data Write Time','logWriteSize':'Log Write Size','logWriteTime':'Log Write Time',
+  'dataReadSize':'Data Read Size','dataReadTime':'Data Read Time','logReadSize':'Log Read Size','logReadTime':'Log Read Time',
+  'dataBackupWriteSize':'Data Backup Write Size','dataBackupWriteTime':'Data Backup Write Time',
+  'logBackupWriteSize':'Log Backup Write Size','logBackupWriteTime':'Log Backup Write Time',
+  'mutexCollisionCount':'Mutex Collision Count','readWriteLockCollisionCount':'ReadWrite Lock Collision Count',
+  'admissinControlAdmitCount':'Admission Control Admit Count','admissionControlRejectCount':'Admission Control Reject Count',
+  'admissionControlWaitingRequests':'Admission Control Waiting Requests','admissionControlWaitTime':'Admission Control Wait Time',
+  'admissionControlEnqueueCount':'Admission Control Enqueue Count','admissionControlDequeueCount':'Admission Control Dequeue Count',
+  'admissionControlTimeoutCount':'Admission Control Timeout Count',
+}
 // Apply unit conversions to parsed data (in-place):
 //   mb = bytes→MB (÷1048576), gb = bytes→GB (÷1073741824)
 //   rate = per-interval count÷interval_s, mb_rate = bytes÷1048576÷interval_s, us_rate = µs÷1e6÷interval_s
@@ -4101,7 +3987,7 @@ async function nsChartPanel(panel,s){
     panel.innerHTML='<div class="not-found-msg" style="margin:16px;"><span class="nf-icon">⚠️</span><span><strong>chartjs.min.js</strong> not found — Chart.js 4 UMD build must be in the app folder.</span></div>'
     return
   }
-  panel.style.display='flex';panel.style.flexDirection='column';panel.style.overflow='hidden'
+  panel.style.display='flex';panel.style.flexDirection='column';panel.style.overflow='hidden';panel.style.height='100%'
   panel.innerHTML=''
   const tabBar=document.createElement('div')
   tabBar.style.cssText='display:flex;border-bottom:1px solid #EDEBE9;background:#F3F2F1;padding:0 12px;overflow-x:auto;white-space:nowrap;position:sticky;top:0;z-index:10;flex-shrink:0;'
@@ -4211,6 +4097,27 @@ function _nscMsToDatetimeLocal(ms){const d=new Date(ms),p=n=>String(n).padStart(
 function _nscAxisLabel(unit){if(!unit)return 'Auto';if(unit.includes('%'))return '0–100%';if(unit.toLowerCase().includes('byte'))return 'Auto';return 'Auto'}
 function _nscFmtStat(v,unit){if(!Number.isFinite(v))return '—';if(unit?.toLowerCase().includes('byte'))return _nscFmtBytes(v);if(Math.abs(v)>=1e6)return(v/1e6).toFixed(1)+'M';if(Math.abs(v)>=1000)return Math.round(v).toLocaleString();return v%1===0?String(v):v.toFixed(2)}
 
+function nsChartToggleRefs(btn,cid){
+  const pid=cid+'-refs-pop'
+  let pop=document.getElementById(pid)
+  if(pop){pop.remove();return}
+  pop=document.createElement('div')
+  pop.id=pid
+  pop.style.cssText='position:absolute;top:calc(100% + 4px);right:0;background:#fff;border:1px solid #EDEBE9;border-radius:2px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:9999;padding:12px 16px;font-size:12px;min-width:340px;'
+  pop.innerHTML=`<div style="font-weight:600;margin-bottom:8px;color:#323130;">References</div>
+<div style="display:flex;flex-direction:column;gap:7px;">
+<a href="https://me.sap.com/notes/3367214" target="_blank" style="color:#0078D4;text-decoration:none;display:flex;align-items:center;gap:6px;">📋 KBA 3367214 — HANA Nameserver History</a>
+<a href="https://github.com/ckyycc/ngx-hana-nameserver-history-viewer" target="_blank" style="color:#0078D4;text-decoration:none;display:flex;align-items:center;gap:6px;">🐙 GitHub — ngx-hana-nameserver-history-viewer</a>
+<a href="https://ckyycc.github.io/ngx-hana-nameserver-history-viewer/" target="_blank" style="color:#0078D4;text-decoration:none;display:flex;align-items:center;gap:6px;">🌐 Live Demo (GitHub Pages)</a>
+<a href="http://nshviewer.cfapps.sap.hana.ondemand.com" target="_blank" style="color:#0078D4;text-decoration:none;display:flex;align-items:center;gap:6px;">🌐 Live Demo (SAP Cloud)</a>
+</div>`
+  const toolbar=btn.closest('.nsc-toolbar')||btn.parentNode
+  toolbar.style.position='relative'
+  toolbar.appendChild(pop)
+  function closeOnOutside(e){if(!pop.contains(e.target)&&e.target!==btn){pop.remove();document.removeEventListener('click',closeOnOutside,true)}}
+  setTimeout(()=>document.addEventListener('click',closeOnOutside,true),0)
+}
+
 function nsChartBuildUI(container,cid){
   const st=_nsChartState[cid]
   const{parsedData:{metrics,ports},hostName,visiblePort,visibleMetrics}=st
@@ -4244,6 +4151,7 @@ function nsChartBuildUI(container,cid){
     ${portSel}
     <button class="nsc-btn-primary" onclick="nsChartShow('${cid}')">Show</button>
     <button class="nsc-btn" onclick="nsChartReset('${cid}')">Reset Chart</button>
+    <button class="nsc-btn" onclick="nsChartToggleRefs(this,'${cid}')">References</button>
     <span id="${cid}-info" class="nsc-tz"></span>
   </div>
   <div class="nsc-range-info" id="${cid}-range-info">${escHtml(hostName)} · ${escHtml(portLbl(visiblePort))}${escHtml(rangeInfo)}</div>
@@ -4266,7 +4174,7 @@ function nsChartBuildUI(container,cid){
       html+=`<div class="nsc-param-row${chk?' checked':''}" data-metric="${escHtml(m.name)}" data-label="${escHtml(m.label)}" id="${cid}-row-${_nscSid(m.name)}" style="border-left-color:${chk?color:'transparent'};">
         <span class="nsc-param-kpi">
           <input type="checkbox"${chk?' checked':''} data-metric="${escHtml(m.name)}" data-color="${color}" onchange="nsChartToggleMetric('${cid}',this.dataset.metric,this.checked)" style="cursor:pointer;margin:0;flex-shrink:0;">
-          <span title="${escHtml(m.label)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(m.label)}</span>
+          <span title="${escHtml(m.label)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(_NSC_LABELS[m.name]||m.name)}</span>
         </span>
         <span class="nsc-param-scale" style="text-align:center;cursor:default;" title="Auto-computed Y-axis max">${escHtml(_nscFmtYScale(st.yScaleArray?.[mi]))}</span>
         <span class="nsc-param-unit">${escHtml(m.unit||'')}</span>
@@ -5031,9 +4939,9 @@ function buildHsiNavGroup(s){
 
       const childChildren = document.createElement('div')
       childChildren.className = 'fsid-group-children'
-      const hasTopology = 'topology.txt' in cs.loadedFiles
+      const hasTopology = cs.topoData!=null||'topology.txt' in cs.loadedFiles
       const fsidItems = [
-        {icon:'🗺️', label:'Topology', panel:'topology', disabled:false},
+        ...(hasTopology?[{icon:'🗺️', label:'Topology', panel:'topology', disabled:false}]:[]),
         ...(cs.versionHistoryHandle ? [{icon:'📋', label:'Version History', panel:'versionhistory', disabled:false}] : []),
         {icon:'⚙️', label:'Configuration', panel:'configuration', disabled:false},
         ...(cs.hostsFileHandle ? [{icon:'🌐', label:'HOSTS', panel:'hosts', disabled:false}] : []),
