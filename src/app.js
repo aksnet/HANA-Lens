@@ -2016,6 +2016,8 @@ function loadTopologyFile(){
 
 // ── topoFileInput handler ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded',()=>{
+  // Try to load filesystem_reference.txt from disk (next to exe); overrides bundled version
+  invoke('read_fs_reference').then(txt=>{if(txt)window.BUNDLED_FS_REFERENCE=txt}).catch(()=>{})
   document.getElementById('topoFileInput').addEventListener('change',function(e){
     const file=e.target.files[0];if(!file)return
     const reader=new FileReader()
@@ -4526,7 +4528,25 @@ function renderMdTable(lines){
 }
 function renderMarkdown(md){
   const lines=md.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n')
-  let html='',i=0
+  // First pass: collect H1/H2 headings for TOC and assign anchors
+  const headAnchors=new Map()  // line-index → anchor-id
+  const tocEntries=[]
+  let anchorCtr=0
+  for(let li=0;li<lines.length;li++){
+    const hm=lines[li].match(/^(#{1,2})\s+(.+)/)
+    if(hm){
+      const id=`hsi-md-${anchorCtr++}`
+      headAnchors.set(li,id)
+      const lvl=hm[1].length
+      const text=hm[2].replace(/[*_`[\]]/g,'').trim()
+      tocEntries.push(`<li style="${lvl>1?'padding-left:12px;':''}"><a href="#${id}">${escHtml(text)}</a></li>`)
+    }
+  }
+  const TOP_BTN=`<a href="#hsi-top" style="font-size:0.76em;text-decoration:none;color:#6c757d;padding:2px 8px;border:1px solid #dee2e6;border-radius:12px;white-space:nowrap;flex-shrink:0;">▲ TOP</a>`
+  let html=tocEntries.length>1
+    ?`<div id="hsi-top" class="hsi-toc"><strong>Contents</strong><ul>${tocEntries.join('')}</ul></div>`
+    :`<a id="hsi-top"></a>`
+  let i=0
   while(i<lines.length){
     const line=lines[i]
     // Fenced code block
@@ -4542,8 +4562,13 @@ function renderMarkdown(md){
     if(hm){
       const lvl=hm[1].length
       const sz=['1.5em','1.3em','1.15em','1.05em','1em','1em'][lvl-1]
-      const bb=lvl<=2?'border-bottom:1px solid #EDEBE9;padding-bottom:4px;':''
-      html+=`<h${lvl} style="margin:${lvl<=2?18:12}px 0 6px;font-size:${sz};font-weight:${lvl<=2?700:600};${bb}color:#1a1a1a;">${mdInline(hm[2])}</h${lvl}>`
+      const anchor=headAnchors.get(i)
+      if(anchor){
+        html+=`<h${lvl} id="${anchor}" style="margin:18px 0 6px;font-size:${sz};font-weight:700;color:#1a1a1a;display:flex;align-items:center;justify-content:space-between;"><span>${mdInline(hm[2])}</span>${TOP_BTN}</h${lvl}>`
+      }else{
+        const bb=lvl<=2?'border-bottom:1px solid #EDEBE9;padding-bottom:4px;':''
+        html+=`<h${lvl} style="margin:${lvl<=2?18:12}px 0 6px;font-size:${sz};font-weight:${lvl<=2?700:600};${bb}color:#1a1a1a;">${mdInline(hm[2])}</h${lvl}>`
+      }
       i++;continue
     }
     // Horizontal rule
@@ -5173,7 +5198,9 @@ async function activateHsiTab(sid, tabId, subTabFile){
       contentArea.insertBefore(btnWrap,contentArea.firstChild)
     }
   }catch(e){
-    contentArea.innerHTML = `<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`
+    const p=fileHandle?._path||''
+    const pathHtml=p?`<br><span style="font-size:10px;color:#605E5C;word-break:break-all;">Path: ${escHtml(p)}</span>`:''
+    contentArea.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>${escHtml(String(e))}${pathHtml}</span></div>`
   }
 }
 

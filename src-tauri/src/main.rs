@@ -176,6 +176,22 @@ fn read_filter_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
     result
 }
 
+// Read filesystem_reference.txt from executable_dir / resource_dir / app_data_dir
+#[tauri::command]
+fn read_fs_reference(app: tauri::AppHandle) -> Option<String> {
+    let mut bases: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(p) = app.path().executable_dir() { bases.push(p); }
+    if let Ok(p) = app.path().resource_dir() { bases.push(p); }
+    if let Ok(p) = app.path().app_data_dir() { bases.push(p); }
+    for base in bases {
+        let path = base.join("filesystem_reference.txt");
+        if let Ok(content) = fs::read_to_string(&path) {
+            return Some(content);
+        }
+    }
+    None
+}
+
 #[tauri::command]
 fn open_in_dump_analyzer(app: tauri::AppHandle, dump_path: String) -> Result<(), String> {
     let mut bases: Vec<std::path::PathBuf> = Vec::new();
@@ -207,6 +223,7 @@ fn main() {
             open_external_url,
             open_folder,
             read_filter_files,
+            read_fs_reference,
             open_in_dump_analyzer,
         ])
         .run(tauri::generate_context!())
