@@ -3251,6 +3251,8 @@ function traceNormalizeFilterVal(val){
 function traceRenderFromLines(list,vf){
   document.getElementById('trace-file-wrap')?.remove()
   document.getElementById('trace-load-more-btn')?.remove()
+  if(vf._traceObserver){vf._traceObserver.disconnect();vf._traceObserver=null}
+  vf._traceAddChunks=null
   const allLines=vf._lines||[]
   let displayLines=allLines
   let origIndices=null  // null = no filter (displayLines === allLines)
@@ -3310,7 +3312,28 @@ function traceRenderFromLines(list,vf){
   wrapper.id='trace-file-wrap'
   wrapper.style.cssText='display:flex;flex-direction:column;overflow-x:auto;margin:8px 14px;padding:8px 0;background:#F8F8F7;border:1px solid #EDEBE9;border-radius:2px;'
   const opts={searchTerms:terms,bookmarks:vf._bookmarks||null,onBookmarkToggle:traceToggleBookmark}
-  for(let i=0;i<displayLines.length;i+=_TRACE_CHUNK){wrapper.appendChild(traceCreateChunk(displayLines.slice(i,i+_TRACE_CHUNK),i,showNums,opts))}
+  // Lazy rendering: chunks rendered only when they scroll into view (IntersectionObserver)
+  // No-filter case: getLines() reads vf._lines at render-time so "Load More" appends work seamlessly
+  const getLines=origIndices?()=>displayLines:()=>vf._lines
+  const observer=new IntersectionObserver((entries)=>{
+    for(const entry of entries){
+      if(!entry.isIntersecting||entry.target._rendered)continue
+      entry.target._rendered=true;observer.unobserve(entry.target)
+      const start=parseInt(entry.target.dataset.start),count=parseInt(entry.target.dataset.count)
+      entry.target.replaceWith(traceCreateChunk(getLines().slice(start,start+count),start,showNums,opts))
+    }
+  },{rootMargin:'1000px'})
+  vf._traceObserver=observer
+  function _addPlaceholders(linesArr,offset){
+    for(let i=0;i<linesArr.length;i+=_TRACE_CHUNK){
+      const count=Math.min(_TRACE_CHUNK,linesArr.length-i)
+      const ph=document.createElement('div');ph.dataset.start=offset+i;ph.dataset.count=count
+      ph.style.cssText=`height:${count*_TRACE_LH}px;display:flex;`;ph._rendered=false
+      observer.observe(ph);wrapper.appendChild(ph)
+    }
+  }
+  _addPlaceholders(displayLines,0)
+  vf._traceAddChunks=(newLines,startIdx)=>{const wrp=document.getElementById('trace-file-wrap');if(wrp)_addPlaceholders(newLines,startIdx)}
   list.appendChild(wrapper)
   if(vf.offset<vf.fileSize)traceAddLoadMoreBtn(list,vf.fileSize)
 }
@@ -3495,7 +3518,8 @@ async function traceAppendChunk(){
         const wrap=document.getElementById('trace-file-wrap')
         const showNums=true
         const opts={searchTerms:vf._searchTerms||[],bookmarks:vf._bookmarks||null,onBookmarkToggle:traceToggleBookmark}
-        if(wrap){for(let s=0;s<safeLines.length;s+=_TRACE_CHUNK){wrap.appendChild(traceCreateChunk(safeLines.slice(s,s+_TRACE_CHUNK),prevCount+s,showNums,opts))}}
+        if(vf._traceAddChunks)vf._traceAddChunks(safeLines,prevCount)
+        else if(wrap){for(let s=0;s<safeLines.length;s+=_TRACE_CHUNK){wrap.appendChild(traceCreateChunk(safeLines.slice(s,s+_TRACE_CHUNK),prevCount+s,showNums,opts))}}
         if(vf._searchTerms?.length&&vf._termMatchLines){
           const terms=vf._searchTerms.map(t=>(typeof t==='string'?t:t.text).trim().toLowerCase()).filter(Boolean)
           if(terms.length)safeLines.forEach((line,i)=>{if(terms.some(t=>line.toLowerCase().includes(t)))vf._termMatchLines.push(prevCount+i)})
@@ -4295,12 +4319,15 @@ function nsChartReset(cid){
 
 function nsChartSwitchPort(cid,port){
   const st=_nsChartState[cid];if(!st||st.visiblePort===port)return
-  st.visiblePort=port;st.fromMs=null;st.toMs=null
+  st.visiblePort=port
   const portData=st.parsedData.byPort[port]
   if(portData?.timestamps.length){
     const fe=document.getElementById(cid+'-from'),te=document.getElementById(cid+'-to')
-    if(fe)fe.value=_nscMsToDatetimeLocal(portData.timestamps[0])
-    if(te)te.value=_nscMsToDatetimeLocal(portData.timestamps[portData.timestamps.length-1])
+    // Only reset datetime inputs when the user has no active filter
+    if(st.fromMs==null&&st.toMs==null){
+      if(fe)fe.value=_nscMsToDatetimeLocal(portData.timestamps[0])
+      if(te)te.value=_nscMsToDatetimeLocal(portData.timestamps[portData.timestamps.length-1])
+    }
   }
   const ri=document.getElementById(cid+'-range-info')
   if(ri){const portSvcMap={};if(topoData){const h=topoData.hosts.find(h=>h.name===st.hostName);if(h)h.services.forEach(s=>portSvcMap[String(s.port)]=s.name)};const s=portSvcMap[port];const lbl=s?`${port} — ${s}`:port;ri.textContent=`${st.hostName} · ${lbl}`+(portData?.timestamps.length?` (${_nscFmtTs(portData.timestamps[0])} – ${_nscFmtTs(portData.timestamps[portData.timestamps.length-1])})`:'')}
