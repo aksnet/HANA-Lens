@@ -2141,7 +2141,9 @@ function activateNavItem(sid,panelKey){
   const s=sess(sid)
   if(s&&s.type==='hsi'){
     const tabs=hsiGetTabList(s)
-    if(tabs.length)activateHsiTab(sid,tabs[0].id,null)
+    const lastId=s._hsiLastTabId
+    const target=tabs.find(t=>t.id===lastId)||tabs[0]
+    if(target) activateHsiTab(sid, target.id, target.id===lastId ? s._hsiLastSubTabId : null)
     return
   }
   // switch active session
@@ -4556,7 +4558,7 @@ function renderMarkdown(md){
       const codeLines=[];i++
       while(i<lines.length&&!/^```/.test(lines[i].trim())){codeLines.push(lines[i]);i++}
       i++
-      html+=`<pre style="background:#F3F2F1;border:1px solid #EDEBE9;border-radius:3px;padding:10px 12px;overflow-x:auto;font-family:Consolas,monospace;font-size:11px;line-height:1.5;margin:8px 0;"><code>${escHtml(codeLines.join('\n'))}</code></pre>`
+      html+=`<pre style="background:#F3F2F1;border:1px solid #EDEBE9;border-radius:3px;padding:10px 12px;white-space:pre-wrap;word-break:break-word;font-family:Consolas,monospace;font-size:11px;line-height:1.5;margin:8px 0;"><code>${escHtml(codeLines.join('\n'))}</code></pre>`
       continue
     }
     // Heading
@@ -5141,6 +5143,8 @@ function buildHsiNavGroup(s){
 async function activateHsiTab(sid, tabId, subTabFile){
   activeFsidId = sid
   activePanel = 'hsi'
+  const _s = sess(sid)
+  if(_s){ _s._hsiLastTabId = tabId; _s._hsiLastSubTabId = subTabFile }
 
   // Highlight nav item
   document.getElementById('navTreeBody').querySelectorAll('.fsid-sub-item').forEach(i=>i.classList.remove('active'))
@@ -5344,6 +5348,77 @@ let _lcmFileHandles=[]
 
 let _hsiExplHandles = []
 
+// Inline file viewer — keeps the HSI panel (sub-tab bar) intact
+async function _hsiExplOpenInline(contentArea, fileHandle, backFn){
+  contentArea.innerHTML = '<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
+  try{
+    const f = await fileHandle.getFile()
+    const txt = await f.text()
+    const lines = txt.split('\n')
+    const wrapper = document.createElement('div')
+    wrapper.style.cssText = 'display:flex;flex-direction:column;height:100%;'
+    // Up / breadcrumb bar
+    const upBar = document.createElement('div')
+    upBar.style.cssText = 'padding:5px 10px;background:#F3F2F1;border-bottom:1px solid #EDEBE9;display:flex;align-items:center;gap:8px;font-size:12px;flex-shrink:0;'
+    const upBtn = document.createElement('button')
+    upBtn.innerHTML = '&#8593; ..'
+    upBtn.title = 'Back to folder'
+    upBtn.style.cssText = 'background:#fff;border:1px solid #EDEBE9;border-radius:2px;color:#323130;cursor:pointer;font-size:12px;padding:2px 8px;'
+    upBtn.onclick = backFn
+    upBar.appendChild(upBtn)
+    const nameSpan = document.createElement('span')
+    nameSpan.textContent = fileHandle.name
+    nameSpan.style.cssText = 'color:#605E5C;font-family:Consolas,monospace;font-size:11px;'
+    upBar.appendChild(nameSpan)
+    const copyBtn = document.createElement('button')
+    copyBtn.title = 'Copy all'
+    copyBtn.innerHTML = '&#128203;'
+    copyBtn.style.cssText = 'margin-left:auto;background:none;border:none;cursor:pointer;font-size:14px;padding:0 4px;color:#605E5C;'
+    copyBtn.onclick = () => navigator.clipboard?.writeText(txt).catch(()=>{})
+    upBar.appendChild(copyBtn)
+    wrapper.appendChild(upBar)
+    // Filter bar
+    const filterBar = document.createElement('div')
+    filterBar.style.cssText = 'padding:4px 10px;background:#F8F8F8;border-bottom:1px solid #EDEBE9;display:flex;align-items:center;gap:6px;flex-shrink:0;'
+    const filterInput = document.createElement('input')
+    filterInput.type = 'text'
+    filterInput.placeholder = 'Filter lines…'
+    filterInput.className = 'trace-filter-input'
+    filterInput.style.cssText = 'flex:1;padding:3px 8px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:inherit;'
+    const countSpan = document.createElement('span')
+    countSpan.style.cssText = 'color:#A19F9D;font-size:11px;white-space:nowrap;'
+    countSpan.textContent = lines.length + ' lines loaded'
+    filterBar.appendChild(filterInput)
+    filterBar.appendChild(countSpan)
+    wrapper.appendChild(filterBar)
+    // Line list
+    const traceList = document.createElement('div')
+    traceList.className = 'trace-list'
+    traceList.style.cssText = 'flex:1;overflow-y:auto;'
+    function renderLines(filter){
+      const lc = filter.toLowerCase()
+      let shown = 0
+      traceList.innerHTML = ''
+      lines.forEach((line, i) => {
+        if(filter && !line.toLowerCase().includes(lc)) return
+        shown++
+        const row = document.createElement('div')
+        row.className = 'trace-line'
+        row.innerHTML = `<span class="trace-ln">${i+1}</span><span class="trace-text">${escHtml(line)}</span>`
+        traceList.appendChild(row)
+      })
+      countSpan.textContent = filter ? `${shown} / ${lines.length} lines` : `${lines.length} lines loaded`
+    }
+    filterInput.oninput = () => renderLines(filterInput.value)
+    renderLines('')
+    wrapper.appendChild(traceList)
+    contentArea.innerHTML = ''
+    contentArea.appendChild(wrapper)
+  }catch(e){
+    contentArea.innerHTML = `<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Could not read file: ${escHtml(String(e))}</span></div>`
+  }
+}
+
 async function _hsiRenderDynTab(contentArea, dynTab, s){
   if(dynTab.type === 'dyn-explorer') return hsiRenderExplorerContent(contentArea, dynTab.handle, s.id)
   if(dynTab.type === 'dyn-config') return _hsiRenderIniViewerTab(contentArea, s)
@@ -5452,6 +5527,15 @@ async function hsiExplOpenFile(idx){
   if(!entry) return
   const s = sess(entry.sid)
   if(!s) return
+  // Render inline: keep #panel-hsi visible so the sub-tab bar stays
+  const panel = document.getElementById('panel-hsi')
+  const contentArea = panel?.querySelector('.hsi-content-area')
+  if(contentArea){
+    const backFn = () => activateHsiTab(entry.sid, s._hsiLastTabId||'', s._hsiLastSubTabId||null)
+    await _hsiExplOpenInline(contentArea, entry.handle, backFn)
+    return
+  }
+  // Fallback: trace explorer (only if no panel found)
   s.traceExplorerData = {instanceDir:'hsi-explorer', servers:[{name:'', handle:entry.parentHandle}]}
   s.traceExplState = {
     sid:s.id, serverIdx:0, stack:[], entries:[],
@@ -5530,12 +5614,24 @@ async function lcmOpenFile(idx){
   if(!entry)return
   const s=sess(entry.sid)
   if(!s)return
-  // Synthetic traceExplorerData pointing to the lcm tool folder
-  s.traceExplorerData={instanceDir:'lcm-logs',servers:[{name:entry.toolName,handle:entry.toolHandle}]}
-  // Pre-set traceExplState with viewingFile so traceLoadDir() calls traceShowFileView()
+  // Render inline: keep #panel-hsi visible so the LCM tool-tab bar stays
+  const panel = document.getElementById('panel-hsi')
+  const contentArea = panel?.querySelector('.hsi-content-area')
+  if(contentArea){
+    const backFn = () => activateHsiTab(entry.sid, s._hsiLastTabId||'lcm-logs', s._hsiLastSubTabId||null)
+    await _hsiExplOpenInline(contentArea, entry.handle, backFn)
+    return
+  }
+  // Fallback: trace explorer with all LCM tools
+  const lcm=s.hsiLcmLogsData
+  const toolIdx=lcm?lcm.tools.findIndex(t=>t.name===entry.toolName):0
+  s.traceExplorerData={
+    instanceDir:'lcm-logs',
+    servers:lcm?lcm.tools.map(t=>({name:t.name,handle:t.handle})):[{name:entry.toolName,handle:entry.toolHandle}]
+  }
   const stack=entry.stackFrame?[entry.stackFrame]:[]
   s.traceExplState={
-    sid:s.id,serverIdx:0,stack,entries:[],
+    sid:s.id,serverIdx:toolIdx>=0?toolIdx:0,stack,entries:[],
     viewingFile:{name:entry.name,handle:entry.handle,isDir:false,size:null,lastModified:null},
     sortCol:'name',sortDir:'asc',scrollTop:0,serverStates:{}
   }
