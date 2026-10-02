@@ -4699,8 +4699,10 @@ function _hsiParseDynGroups(s){
     return groupMap.get(name)
   }
   // Files from temp/ matching NN-GroupName--MM-TabName.(md|log)
+  // Use handle.name for original casing (s.hsiFiles keys are lowercase)
   for(const [fname, handle] of Object.entries(s.hsiFiles)){
-    const m = fname.match(/^(\d+)-(.+?)--(\d+)-(.+)\.(md|log)$/i)
+    const srcName = (handle && handle.name) || fname
+    const m = srcName.match(/^(\d+)-(.+?)--(\d+)-(.+)\.(md|log)$/i)
     if(!m) continue
     const grp = ensureGroup(parseInt(m[1]), m[2])
     grp.tabs.push({
@@ -4709,7 +4711,7 @@ function _hsiParseDynGroups(s){
       file:fname, handle
     })
   }
-  // Root tab-folders: NN-GroupName--MM-FolderName
+  // Root tab-folders: NN-GroupName--MM-FolderName (already properly cased from filesystem)
   for(const rf of s.hsiRootFolders){
     if(!rf.isTabFolder) continue
     const grp = ensureGroup(rf.order, rf.groupName)
@@ -4718,16 +4720,28 @@ function _hsiParseDynGroups(s){
       type:'dyn-explorer', handle:rf.handle
     })
   }
-  // Top-level numbered folders (no --)
+  // Top-level numbered folders (no --): merge into existing tab-group if same name exists
   for(const rf of s.hsiRootFolders){
     if(rf.isTabFolder) continue
     const isConfig = /configuration/i.test(rf.folderName) && s.hsiConfigData
     const isLcm = /lcm/i.test(rf.folderName) && s.hsiLcmLogsData
-    groupMap.set('__top__'+rf.folderName, {
-      order:rf.order, displayName:rf.folderName.replace(/_/g,' '), name:rf.folderName,
-      isTopLevel:true, type:isConfig?'dyn-config':isLcm?'lcm-logs':'dyn-explorer',
-      handle:rf.handle, tabs:[]
-    })
+    const sameGrp = [...groupMap.values()].find(g => !g.isTopLevel && g.name.toLowerCase() === rf.folderName.toLowerCase())
+    if(sameGrp){
+      // Merge folder as extra tab inside the existing group
+      sameGrp.tabs.push({
+        order: isConfig ? 0 : 999,
+        id: 'dyntabfol-top-'+rf.rawName,
+        label: isConfig ? 'HANA INI Config' : rf.folderName.replace(/_/g,' '),
+        type: isConfig ? 'dyn-config' : 'dyn-explorer',
+        handle: rf.handle
+      })
+    } else {
+      groupMap.set('__top__'+rf.folderName, {
+        order:rf.order, displayName:rf.folderName.replace(/_/g,' '), name:rf.folderName,
+        isTopLevel:true, type:isConfig?'dyn-config':isLcm?'lcm-logs':'dyn-explorer',
+        handle:rf.handle, tabs:[]
+      })
+    }
   }
   return [...groupMap.values()]
     .filter(g => g.tabs.length > 0 || g.isTopLevel)
@@ -5332,6 +5346,7 @@ let _hsiExplHandles = []
 
 async function _hsiRenderDynTab(contentArea, dynTab, s){
   if(dynTab.type === 'dyn-explorer') return hsiRenderExplorerContent(contentArea, dynTab.handle, s.id)
+  if(dynTab.type === 'dyn-config') return _hsiRenderIniViewerTab(contentArea, s)
   const handle = dynTab.handle
   if(!handle){ contentArea.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>File not found.</span></div>`; return }
   contentArea.innerHTML='<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
@@ -5343,6 +5358,43 @@ async function _hsiRenderDynTab(contentArea, dynTab, s){
   }catch(e){
     contentArea.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`
   }
+}
+
+async function _hsiRenderIniViewerTab(contentArea, s){
+  if(!s.hsiConfigData?.databases?.length){
+    contentArea.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No HANA Configuration data found.</span></div>`; return
+  }
+  if(!s.hsiConfigData.parsedRef){
+    const pr={}
+    for(const [name,handle] of Object.entries(s.hsiConfigData.refHandles||{})){
+      try{const f=await handle.getFile();pr[name]=parseRefIni(await f.text())}catch(e){}
+    }
+    if(!Object.keys(pr).length&&typeof BUNDLED_CONFIG_INI!=='undefined'){
+      for(const [name,text] of Object.entries(BUNDLED_CONFIG_INI)) pr[name]=parseRefIni(text)
+    }
+    s.hsiConfigData.parsedRef=pr
+  }
+  s.configRefData=s.hsiConfigData.parsedRef
+  const hasRef=Object.keys(s.hsiConfigData.parsedRef||{}).length>0
+  if(!s.configViewMode) s.configViewMode='explained'
+  contentArea.innerHTML='<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
+  const parts=[]
+  for(const db of s.hsiConfigData.databases){
+    parts.push(`<div style="margin-bottom:10px;padding:8px 12px;background:#EFF6FF;border:1px solid #BAD7FF;border-radius:2px;font-size:12px;"><strong>⚙️ ${escHtml(db.name)}</strong></div>`)
+    if(hasRef&&s.configViewMode==='explained'){
+      for(const {name,handle,content} of db.iniHandles){
+        try{const text=content!==undefined?content:await(await handle.getFile()).text();parts.push(renderIniFile(name,text))}catch(e){}
+      }
+    } else {
+      for(const {name,handle,content} of db.iniHandles){
+        try{
+          const text=content!==undefined?content:await(await handle.getFile()).text()
+          parts.push(`<div class="card" style="margin-bottom:18px;"><div class="card-title">📄 ${escHtml(name)}</div><div class="card-body" style="padding:0;overflow-x:auto;"><pre style="margin:0;padding:10px 12px;font-family:Consolas,monospace;font-size:11px;line-height:1.4;white-space:pre;color:#323130;">${escHtml(text)}</pre></div></div>`)
+        }catch(e){}
+      }
+    }
+  }
+  contentArea.innerHTML=parts.join('')||'<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No .ini files found.</span></div>'
 }
 
 function hsiRenderExplorer(panel, s, tab){
