@@ -3908,8 +3908,10 @@ const _NSC_LABELS={
 //   mb = bytes→MB (÷1048576), gb = bytes→GB (÷1073741824)
 //   rate = per-interval count÷interval_s, mb_rate = bytes÷1048576÷interval_s, us_rate = µs÷1e6÷interval_s
 function _nscApplyConversions(parsed){
+  const _unitAfter={mb:'MB',gb:'GB',mb_rate:'MBit/s'}
   parsed.metrics.forEach((m,mi)=>{
     const ct=_NSC_CONV[m.name];if(!ct)return
+    if(_unitAfter[ct])m.unit=_unitAfter[ct]
     for(const port of parsed.ports){
       const pd=parsed.byPort[port],vals=pd.values[mi],ts=pd.timestamps
       if(ct==='mb'){
@@ -4187,7 +4189,7 @@ function nsChartBuildUI(container,cid){
       <input type="search" id="${cid}-search" class="nsc-search" placeholder="🔍 Enter Search Terms Here" oninput="nsChartFilter('${cid}',this.value)">
       <div class="nsc-param-header">
         <span>KPI</span><span style="text-align:center;">Y-Scale</span><span style="text-align:center;">Unit</span>
-        <span style="text-align:right;">Max</span><span style="text-align:right;">Average</span><span style="text-align:right;">Last</span>
+        <span style="text-align:right;">Max</span><span style="text-align:right;">Average</span>
       </div>
       <div class="nsc-param-rows" id="${cid}-param-rows">`
 
@@ -4206,7 +4208,6 @@ function nsChartBuildUI(container,cid){
         <span class="nsc-param-unit">${escHtml(m.unit||'')}</span>
         <span class="nsc-param-stat" id="${cid}-max-${_nscSid(m.name)}">—</span>
         <span class="nsc-param-stat" id="${cid}-avg-${_nscSid(m.name)}">—</span>
-        <span class="nsc-param-stat" id="${cid}-last-${_nscSid(m.name)}">—</span>
       </div>`
     })
     html+=`</div>`
@@ -4225,14 +4226,13 @@ function nsChartUpdateStats(cid){
   if(toMs!=null){let found=false;for(let i=ts.length-1;i>=iStart;i--){if(ts[i]<=toMs){iEnd=i+1;found=true;break}};if(!found)iEnd=iStart}
   st.parsedData.metrics.forEach((m,mi)=>{
     const vals=portData.values[mi]
-    let last=NaN,max=-Infinity,sum=0,cnt=0
-    for(let i=iStart;i<iEnd;i++){const v=vals[i];if(!Number.isFinite(v))continue;if(v>max)max=v;sum+=v;cnt++;last=v}
+    let max=-Infinity,sum=0,cnt=0
+    for(let i=iStart;i<iEnd;i++){const v=vals[i];if(!Number.isFinite(v))continue;if(v>max)max=v;sum+=v;cnt++}
     const fmt=v=>_nscFmtStat(v,m.unit)
     const sid=_nscSid(m.name)
-    const eMx=document.getElementById(cid+'-max-'+sid),eAv=document.getElementById(cid+'-avg-'+sid),eLast=document.getElementById(cid+'-last-'+sid)
+    const eMx=document.getElementById(cid+'-max-'+sid),eAv=document.getElementById(cid+'-avg-'+sid)
     if(eMx)eMx.textContent=cnt?fmt(max):'—'
     if(eAv)eAv.textContent=cnt?fmt(sum/cnt):'—'
-    if(eLast)eLast.textContent=cnt?fmt(last):'—'
   })
 }
 
@@ -4528,11 +4528,13 @@ function renderMdTable(lines){
 }
 function renderMarkdown(md){
   const lines=md.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n')
-  // First pass: collect H1/H2 headings for TOC and assign anchors
+  // First pass: collect H1/H2 headings for TOC and assign anchors (skip inside code fences)
   const headAnchors=new Map()  // line-index → anchor-id
   const tocEntries=[]
-  let anchorCtr=0
+  let anchorCtr=0,inFence=false
   for(let li=0;li<lines.length;li++){
+    if(/^```/.test(lines[li].trim())){inFence=!inFence;continue}
+    if(inFence)continue
     const hm=lines[li].match(/^(#{1,2})\s+(.+)/)
     if(hm){
       const id=`hsi-md-${anchorCtr++}`
@@ -4643,6 +4645,96 @@ const HSI_GROUPS_BASE = {
   'SLD': ['SLD.log','sld_related_nameserver-trace-analyze.log'],
 }
 
+async function _hsiScanConfigFolder(configDir, s, dirHandle){
+  const hsiConfigData = {databases:[], refHandles:{}, parsedRef:null}
+  const dbDirNames=[], dbDirSet=new Set()
+  try{for await(const[n,h]of configDir.entries()){if(h.kind==='directory'&&n!=='reference'){dbDirNames.push(n);dbDirSet.add(n)}}}catch(e){}
+  if(!dbDirSet.has('SYSTEMDB'))dbDirNames.push('SYSTEMDB')
+  const _hsiSidM=dirHandle.name.match(/^HSI_([A-Z][A-Z0-9]{1,})_/i)
+  if(_hsiSidM){const g='DB_'+_hsiSidM[1].toUpperCase();if(!dbDirSet.has(g))dbDirNames.push(g)}
+  try{
+    const refDir=await configDir.getDirectoryHandle('reference')
+    try{for await(const[n,h]of refDir.entries()){if(h.kind==='file'&&n.endsWith('.ini'))hsiConfigData.refHandles[n]=h}}catch(e){}
+    for(const fn of HANA_INI_FILES){if(!hsiConfigData.refHandles[fn]){try{hsiConfigData.refHandles[fn]=await refDir.getFileHandle(fn)}catch(e){}}}
+  }catch(e){}
+  for(const dbName of dbDirNames){
+    try{
+      const dbDir=await configDir.getDirectoryHandle(dbName)
+      const iniHandles=[], found=new Set()
+      try{for await(const[fn,fh]of dbDir.entries()){if(fh.kind==='file'&&fn.endsWith('.ini')){iniHandles.push({name:fn,handle:fh});found.add(fn)}}}catch(e){}
+      for(const fn of HANA_INI_FILES){if(!found.has(fn)){try{const fh=await dbDir.getFileHandle(fn);iniHandles.push({name:fn,handle:fh})}catch(e){}}}
+      if(iniHandles.length){iniHandles.sort((a,b)=>a.name.localeCompare(b.name));hsiConfigData.databases.push({name:dbName,iniHandles})}
+    }catch(e){}
+  }
+  hsiConfigData.databases.sort((a,b)=>a.name==='SYSTEMDB'?-1:b.name==='SYSTEMDB'?1:a.name.localeCompare(b.name))
+  if(hsiConfigData.databases.length) s.hsiConfigData=hsiConfigData
+}
+
+async function _hsiScanLcmFolder(lcmRoot, s){
+  const lcmData = {tools:[]}
+  for await(const [tname,thandle] of lcmRoot.entries()){
+    if(thandle.kind!=='directory') continue
+    const tool={name:tname,handle:thandle,flatFiles:[],opFolders:[]}
+    for await(const [fname,fhandle] of thandle.entries()){
+      if(fhandle.kind==='file') tool.flatFiles.push({name:fname,handle:fhandle})
+      else if(fhandle.kind==='directory'){
+        const opFiles=[]
+        try{for await(const [ofname,ofhandle] of fhandle.entries()){if(ofhandle.kind==='file')opFiles.push({name:ofname,handle:ofhandle})}}catch(e){}
+        opFiles.sort((a,b)=>a.name.localeCompare(b.name))
+        tool.opFolders.push({name:fname,handle:fhandle,files:opFiles})
+      }
+    }
+    tool.flatFiles.sort((a,b)=>a.name.localeCompare(b.name))
+    tool.opFolders.sort((a,b)=>b.name.localeCompare(a.name))
+    lcmData.tools.push(tool)
+  }
+  lcmData.tools.sort((a,b)=>a.name.localeCompare(b.name))
+  if(lcmData.tools.length) s.hsiLcmLogsData=lcmData
+}
+
+function _hsiParseDynGroups(s){
+  const groupMap = new Map()
+  function ensureGroup(order, name){
+    if(!groupMap.has(name)) groupMap.set(name, {order, displayName:name.replace(/_/g,' '), name, tabs:[]})
+    return groupMap.get(name)
+  }
+  // Files from temp/ matching NN-GroupName--MM-TabName.(md|log)
+  for(const [fname, handle] of Object.entries(s.hsiFiles)){
+    const m = fname.match(/^(\d+)-(.+?)--(\d+)-(.+)\.(md|log)$/i)
+    if(!m) continue
+    const grp = ensureGroup(parseInt(m[1]), m[2])
+    grp.tabs.push({
+      order:parseInt(m[3]), id:'dyntab-'+fname, label:m[4].replace(/_/g,' '),
+      type: m[4].toLowerCase().includes('permissions') ? 'dyn-perm' : 'dyn-md',
+      file:fname, handle
+    })
+  }
+  // Root tab-folders: NN-GroupName--MM-FolderName
+  for(const rf of s.hsiRootFolders){
+    if(!rf.isTabFolder) continue
+    const grp = ensureGroup(rf.order, rf.groupName)
+    grp.tabs.push({
+      order:rf.tabOrder, id:'dyntabfol-'+rf.rawName, label:rf.tabName.replace(/_/g,' '),
+      type:'dyn-explorer', handle:rf.handle
+    })
+  }
+  // Top-level numbered folders (no --)
+  for(const rf of s.hsiRootFolders){
+    if(rf.isTabFolder) continue
+    const isConfig = /configuration/i.test(rf.folderName) && s.hsiConfigData
+    const isLcm = /lcm/i.test(rf.folderName) && s.hsiLcmLogsData
+    groupMap.set('__top__'+rf.folderName, {
+      order:rf.order, displayName:rf.folderName.replace(/_/g,' '), name:rf.folderName,
+      isTopLevel:true, type:isConfig?'dyn-config':isLcm?'lcm-logs':'dyn-explorer',
+      handle:rf.handle, tabs:[]
+    })
+  }
+  return [...groupMap.values()]
+    .filter(g => g.tabs.length > 0 || g.isTopLevel)
+    .sort((a,b) => a.order - b.order)
+    .map(g => { g.tabs.sort((a,b)=>a.order-b.order); return g })
+}
+
 async function loadHSIFolder(existingHandle){
   try{
     const dirHandle = existingHandle || await window.showDirectoryPicker({mode:'read',id:'load-hsi',...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})})
@@ -4659,6 +4751,9 @@ async function loadHSIFolder(existingHandle){
       hsiLcmLogsData: null, // { tools:[{name, flatFiles:[{name,handle}], opFolders:[{name,files:[{name,handle}]}]}] }
       hsiMdFiles: {},       // filename.toLowerCase() -> FileSystemFileHandle for md_* files
       hsiZipFsids: [],      // [{name}] — ZIP files found in FSIDs/ that need extraction
+      hsiRootFolders: [],   // [{order,...}] — numbered dirs in HSI root (new format)
+      hsiDynFormat: false,  // true when new NN-Group--MM-Tab.md format detected
+      hsiDynGroups: [],     // [{order, displayName, name, tabs,...}] — dynamic menu structure
       hsiDirHandle: dirHandle,
       // FSID fields unused but keep shape consistent
       loadedFiles:{}, loadedFolderName: dirHandle.name,
@@ -4694,37 +4789,13 @@ async function loadHSIFolder(existingHandle){
     // Scan Configuration/ folder (new HSI format: SYSTEMDB/, DB_X/, reference/)
     try{
       const configDir = await dirHandle.getDirectoryHandle('Configuration')
-      const hsiConfigData = {databases:[], refHandles:{}, parsedRef:null}
-      // Discover DB subdirectory names via entries() — entries() finds directories reliably
-      const dbDirNames=[], dbDirSet=new Set()
-      try{for await(const[n,h]of configDir.entries()){if(h.kind==='directory'&&n!=='reference'){dbDirNames.push(n);dbDirSet.add(n)}}}catch(e){}
-      // Always try SYSTEMDB; also guess DB_<SID> from folder name
-      if(!dbDirSet.has('SYSTEMDB'))dbDirNames.push('SYSTEMDB')
-      const _hsiSidM=dirHandle.name.match(/^HSI_([A-Z][A-Z0-9]{1,})_/i)
-      if(_hsiSidM){const g='DB_'+_hsiSidM[1].toUpperCase();if(!dbDirSet.has(g))dbDirNames.push(g)}
-      // Reference folder: getFileHandle() with known names (entries() may not return files on network drives)
-      try{
-        const refDir=await configDir.getDirectoryHandle('reference')
-        try{for await(const[n,h]of refDir.entries()){if(h.kind==='file'&&n.endsWith('.ini'))hsiConfigData.refHandles[n]=h}}catch(e){}
-        for(const fn of HANA_INI_FILES){if(!hsiConfigData.refHandles[fn]){try{hsiConfigData.refHandles[fn]=await refDir.getFileHandle(fn)}catch(e){}}}
-      }catch(e){}
-      // Each DB folder: same dual approach
-      for(const dbName of dbDirNames){
-        try{
-          const dbDir=await configDir.getDirectoryHandle(dbName)
-          const iniHandles=[], found=new Set()
-          try{for await(const[fn,fh]of dbDir.entries()){if(fh.kind==='file'&&fn.endsWith('.ini')){iniHandles.push({name:fn,handle:fh});found.add(fn)}}}catch(e){}
-          for(const fn of HANA_INI_FILES){if(!found.has(fn)){try{const fh=await dbDir.getFileHandle(fn);iniHandles.push({name:fn,handle:fh})}catch(e){}}}
-          if(iniHandles.length){iniHandles.sort((a,b)=>a.name.localeCompare(b.name));hsiConfigData.databases.push({name:dbName,iniHandles})}
-        }catch(e){}
-      }
-      hsiConfigData.databases.sort((a,b)=>a.name==='SYSTEMDB'?-1:b.name==='SYSTEMDB'?1:a.name.localeCompare(b.name))
-      if(hsiConfigData.databases.length) s.hsiConfigData=hsiConfigData
+      await _hsiScanConfigFolder(configDir, s, dirHandle)
     }catch(e){}
 
     // Try to extract SID + hostname + version + KBA + run date from init log
     try{
       const initHandle = hsiResolveFile(s,'00_initialization_overview.log')?.handle
+        || s.hsiFiles[Object.keys(s.hsiFiles).find(k => /^\d+-[^-].*--\d+-.*initialization/i.test(k)) || '']
       if(initHandle){
         const f = await initHandle.getFile()
         const txt = await f.text()
@@ -4839,26 +4910,30 @@ async function loadHSIFolder(existingHandle){
     // Scan lcm-logs/ subfolder
     try{
       const lcmRoot = await dirHandle.getDirectoryHandle('lcm-logs')
-      const lcmData = {tools:[]}
-      for await(const [tname,thandle] of lcmRoot.entries()){
-        if(thandle.kind!=='directory') continue
-        const tool={name:tname,handle:thandle,flatFiles:[],opFolders:[]}
-        for await(const [fname,fhandle] of thandle.entries()){
-          if(fhandle.kind==='file') tool.flatFiles.push({name:fname,handle:fhandle})
-          else if(fhandle.kind==='directory'){
-            const opFiles=[]
-            try{for await(const [ofname,ofhandle] of fhandle.entries()){if(ofhandle.kind==='file')opFiles.push({name:ofname,handle:ofhandle})}}catch(e){}
-            opFiles.sort((a,b)=>a.name.localeCompare(b.name))
-            tool.opFolders.push({name:fname,handle:fhandle,files:opFiles})
-          }
-        }
-        tool.flatFiles.sort((a,b)=>a.name.localeCompare(b.name))
-        tool.opFolders.sort((a,b)=>b.name.localeCompare(a.name)) // newest first
-        lcmData.tools.push(tool)
-      }
-      lcmData.tools.sort((a,b)=>a.name.localeCompare(b.name))
-      if(lcmData.tools.length) s.hsiLcmLogsData=lcmData
+      await _hsiScanLcmFolder(lcmRoot, s)
     }catch(e){}
+
+    // Detect & process new dynamic filename format (NN-GroupName--MM-TabName.md)
+    if(Object.keys(s.hsiFiles).some(k => /^\d+-[^-].*--\d+-/.test(k))){
+      s.hsiDynFormat = true
+      for await(const [name, handle] of dirHandle.entries()){
+        if(handle.kind !== 'directory') continue
+        const tm = name.match(/^(\d+)-(.+?)--(\d+)-(.+)$/)
+        if(tm){ s.hsiRootFolders.push({order:parseInt(tm[1]),groupName:tm[2],tabOrder:parseInt(tm[3]),tabName:tm[4],handle,isTabFolder:true,rawName:name}); continue }
+        const fm = name.match(/^(\d+)-([^-].*)$/)
+        if(fm && !/^(temp|fsids)$/i.test(fm[2]))
+          s.hsiRootFolders.push({order:parseInt(fm[1]),folderName:fm[2],handle,isTabFolder:false,rawName:name})
+      }
+      if(!s.hsiConfigData){
+        const cf = s.hsiRootFolders.find(f => !f.isTabFolder && /configuration/i.test(f.folderName))
+        if(cf) try{ await _hsiScanConfigFolder(cf.handle, s, dirHandle) }catch(e){}
+      }
+      if(!s.hsiLcmLogsData){
+        const lf = s.hsiRootFolders.find(f => !f.isTabFolder && /lcm/i.test(f.folderName))
+        if(lf) try{ await _hsiScanLcmFolder(lf.handle, s) }catch(e){}
+      }
+      s.hsiDynGroups = _hsiParseDynGroups(s)
+    }
 
     renderNavTree()
     // auto-navigate to first tab
@@ -4900,6 +4975,23 @@ function hsiResolveFile(s, logName){
 }
 
 function hsiGetTabList(s){
+  // New dynamic format: NN-GroupName--MM-TabName.md
+  if(s.hsiDynFormat && s.hsiDynGroups?.length){
+    const tabs = []
+    for(const grp of s.hsiDynGroups){
+      if(grp.isTopLevel){
+        if(grp.type==='dyn-config')
+          tabs.push({id:'dynfol-'+grp.name, label:grp.displayName, type:'hsi-config', subfiles:s.hsiConfigData.databases.map(d=>d.name)})
+        else if(grp.type==='lcm-logs')
+          tabs.push({id:'lcm-logs', label:grp.displayName, type:'lcm-logs'})
+        else
+          tabs.push({id:'dynfol-'+grp.name, label:grp.displayName, type:'dyn-explorer', handle:grp.handle})
+      } else {
+        tabs.push({id:'dyngrp-'+grp.name, label:grp.displayName, type:'dyn-group', tabs:grp.tabs})
+      }
+    }
+    return tabs
+  }
   const order = [...HSI_ORDER]
   // inject custom config group
   const ccIdx = order.indexOf('GROUP:HANA_Custom_Config')
@@ -5069,6 +5161,32 @@ async function activateHsiTab(sid, tabId, subTabFile){
     return
   }
 
+  // ── Folder explorer (new dynamic format) ─────────────────────────────────
+  if(tab.type==='dyn-explorer'){
+    hsiRenderExplorer(panel, s, tab)
+    return
+  }
+
+  // ── Dynamic group (NN-Group--MM-Tab format) ───────────────────────────────
+  if(tab.type==='dyn-group'){
+    const activeTab = tab.tabs.find(t => t.id === subTabFile) || tab.tabs[0]
+    const stBar = document.createElement('div')
+    stBar.className = 'hsi-subtab-bar'
+    tab.tabs.forEach(dt => {
+      const btn = document.createElement('button')
+      btn.className = 'hsi-subtab-btn' + (dt.id === activeTab.id ? ' active' : '')
+      btn.textContent = dt.label
+      btn.onclick = () => activateHsiTab(sid, tabId, dt.id)
+      stBar.appendChild(btn)
+    })
+    panel.appendChild(stBar)
+    const contentArea = document.createElement('div')
+    contentArea.className = 'hsi-content-area'
+    panel.appendChild(contentArea)
+    await _hsiRenderDynTab(contentArea, activeTab, s)
+    return
+  }
+
   // ── Subtab bar (for groups and hsi-config) ───────────────────────────────
   let activeSubFile = subTabFile
   if(tab.type==='group' || tab.type==='hsi-config'){
@@ -5207,6 +5325,90 @@ async function activateHsiTab(sid, tabId, subTabFile){
 // ─── LCM Logs helpers ────────────────────────────────────────────────────────
 
 let _lcmFileHandles=[]
+
+// ─── Dynamic HSI explorer helpers ────────────────────────────────────────────
+
+let _hsiExplHandles = []
+
+async function _hsiRenderDynTab(contentArea, dynTab, s){
+  if(dynTab.type === 'dyn-explorer') return hsiRenderExplorerContent(contentArea, dynTab.handle, s.id)
+  const handle = dynTab.handle
+  if(!handle){ contentArea.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>File not found.</span></div>`; return }
+  contentArea.innerHTML='<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
+  try{
+    const f = await handle.getFile()
+    const txt = await f.text()
+    if(dynTab.type === 'dyn-perm') await renderMdPermFile(contentArea, txt)
+    else contentArea.innerHTML = `<div class="hsi-md-content">${renderMarkdown(txt)}</div>`
+  }catch(e){
+    contentArea.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`
+  }
+}
+
+function hsiRenderExplorer(panel, s, tab){
+  const contentArea = document.createElement('div')
+  contentArea.className = 'hsi-content-area'
+  panel.appendChild(contentArea)
+  hsiRenderExplorerContent(contentArea, tab.handle, s.id)
+}
+
+async function hsiRenderExplorerContent(container, dirHandle, sid){
+  _hsiExplHandles = []
+  container.innerHTML = '<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
+  try{
+    const items = []
+    for await(const [name, handle] of dirHandle.entries()) items.push({name, handle})
+    items.sort((a,b) => {
+      const ad=a.handle.kind==='directory', bd=b.handle.kind==='directory'
+      if(ad!==bd) return ad?-1:1
+      return a.name.localeCompare(b.name)
+    })
+    if(!items.length){ container.innerHTML='<div class="not-found-msg"><span class="nf-icon">📂</span><span>Empty folder.</span></div>'; return }
+    const parts = []
+    for(const item of items){
+      if(item.handle.kind === 'directory'){
+        parts.push(`<div class="lcm-section-hdr">📁 ${escHtml(item.name)}</div>`)
+        try{
+          const sub=[]
+          for await(const [sn,sh] of item.handle.entries()) sub.push({name:sn,handle:sh})
+          sub.sort((a,b)=>a.name.localeCompare(b.name))
+          for(const si of sub) parts.push(_hsiExplFileRow(si.name, si.handle, item.handle, sid))
+        }catch(e){}
+      } else {
+        parts.push(_hsiExplFileRow(item.name, item.handle, dirHandle, sid))
+      }
+    }
+    container.innerHTML = parts.join('') || '<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No files.</span></div>'
+  }catch(e){
+    container.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error reading folder: ${escHtml(String(e))}</span></div>`
+  }
+}
+
+function _hsiExplFileRow(name, handle, parentHandle, sid){
+  const isXz = name.toLowerCase().endsWith('.xz')
+  if(isXz){
+    const p = parentHandle._path||''
+    const btn = (p && window.__TAURI__) ? `<button onclick="openFolderInExplorer(${JSON.stringify(p)})" style="margin-left:auto;padding:2px 8px;background:#0078D4;color:#fff;border:none;border-radius:2px;cursor:pointer;font-size:10px;flex-shrink:0;">📂 Open folder</button>` : ''
+    return `<div class="lcm-file-item" style="cursor:default;"><span class="lcm-file-icon">🗜️</span><span style="color:#A19F9D;">${escHtml(name)}</span><span style="font-size:10px;color:#A19F9D;margin-left:6px;">.xz compressed</span>${btn}</div>`
+  }
+  const idx = _hsiExplHandles.push({handle, name, parentHandle, sid}) - 1
+  return `<div class="lcm-file-item" onclick="hsiExplOpenFile(${idx})"><span class="lcm-file-icon">${lcmFileIcon(name)}</span>${escHtml(name)}</div>`
+}
+
+async function hsiExplOpenFile(idx){
+  const entry = _hsiExplHandles[idx]
+  if(!entry) return
+  const s = sess(entry.sid)
+  if(!s) return
+  s.traceExplorerData = {instanceDir:'hsi-explorer', servers:[{name:'', handle:entry.parentHandle}]}
+  s.traceExplState = {
+    sid:s.id, serverIdx:0, stack:[], entries:[],
+    viewingFile:{name:entry.name, handle:entry.handle, isDir:false, size:null, lastModified:null},
+    sortCol:'name', sortDir:'asc', scrollTop:0, serverStates:{}
+  }
+  activeFsidId = s.id
+  activateNav(null, 'traceexplorer')
+}
 
 function lcmFileIcon(name){
   const ext=name.split('.').pop().toLowerCase()
