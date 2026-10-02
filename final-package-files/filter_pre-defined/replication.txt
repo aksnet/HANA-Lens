@@ -1,0 +1,1 @@
+redo log position[[#472f2c,#f2f0ef]], starting hdbnsutil, Delta Replica[[#7ac141]], from source, Transfer to secondary statistics, minReceiveThroughput[[#33ddcc]], minSendThroughput[[#33ddcc]]

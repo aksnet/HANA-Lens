@@ -1,0 +1,1 @@
+SAVE DATA started[[#a4edc5]],SAVE DATA finished successfully[[#0c9a4b,#ffffff]],RECOVER DATA started[[#86d9ff]],RECOVER DATA finished successfully[[#095797,#ffffff]],BackupLogError[[#e42625,#ffffff]],Not all data could be written[[#e42625,#ffffff]],LCM
