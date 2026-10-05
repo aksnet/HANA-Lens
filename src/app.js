@@ -2132,7 +2132,7 @@ function buildFsidGroup(s){
     ...(s.type!=='rtedump-single'&&s.type!=='topo-single'?[{icon:'⚙️',label:'Configuration',panel:'configuration',disabled:false}]:[]),
     ...(s.hostsFileHandle?[{icon:'🌐',label:'HOSTS',panel:'hosts',disabled:false}]:[]),
     ...(s.telemetryHandle?[{icon:'📡',label:'Telemetry Data',panel:'telemetry',disabled:false}]:[]),
-    ...(s.nsHistoryHandles?.length?[{icon:'📈',label:'Nameserver History',panel:'nshistory',disabled:false},{icon:'📉',label:'Nameserver History (old)',panel:'nshistory-old',disabled:false}]:[]),
+    ...(s.nsHistoryHandles?.length?[{icon:'📈',label:'Nameserver History',panel:'nshistory',disabled:false}]:[]),
     ...(s.availabilityHandles?.length?[{icon:'🟢',label:'Availability',panel:'availability',disabled:false}]:[]),
     ...(s.type!=='topo-single'?[{icon:'💥',label:`Runtime Dumps (${s.rteDumpHandles?.length||0})`,panel:'rtedumps',disabled:false}]:[]),
     ...(s.type!=='topo-single'&&s.crashDumpHandles?.length?[{icon:'🛑',label:`Crash Dumps (${s.crashDumpHandles.length})`,panel:'crashdumps',disabled:false}]:[]),
@@ -2175,7 +2175,6 @@ function activateNavItem(sid,panelKey){
     document.getElementById('panel-configuration').innerHTML=''
     document.getElementById('panel-telemetry').innerHTML=''
     document.getElementById('panel-nshistory').innerHTML=''
-    document.getElementById('panel-nshistory-old').innerHTML=''
     document.getElementById('panel-availability').innerHTML=''
     document.getElementById('panel-rtedumps').innerHTML=''
     document.getElementById('panel-crashdumps').innerHTML=''
@@ -2294,7 +2293,7 @@ function fsidCtxRemove(){
   if(toRemove.has(activeFsidId)){
     activeFsidId=fsidSessions.length?fsidSessions[fsidSessions.length-1].id:null
     Object.values(_nsChartState).forEach(st=>{if(st?.chart){st.chart.destroy();st.chart=null}})
-    ;['panel-topology','panel-versionhistory','panel-configuration','panel-telemetry','panel-nshistory','panel-nshistory-old','panel-availability','panel-rtedumps','panel-crashdumps','panel-hosts','panel-traceexplorer','panel-hsi'].forEach(id=>{const el=document.getElementById(id);if(el){el.innerHTML='';el.style.display='';el.classList.remove('active')}})
+    ;['panel-topology','panel-versionhistory','panel-configuration','panel-telemetry','panel-nshistory','panel-availability','panel-rtedumps','panel-crashdumps','panel-hosts','panel-traceexplorer','panel-hsi'].forEach(id=>{const el=document.getElementById(id);if(el){el.innerHTML='';el.style.display='';el.classList.remove('active')}})
     document.getElementById('empty').style.display=fsidSessions.length?'none':'flex'
   }
   hideFsidCtxMenu()
@@ -2411,51 +2410,6 @@ async function activateNav(clickedItem,panelKey){
     panel.innerHTML=''
     const s=activeSess()
     nsChartPanel(panel,s)
-  }
-
-  if(panelKey==='nshistory-old'){
-    const panel=document.getElementById('panel-nshistory-old')
-    panel.classList.add('active')
-    panel.innerHTML=''
-    const s=activeSess()
-    if(!s?.nsHistoryHandles?.length){
-      panel.innerHTML='<div class="not-found-msg" style="margin:16px;"><span class="nf-icon">⚠️</span><span>No <strong>nameserver_history.trc</strong> found at <code>HDB&lt;inst&gt;/&lt;host&gt;/trace/</code>.</span></div>'
-      return
-    }
-    const tabBar=document.createElement('div')
-    tabBar.style.cssText='display:flex;border-bottom:1px solid #EDEBE9;background:#F3F2F1;padding:0 12px;overflow-x:auto;white-space:nowrap;position:sticky;top:0;z-index:10;'
-    panel.appendChild(tabBar)
-    const contentDiv=document.createElement('div')
-    contentDiv.style.cssText='padding:16px;'
-    panel.appendChild(contentDiv)
-    function switchNsTab(hostName){
-      tabBar.querySelectorAll('button').forEach(b=>{
-        const a=b.dataset.host===hostName
-        b.style.color=a?'#0078D4':'#605E5C'
-        b.style.borderBottom=a?'2px solid #0078D4':'2px solid transparent'
-        b.style.fontWeight=a?'600':'normal'
-        b.style.background=a?'#EFF6FC':'transparent'
-      })
-    }
-    for(const{hostName,handle}of s.nsHistoryHandles){
-      const btn=document.createElement('button')
-      btn.dataset.host=hostName
-      btn.style.cssText='display:inline-flex;align-items:center;gap:5px;height:36px;padding:0 14px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:12px;color:#605E5C;cursor:pointer;white-space:nowrap;'
-      btn.innerHTML=`🖥️ ${escHtml(hostName)}`
-      btn.onclick=async()=>{
-        switchNsTab(hostName)
-        contentDiv.innerHTML='<div style="color:#A19F9D;font-size:12px;">Loading…</div>'
-        try{
-          const file=await handle.getFile()
-          const txt=await file.text()
-          contentDiv.innerHTML=renderNsHistory(txt,hostName)
-          const firstBtn=contentDiv.querySelector('[id$="-tabs"] button')
-          if(firstBtn)firstBtn.click()
-        }catch(e){contentDiv.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`}
-      }
-      tabBar.appendChild(btn)
-    }
-    tabBar.querySelector('button').click()
   }
 
   if(panelKey==='availability'){
@@ -4391,83 +4345,6 @@ function nsChartToggleGroup(hdr){
   hdr.parentElement.querySelectorAll('.nsc-param-row').forEach(r=>r.style.display=open?'none':'')
 }
 
-function renderNsHistory(text,hostName){
-  const lines=text.split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim())
-  if(lines.length<2)return '<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>nameserver_history.trc is empty.</span></div>'
-
-  const headers=lines[0].split(';')
-  const COL={}
-  headers.forEach((h,i)=>COL[h.replace(/\s*\[.*?\]/,'').trim()]=i)
-  const iHost=COL['host'],iPort=COL['port'],iTime=COL['time']
-
-  const rawLines=lines.slice(1).map(l=>l.split(';'))
-
-  const rowTypes=rawLines.map(p=>{
-    const host=(p[iHost]||'').trim()
-    const port=(p[iPort]||'').trim()
-    const time=(p[iTime]||'').trim()
-    if(host&&!/^[\d><]/.test(host))return 'host'
-    if(port&&/^[\d><]/.test(port))return 'service'
-    if(time)return 'time'
-    return 'other'
-  })
-
-  const prev=new Array(headers.length).fill(null)
-  const resolved=rawLines.map(p=>p.map((v,i)=>{
-    if(!v||v==='')return prev[i]
-    if(v.startsWith('>')){const n=parseFloat(v.slice(1));const r=prev[i]!==null?prev[i]+n:n;prev[i]=r;return r}
-    if(v.startsWith('<')){const n=parseFloat(v.slice(1));const r=prev[i]!==null?prev[i]-n:n;prev[i]=r;return r}
-    const n=parseFloat(v);if(!isNaN(n)){prev[i]=n;return n}
-    prev[i]=v;return v
-  }))
-
-  // build byPort: port -> [{time, row}] sorted by time asc, max 500 per port
-  const PAGE=500
-  const byPort={}
-  let curTime=null
-  for(let i=0;i<resolved.length;i++){
-    const type=rowTypes[i],row=resolved[i]
-    if(type==='host'||type==='time') curTime=row[iTime]
-    else if(type==='service'&&curTime!==null){
-      const rawPort=(rawLines[i][iPort]||'').replace(/[><]/g,'').trim()
-      if(!byPort[rawPort])byPort[rawPort]=[]
-      byPort[rawPort].push({time:curTime,row})
-    }
-  }
-  // sort all ports by time — no truncation here, paging handles it
-  for(const p of Object.keys(byPort)) byPort[p].sort((a,b)=>parseFloat(a.time)-parseFloat(b.time))
-
-  const portServiceMap={}
-  if(topoData){
-    const hostObj=topoData.hosts.find(h=>h.name===hostName)
-    if(hostObj) for(const svc of hostObj.services) portServiceMap[String(svc.port)]=svc.name
-  }
-
-  const allPorts=Object.keys(byPort).sort((a,b)=>parseInt(a)-parseInt(b))
-  const cid='nsh-'+hostName.replace(/[^a-z0-9]/gi,'-')
-
-  if(!window._nsData)window._nsData={}
-  window._nsData[cid]={headers,iHost,iPort,iTime,_allByPort:byPort,_portOffset:{},_portRows:{},COL}
-
-  function portLabel(p){
-    const s=portServiceMap[p]
-    const total=(byPort[p]||[]).length
-    const countLabel=`<span style="font-size:10px;color:#A19F9D;"> (${total.toLocaleString()})</span>`
-    return (s?`${p} — ${s}`:p)+countLabel
-  }
-
-  let html=`<div class="card" id="${cid}-card">
-  <div class="card-title">📈 Nameserver History — ${escHtml(hostName)}
-    <span style="font-weight:400;font-size:11px;color:#605E5C;margin-left:6px;">~10s interval</span>
-  </div>
-  <div id="${cid}-tabs" style="display:flex;border-bottom:1px solid #EDEBE9;background:#F8F8F7;padding:0 12px;overflow-x:auto;white-space:nowrap;">`
-  for(const p of allPorts){
-    html+=`<button data-port="${escHtml(p)}" onclick="switchNsPort('${cid}','${escHtml(p)}')" style="display:inline-flex;align-items:center;height:30px;padding:0 12px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:11px;color:#605E5C;cursor:pointer;white-space:nowrap;">${portLabel(p)}</button>`
-  }
-  html+=`</div><div id="${cid}-content"></div></div>`
-  return html
-}
-
 function renderTelemetry(text){
   const lines=text.split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim())
   if(lines.length<2)return '<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>telemetryData.csv is empty or invalid.</span></div>'
@@ -4991,7 +4868,7 @@ async function reloadHsiSession(sid){
   fsidSessions.filter(x=>x.hsiParentId===sid).forEach(x=>toRemove.add(x.id))
   fsidSessions=fsidSessions.filter(x=>!toRemove.has(x.id))
   activeFsidId=fsidSessions.length?fsidSessions[fsidSessions.length-1].id:null
-  ;['panel-topology','panel-versionhistory','panel-configuration','panel-telemetry','panel-nshistory','panel-nshistory-old','panel-availability','panel-rtedumps','panel-crashdumps','panel-hosts','panel-traceexplorer','panel-hsi'].forEach(id=>{
+  ;['panel-topology','panel-versionhistory','panel-configuration','panel-telemetry','panel-nshistory','panel-availability','panel-rtedumps','panel-crashdumps','panel-hosts','panel-traceexplorer','panel-hsi'].forEach(id=>{
     const el=document.getElementById(id);if(el){el.innerHTML='';el.style.display='';el.classList.remove('active')}
   })
   document.getElementById('empty').style.display='none'
@@ -5125,7 +5002,7 @@ function buildHsiNavGroup(s){
         {icon:'⚙️', label:'Configuration', panel:'configuration', disabled:false},
         ...(cs.hostsFileHandle ? [{icon:'🌐', label:'HOSTS', panel:'hosts', disabled:false}] : []),
         ...(cs.telemetryHandle ? [{icon:'📡', label:'Telemetry Data', panel:'telemetry', disabled:false}] : []),
-        ...(cs.nsHistoryHandles?.length ? [{icon:'📈', label:'Nameserver History', panel:'nshistory', disabled:false},{icon:'📉', label:'Nameserver History (old)', panel:'nshistory-old', disabled:false}] : []),
+        ...(cs.nsHistoryHandles?.length ? [{icon:'📈', label:'Nameserver History', panel:'nshistory', disabled:false}] : []),
         ...(cs.availabilityHandles?.length ? [{icon:'🟢', label:'Availability', panel:'availability', disabled:false}] : []),
         {icon:'💥', label:`Runtime Dumps (${cs.rteDumpHandles?.length||0})`, panel:'rtedumps', disabled:false},
         ...(cs.crashDumpHandles?.length?[{icon:'🛑', label:`Crash Dumps (${cs.crashDumpHandles.length})`, panel:'crashdumps', disabled:false}]:[]),
