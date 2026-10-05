@@ -5382,15 +5382,16 @@ async function hsiLoadRteDumpsFromDir(idx){
     s.rteDumpHandles.push({...parsed, handle, scannedPath:'', tenant:'', _idx:0})
     added++
   }
-  if(!added){ alert('These files are already loaded in Runtime Dumps.'); return }
-  s.rteDumpHandles.sort((a,b)=>{
-    const h=a.virtualHost.localeCompare(b.virtualHost); if(h!==0)return h
-    const sv=a.serviceName.localeCompare(b.serviceName); if(sv!==0)return sv
-    return b.datetime.localeCompare(a.datetime)
-  })
-  s.rteDumpHandles.forEach((d,i)=>d._idx=i)
+  if(added > 0){
+    s.rteDumpHandles.sort((a,b)=>{
+      const h=a.virtualHost.localeCompare(b.virtualHost); if(h!==0)return h
+      const sv=a.serviceName.localeCompare(b.serviceName); if(sv!==0)return sv
+      return b.datetime.localeCompare(a.datetime)
+    })
+    s.rteDumpHandles.forEach((d,i)=>d._idx=i)
+    renderNavTree()
+  }
   activeFsidId = entry.sid
-  renderNavTree()
   activateNav(null, 'rtedumps')
 }
 
