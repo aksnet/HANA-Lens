@@ -855,6 +855,25 @@ function parseRteDumpFilename(fname){
   return{filename:fname,serviceName,virtualHost,port,datetime,reason,seq}
 }
 
+function parseRuntimeDumpFilename(fname){
+  // Format: {Service}_{Host}_{Port}_runtimedump_{YYYY_MM_DD_HH_MM_SS}.trc
+  const rtIdx = fname.toLowerCase().indexOf('_runtimedump_')
+  if(rtIdx === -1) return null
+  const left = fname.substring(0, rtIdx)
+  const right = fname.substring(rtIdx + 13).replace(/\.trc$/i, '')
+  const parts = left.split('_')
+  if(parts.length < 2) return null
+  const serviceName = parts[0]
+  const maybePort = parts[parts.length - 1]
+  const hasPort = /^\d{4,6}$/.test(maybePort)
+  const virtualHost = (hasPort ? parts.slice(1, -1) : parts.slice(1)).join('_')
+  const port = hasPort ? maybePort : ''
+  // Normalize datetime from 2026_10_02_13_14_07 → 20261002-131407
+  const dp = right.split('_')
+  const datetime = dp.length === 6 ? dp[0]+dp[1]+dp[2]+'-'+dp[3]+dp[4]+dp[5] : right
+  return {filename:fname, serviceName, virtualHost, port, datetime, reason:'runtimedump', seq:'0'}
+}
+
 function parseCrashDumpFilename(fname){
   const idx=fname.indexOf('.crashdump.')
   if(idx===-1)return null
@@ -5347,6 +5366,33 @@ let _lcmFileHandles=[]
 // ─── Dynamic HSI explorer helpers ────────────────────────────────────────────
 
 let _hsiExplHandles = []
+let _hsiRteDirEntries = []  // [{sid, files:[{name,handle}]}] — runtime dump folders detected in explorer
+
+async function hsiLoadRteDumpsFromDir(idx){
+  const entry = _hsiRteDirEntries[idx]
+  if(!entry) return
+  const s = sess(entry.sid)
+  if(!s) return
+  const existing = new Set(s.rteDumpHandles.map(d=>d.filename))
+  let added = 0
+  for(const {name, handle} of entry.files){
+    if(existing.has(name)) continue
+    const parsed = parseRuntimeDumpFilename(name)
+    if(!parsed) continue
+    s.rteDumpHandles.push({...parsed, handle, scannedPath:'', tenant:'', _idx:0})
+    added++
+  }
+  if(!added){ alert('These files are already loaded in Runtime Dumps.'); return }
+  s.rteDumpHandles.sort((a,b)=>{
+    const h=a.virtualHost.localeCompare(b.virtualHost); if(h!==0)return h
+    const sv=a.serviceName.localeCompare(b.serviceName); if(sv!==0)return sv
+    return b.datetime.localeCompare(a.datetime)
+  })
+  s.rteDumpHandles.forEach((d,i)=>d._idx=i)
+  activeFsidId = entry.sid
+  renderNavTree()
+  activateNav(null, 'rtedumps')
+}
 
 // Inline file viewer — keeps the HSI panel (sub-tab bar) intact
 async function _hsiExplOpenInline(contentArea, fileHandle, backFn){
@@ -5481,6 +5527,7 @@ function hsiRenderExplorer(panel, s, tab){
 
 async function hsiRenderExplorerContent(container, dirHandle, sid){
   _hsiExplHandles = []
+  _hsiRteDirEntries = []
   container.innerHTML = '<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
   try{
     const items = []
@@ -5499,6 +5546,15 @@ async function hsiRenderExplorerContent(container, dirHandle, sid){
           const sub=[]
           for await(const [sn,sh] of item.handle.entries()) sub.push({name:sn,handle:sh})
           sub.sort((a,b)=>a.name.localeCompare(b.name))
+          // Detect runtimedump .trc files in this subfolder
+          const rteDumps = sub.filter(si => si.handle.kind==='file' && /runtimedump/i.test(si.name) && si.name.toLowerCase().endsWith('.trc'))
+          if(rteDumps.length){
+            const rteIdx = _hsiRteDirEntries.push({sid, files:rteDumps.map(si=>({name:si.name,handle:si.handle}))}) - 1
+            parts.push(`<div style="background:#EFF6FC;border:1px solid #BAD7FF;border-radius:4px;padding:8px 12px;margin:4px 0 8px 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+              <span style="font-size:12px;color:#0078D4;font-weight:600;">💥 ${rteDumps.length} runtime dump file${rteDumps.length>1?'s':''} found</span>
+              <button onclick="hsiLoadRteDumpsFromDir(${rteIdx})" style="padding:4px 12px;background:#0078D4;color:#fff;border:none;border-radius:2px;cursor:pointer;font-size:11px;font-family:inherit;font-weight:500;white-space:nowrap;">▶ Load in Runtime Dumps viewer</button>
+            </div>`)
+          }
           for(const si of sub) parts.push(_hsiExplFileRow(si.name, si.handle, item.handle, sid))
         }catch(e){}
       } else {
@@ -5512,11 +5568,15 @@ async function hsiRenderExplorerContent(container, dirHandle, sid){
 }
 
 function _hsiExplFileRow(name, handle, parentHandle, sid){
-  const isXz = name.toLowerCase().endsWith('.xz')
-  if(isXz){
+  const lname = name.toLowerCase()
+  const isXz = lname.endsWith('.xz')
+  const isZip = lname.endsWith('.zip')
+  if(isXz || isZip){
     const p = parentHandle._path||''
+    const label = isZip ? '.zip — extract to browse contents' : '.xz compressed'
+    const icon = '🗜️'
     const btn = (p && window.__TAURI__) ? `<button onclick="openFolderInExplorer(${JSON.stringify(p)})" style="margin-left:auto;padding:2px 8px;background:#0078D4;color:#fff;border:none;border-radius:2px;cursor:pointer;font-size:10px;flex-shrink:0;">📂 Open folder</button>` : ''
-    return `<div class="lcm-file-item" style="cursor:default;"><span class="lcm-file-icon">🗜️</span><span style="color:#A19F9D;">${escHtml(name)}</span><span style="font-size:10px;color:#A19F9D;margin-left:6px;">.xz compressed</span>${btn}</div>`
+    return `<div class="lcm-file-item" style="cursor:default;"><span class="lcm-file-icon">${icon}</span><span style="color:#323130;">${escHtml(name)}</span><span style="font-size:10px;color:#A19F9D;margin-left:6px;">${label}</span>${btn}</div>`
   }
   const idx = _hsiExplHandles.push({handle, name, parentHandle, sid}) - 1
   return `<div class="lcm-file-item" onclick="hsiExplOpenFile(${idx})"><span class="lcm-file-icon">${lcmFileIcon(name)}</span>${escHtml(name)}</div>`
