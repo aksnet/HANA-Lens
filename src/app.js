@@ -1992,94 +1992,10 @@ async function loadFSIDFolder(existingHandle){
   }catch(err){if(err.name!=='AbortError')alert('Error loading folder: '+err.message)}
 }
 
-function convertTopologyJsonToText(json){
-  const root=json.topology||json
-  const lines=["''"]
-  const PAD2_KEYS=new Set(['sapsystem'])
-  const parentStack=[]
-  function formatValue(key,value){
-    if(typeof value!=='number')return value
-    if(PAD2_KEYS.has(key))return String(value).padStart(2,'0')
-    if(parentStack.length>=2&&parentStack[parentStack.length-1]==='instance'&&parentStack[parentStack.length-2]==='datacenters')return String(value).padStart(2,'0')
-    return value
-  }
-  function walk(obj,indent){
-    if(obj===null||obj===undefined)return
-    const pad=' '.repeat(indent)
-    if(Array.isArray(obj)){
-      obj.forEach((v,i)=>{
-        if(v===null)return
-        if(typeof v==='object'){lines.push(`${pad}${i}`);walk(v,indent+2)}
-        else lines.push(`${pad}${i}=${formatValue(String(i),v)}`)
-      })
-      return
-    }
-    for(const[key,value]of Object.entries(obj)){
-      if(value===null||value===undefined){lines.push(`${pad}${key}`);continue}
-      if(typeof value==='object'&&!Array.isArray(value)){
-        lines.push(`${pad}${key}`);parentStack.push(key);walk(value,indent+2);parentStack.pop()
-      }else if(Array.isArray(value)){
-        lines.push(`${pad}${key}`);parentStack.push(key);walk(value,indent+2);parentStack.pop()
-      }else{
-        lines.push(`${pad}${key}=${formatValue(key,value)}`)
-      }
-    }
-  }
-  walk(root,2)
-  return lines.join('\n')
-}
-
-function loadTopologyFile(){
-  document.getElementById('topoFileInput').click()
-}
-
-// ── topoFileInput handler ─────────────────────────────────────────────────
+// ── DOMContentLoaded ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded',()=>{
   // Try to load filesystem_reference.txt from disk (next to exe); overrides bundled version
   invoke('read_fs_reference').then(txt=>{if(txt)window.BUNDLED_FS_REFERENCE=txt}).catch(()=>{})
-  document.getElementById('topoFileInput').addEventListener('change',function(e){
-    const file=e.target.files[0];if(!file)return
-    const reader=new FileReader()
-    reader.onload=ev=>{
-      let content=ev.target.result
-      try{
-        if(file.name.endsWith('.json')||content.trimStart().startsWith('{')){
-          const json=JSON.parse(content)
-          content=convertTopologyJsonToText(json)
-        }
-        // create a minimal topo-only session
-        const sid=newSessionId()
-        const color=FSID_COLORS[fsidSessions.length%FSID_COLORS.length]
-        const s={
-          id:sid, label:'📄 '+file.name, type:'topo-single', color, captureInfo:'',
-          loadedFiles:{}, loadedFolderName:'',
-          versionHistoryHandle:null, configFileHandles:[], configRefHandles:{}, configRefData:{},
-          telemetryHandle:null, nsHistoryHandles:[], rteDumpHandles:[], rteDumpScannedPaths:[], rteDumpHdbFound:false, crashDumpHandles:[],
-          topoData:null
-        }
-        fsidSessions.push(s)
-        activeFsidId=sid
-        document.getElementById('panel-rtedumps').innerHTML=''
-        document.getElementById('panel-crashdumps').innerHTML=''
-        const data=parseTopology(content)
-        s.topoData=data
-        renderNavTree()
-        // render topology immediately
-        const panel=document.getElementById('panel-topology')
-        document.getElementById('empty').style.display='none'
-        document.querySelectorAll('.content-panel').forEach(p=>p.classList.remove('active'))
-        panel.classList.add('active')
-        renderTopologyApp(data,panel)
-        // mark topology sub-item active
-        const navBody=document.getElementById('navTreeBody')
-        navBody.querySelectorAll('.fsid-sub-item').forEach(i=>i.classList.remove('active'))
-        const grp=navBody.querySelector(`.fsid-group[data-sid="${sid}"]`)
-        if(grp){const sub=grp.querySelector('[data-panel="topology"]');if(sub)sub.classList.add('active')}
-      }catch(err){alert('Error parsing topology file: '+err)}
-    }
-    reader.readAsText(file)
-    this.value=''
-  })
   // close context menus on outside click
   document.addEventListener('click',()=>{hideFsidCtxMenu();hideRteCtxMenu();hideCrashDumpCtxMenu();hideTraceLineCtxMenu()})
 })
@@ -2128,15 +2044,15 @@ function buildFsidGroup(s){
   children.className='fsid-group-children'
   const items=[
     ...(s.type!=='rtedump-single'&&hasTopology?[{icon:'🗺️',label:'Topology',panel:'topology',disabled:false}]:[]),
-    ...(s.versionHistoryHandle&&s.type!=='rtedump-single'&&s.type!=='topo-single'?[{icon:'📋',label:'Version History',panel:'versionhistory',disabled:false}]:[]),
-    ...(s.type!=='rtedump-single'&&s.type!=='topo-single'?[{icon:'⚙️',label:'Configuration',panel:'configuration',disabled:false}]:[]),
+    ...(s.versionHistoryHandle&&s.type!=='rtedump-single'?[{icon:'📋',label:'Version History',panel:'versionhistory',disabled:false}]:[]),
+    ...(s.type!=='rtedump-single'?[{icon:'⚙️',label:'Configuration',panel:'configuration',disabled:false}]:[]),
     ...(s.hostsFileHandle?[{icon:'🌐',label:'HOSTS',panel:'hosts',disabled:false}]:[]),
     ...(s.telemetryHandle?[{icon:'📡',label:'Telemetry Data',panel:'telemetry',disabled:false}]:[]),
     ...(s.nsHistoryHandles?.length?[{icon:'📈',label:'Nameserver History',panel:'nshistory',disabled:false}]:[]),
     ...(s.availabilityHandles?.length?[{icon:'🟢',label:'Availability',panel:'availability',disabled:false}]:[]),
-    ...(s.type!=='topo-single'?[{icon:'💥',label:`Runtime Dumps (${s.rteDumpHandles?.length||0})`,panel:'rtedumps',disabled:false}]:[]),
-    ...(s.type!=='topo-single'&&s.crashDumpHandles?.length?[{icon:'🛑',label:`Crash Dumps (${s.crashDumpHandles.length})`,panel:'crashdumps',disabled:false}]:[]),
-    ...(s.type!=='rtedump-single'&&s.type!=='topo-single'?[{icon:'📂',label:'Trace Explorer',panel:'traceexplorer',disabled:false}]:[]),
+    {icon:'💥',label:`Runtime Dumps (${s.rteDumpHandles?.length||0})`,panel:'rtedumps',disabled:false},
+    ...(s.crashDumpHandles?.length?[{icon:'🛑',label:`Crash Dumps (${s.crashDumpHandles.length})`,panel:'crashdumps',disabled:false}]:[]),
+    ...(s.type!=='rtedump-single'?[{icon:'📂',label:'Trace Explorer',panel:'traceexplorer',disabled:false}]:[]),
   ]
   for(const it of items){
     const sub=document.createElement('div')
