@@ -5320,11 +5320,304 @@ function hsiRenderExplorer(panel, s, tab){
   hsiRenderExplorerContent(contentArea, tab.handle, s.id)
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// SAR (System Activity Reporter) viewer
+// ══════════════════════════════════════════════════════════════════════════
+
+const _SAR_PALETTE=['#0078D4','#107C10','#D83B01','#8764B8','#038387','#D47500','#A4262C','#B146C2','#00B7C3','#004E8C','#881798','#69797E']
+const _sarState={}  // cid → {chart, visibleMetrics, parsedData, cid}
+
+function _sarParseFile(txt){
+  const lines=txt.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n')
+  let fileDate=null, headers=null, hasCpuCol=false
+  const timestamps=[], rows=[], restarts=[]
+  for(const line of lines){
+    const t=line.trim(); if(!t) continue
+    // File header line with date
+    if(t.startsWith('Linux')){
+      const dm=t.match(/\b(\d{2})\/(\d{2})\/(\d{2})\b/)
+      if(dm) fileDate=`20${dm[3]}-${dm[1]}-${dm[2]}`
+      continue
+    }
+    // LINUX RESTART
+    const rm=t.match(/^(\d{2}:\d{2}:\d{2})\s+LINUX RESTART/)
+    if(rm){ if(fileDate) restarts.push(_sarTimeToMs(fileDate,rm[1])); continue }
+    // Time + rest
+    const lm=t.match(/^(\d{2}:\d{2}:\d{2})\s+(.+)$/)
+    if(!lm) continue
+    const [,timeStr,rest]=lm
+    const parts=rest.trim().split(/\s+/)
+    // Header line: first token is not a number and not 'all'
+    if(!/^(all|\d)/.test(parts[0])){
+      headers=[...parts]
+      hasCpuCol=headers[0]==='CPU'
+      if(hasCpuCol) headers=headers.slice(1)
+      continue
+    }
+    if(!headers||!fileDate) continue
+    const ms=_sarTimeToMs(fileDate,timeStr)
+    if(hasCpuCol){
+      if(parts[0]!=='all') continue  // skip per-core rows for simplicity
+      const vals=parts.slice(1).map(v=>parseFloat(v))
+      timestamps.push(ms); rows.push(vals)
+    } else {
+      const vals=parts.map(v=>parseFloat(v))
+      timestamps.push(ms); rows.push(vals)
+    }
+  }
+  const nM=headers?headers.length:0
+  const values=Array.from({length:nM},(_,mi)=>rows.map(r=>r[mi]??NaN))
+  return{headers:headers||[], timestamps, values, restarts, fileDate}
+}
+
+function _sarTimeToMs(dateStr,timeStr){
+  return new Date(`${dateStr}T${timeStr}`).getTime()
+}
+
+function _sarDiaryLabel(filename){
+  const m=filename.match(/sa(\d{4})(\d{2})(\d{2})/)
+  if(!m) return filename
+  const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return`${MONTHS[parseInt(m[2])-1]} ${m[3]}, ${m[1]}`
+}
+
+async function sarRenderFolder(container, dirHandle, sid){
+  const items=[]
+  for await(const [name,handle] of dirHandle.entries())
+    if(handle.kind==='file') items.push({name,handle})
+  const diaryItems=items.filter(i=>/^sa\d{8}\.txt$/i.test(i.name)).sort((a,b)=>a.name.localeCompare(b.name))
+  const liveU=items.find(i=>i.name.toLowerCase()==='sar_live_u.txt')
+  const liveB=items.find(i=>i.name.toLowerCase()==='sar_live_b.txt')
+  const liveQ=items.find(i=>i.name.toLowerCase()==='sar_live_q.txt')
+  const hasLive=!!(liveU||liveB||liveQ)
+  if(!hasLive&&!diaryItems.length) return false
+
+  const cid='sar-'+sid+'-'+dirHandle.name.replace(/[^a-z0-9]/gi,'-').toLowerCase()
+  if(!_sarState[cid]) _sarState[cid]={chart:null, visibleMetrics:new Set(), parsedData:null, cid}
+  const st=_sarState[cid]
+
+  // Build outer tab bar (Live | Diary dates)
+  const outerTabs=[]
+  if(hasLive) outerTabs.push({id:'live', label:'📊 Live'})
+  diaryItems.forEach(di=>outerTabs.push({id:'diary-'+di.name, label:`📅 ${_sarDiaryLabel(di.name)}`, handle:di.handle}))
+
+  container.style.cssText='padding:0;overflow:hidden;display:flex;flex-direction:column;height:100%;'
+  container.innerHTML=''
+  const tabBar=document.createElement('div')
+  tabBar.style.cssText='display:flex;border-bottom:1px solid #EDEBE9;background:#F3F2F1;padding:0 12px;overflow-x:auto;white-space:nowrap;flex-shrink:0;'
+  container.appendChild(tabBar)
+  const body=document.createElement('div')
+  body.style.cssText='flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;'
+  container.appendChild(body)
+
+  const switchOuter=async(tabId)=>{
+    tabBar.querySelectorAll('button').forEach(b=>{
+      const a=b.dataset.tabId===tabId
+      b.style.color=a?'#0078D4':'#605E5C'; b.style.borderBottom=a?'2px solid #0078D4':'2px solid transparent'
+      b.style.fontWeight=a?'600':'normal'; b.style.background=a?'#EFF6FC':'transparent'
+    })
+    body.innerHTML='<div style="color:#A19F9D;font-size:12px;padding:12px;">Loading…</div>'
+    if(tabId==='live'){
+      await _sarRenderLive(body,{u:liveU,b:liveB,q:liveQ},cid)
+    } else {
+      const tab=outerTabs.find(t=>t.id===tabId)
+      if(tab?.handle){
+        try{
+          const f=await tab.handle.getFile(); const txt=await f.text()
+          const parsed=_sarParseFile(txt)
+          _sarBuildView(body, parsed, cid, _sarDiaryLabel(tab.handle.name))
+        }catch(e){ body.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>` }
+      }
+    }
+  }
+  outerTabs.forEach(tab=>{
+    const btn=document.createElement('button')
+    btn.dataset.tabId=tab.id
+    btn.style.cssText='display:inline-flex;align-items:center;height:36px;padding:0 14px;border:none;border-bottom:2px solid transparent;background:transparent;font-family:inherit;font-size:12px;color:#605E5C;cursor:pointer;white-space:nowrap;'
+    btn.textContent=tab.label; btn.onclick=()=>switchOuter(tab.id); tabBar.appendChild(btn)
+  })
+  switchOuter(outerTabs[0].id)
+  return true
+}
+
+async function _sarRenderLive(body, liveItems, cid){
+  const subTabs=[]
+  if(liveItems.u) subTabs.push({id:'cpu',  label:'CPU',      handle:liveItems.u})
+  if(liveItems.b) subTabs.push({id:'block',label:'Block I/O', handle:liveItems.b})
+  if(liveItems.q) subTabs.push({id:'queue',label:'Queue/Load',handle:liveItems.q})
+  if(!subTabs.length){ body.innerHTML='<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No live SAR files found.</span></div>'; return }
+  if(subTabs.length===1){
+    try{
+      const f=await subTabs[0].handle.getFile(); const txt=await f.text()
+      _sarBuildView(body, _sarParseFile(txt), cid, 'Live — '+subTabs[0].label)
+    }catch(e){ body.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>` }
+    return
+  }
+  // Multiple sub-tabs
+  const subBar=document.createElement('div')
+  subBar.style.cssText='display:flex;gap:2px;padding:6px 12px 0;background:#F8F8F7;border-bottom:1px solid #EDEBE9;flex-shrink:0;'
+  body.innerHTML=''; body.appendChild(subBar)
+  const subContent=document.createElement('div')
+  subContent.style.cssText='flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;'
+  body.appendChild(subContent)
+
+  const switchSub=async(tabId)=>{
+    subBar.querySelectorAll('button').forEach(b=>{
+      const a=b.dataset.tabId===tabId
+      b.style.background=a?'#fff':'#e9ecef'; b.style.fontWeight=a?'700':'normal'
+      b.style.color=a?'#0d6efd':'#495057'; b.style.borderBottomColor=a?'#0d6efd':'transparent'
+    })
+    subContent.innerHTML='<div style="color:#A19F9D;font-size:12px;padding:12px;">Loading…</div>'
+    const tab=subTabs.find(t=>t.id===tabId); if(!tab) return
+    try{
+      const f=await tab.handle.getFile(); const txt=await f.text()
+      _sarBuildView(subContent, _sarParseFile(txt), cid+'-'+tabId, `Live — ${tab.label}`)
+    }catch(e){ subContent.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>` }
+  }
+  subTabs.forEach(tab=>{
+    const btn=document.createElement('button')
+    btn.dataset.tabId=tab.id
+    btn.style.cssText='display:inline-flex;align-items:center;height:28px;padding:0 14px;border:1px solid #dee2e6;border-bottom:none;border-radius:6px 6px 0 0;background:#e9ecef;font-family:inherit;font-size:11px;color:#495057;cursor:pointer;white-space:nowrap;'
+    btn.textContent=tab.label; btn.onclick=()=>switchSub(tab.id); subBar.appendChild(btn)
+  })
+  switchSub(subTabs[0].id)
+}
+
+function _sarBuildView(wrapper, parsed, cid, title){
+  if(!_sarState[cid]) _sarState[cid]={chart:null, visibleMetrics:new Set(), parsedData:null, cid}
+  const st=_sarState[cid]
+  if(st.chart){st.chart.destroy();st.chart=null}
+  st.parsedData=parsed
+
+  // Default visible metrics
+  const CPU_VIS=new Set(['%user','%usr','%system','%sys','%iowait'])
+  const IO_VIS=new Set(['tps','bwrtn/s','bread/s'])
+  const Q_VIS=new Set(['ldavg-1','ldavg-5','ldavg-15','runq-sz'])
+  st.visibleMetrics=new Set(parsed.headers.filter(h=>CPU_VIS.has(h)||IO_VIS.has(h)||Q_VIS.has(h)))
+  if(!st.visibleMetrics.size) parsed.headers.slice(0,4).forEach(h=>st.visibleMetrics.add(h))
+
+  wrapper.innerHTML=''
+  // info bar
+  const infoBar=document.createElement('div')
+  infoBar.style.cssText='flex-shrink:0;padding:3px 12px;font-size:10px;color:#605E5C;background:#FAFAF9;border-bottom:1px solid #EDEBE9;display:flex;align-items:center;justify-content:space-between;'
+  infoBar.innerHTML=`<span><strong>📊 ${escHtml(title)}</strong> &nbsp;·&nbsp; ${parsed.timestamps.length.toLocaleString()} data points${parsed.restarts.length?` &nbsp;·&nbsp; <span style="color:#D83B01;">⚡ ${parsed.restarts.length} restart${parsed.restarts.length>1?'s':''}</span>`:''}</span><span id="${cid}-pts" style="color:#A19F9D;"></span>`
+  wrapper.appendChild(infoBar)
+
+  // Main body: chart + param panel
+  const mainDiv=document.createElement('div')
+  mainDiv.style.cssText='flex:1;min-height:0;display:flex;overflow:hidden;'
+  wrapper.appendChild(mainDiv)
+  const chartArea=document.createElement('div')
+  chartArea.style.cssText='flex:1;min-width:0;position:relative;'
+  mainDiv.appendChild(chartArea)
+  const canvas=document.createElement('canvas')
+  canvas.id=cid+'-canvas'
+  canvas.style.cssText='position:absolute;top:8px;left:8px;right:8px;bottom:8px;width:calc(100% - 16px) !important;height:calc(100% - 16px) !important;'
+  chartArea.appendChild(canvas)
+
+  // Param panel
+  const panel=document.createElement('div')
+  panel.style.cssText='width:200px;flex-shrink:0;border-left:1px solid #EDEBE9;display:flex;flex-direction:column;overflow:hidden;background:#FAFAF9;'
+  mainDiv.appendChild(panel)
+  const panelHdr=document.createElement('div')
+  panelHdr.style.cssText='padding:6px 10px;font-size:10px;font-weight:700;color:#605E5C;background:#F3F2F1;border-bottom:1px solid #EDEBE9;flex-shrink:0;text-transform:uppercase;letter-spacing:0.04em;'
+  panelHdr.textContent='Metrics'
+  panel.appendChild(panelHdr)
+  const panelRows=document.createElement('div')
+  panelRows.id=cid+'-param-rows'
+  panelRows.style.cssText='flex:1;overflow-y:auto;'
+  panel.appendChild(panelRows)
+  _sarUpdateParamPanel(cid)
+
+  sarDraw(cid)
+}
+
+function _sarUpdateParamPanel(cid){
+  const st=_sarState[cid]; if(!st) return
+  const el=document.getElementById(cid+'-param-rows'); if(!el) return
+  const html=st.parsedData.headers.map((h,mi)=>{
+    const color=_SAR_PALETTE[mi%_SAR_PALETTE.length]
+    const chk=st.visibleMetrics.has(h)
+    return`<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;font-size:11px;cursor:pointer;border-bottom:1px solid #F3F2F1;border-left:3px solid ${chk?color:'transparent'};${chk?'background:#F5F9FF;':''}" onclick="sarToggleMetric(${JSON.stringify(cid)},${JSON.stringify(h)})">
+      <span style="width:10px;height:10px;border-radius:50%;background:${chk?color:'#C8C6C4'};flex-shrink:0;"></span>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">${escHtml(h)}</span>
+    </div>`
+  }).join('')
+  el.innerHTML=html
+}
+
+function sarToggleMetric(cid, metricName){
+  const st=_sarState[cid]; if(!st) return
+  if(st.visibleMetrics.has(metricName)) st.visibleMetrics.delete(metricName)
+  else st.visibleMetrics.add(metricName)
+  _sarUpdateParamPanel(cid)
+  sarDraw(cid)
+}
+
+function sarDraw(cid){
+  const st=_sarState[cid]; if(!st) return
+  const canvas=document.getElementById(cid+'-canvas'); if(!canvas) return
+  const{parsedData,visibleMetrics}=st
+  if(st.chart){st.chart.destroy();st.chart=null}
+  const{headers,timestamps,values,restarts}=parsedData
+  const MAX=1500
+  const datasets=headers.map((h,mi)=>{
+    const{xs,ys}=_nscLttb(timestamps,values[mi],MAX)
+    return{
+      label:h, data:xs.map((x,i)=>({x,y:ys[i]})),
+      borderColor:_SAR_PALETTE[mi%_SAR_PALETTE.length],
+      backgroundColor:_SAR_PALETTE[mi%_SAR_PALETTE.length]+'18',
+      borderWidth:1.5, pointRadius:0, pointHoverRadius:3, tension:0.2,
+      hidden:!visibleMetrics.has(h)
+    }
+  })
+  const spanMs=timestamps.length>1?timestamps[timestamps.length-1]-timestamps[0]:0
+  const xTickCb=v=>{const d=new Date(v),hh=String(d.getHours()).padStart(2,'0'),mm=String(d.getMinutes()).padStart(2,'0');return spanMs>86400000?`${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${hh}:${mm}`:`${hh}:${mm}`}
+
+  // Determine if this is a % metric group (use fixed 0-100 scale) or free-scale
+  const visHdrs=[...visibleMetrics].filter(h=>headers.includes(h))
+  const isPct=visHdrs.length>0&&visHdrs.every(h=>/^%|idle$|wait$/i.test(h))
+  const scales={x:{type:'linear',ticks:{maxTicksLimit:8,callback:xTickCb,maxRotation:0},grid:{color:'rgba(0,0,0,0.05)'}}}
+  headers.forEach((_,mi)=>{
+    const h=headers[mi],isPctM=/^%|idle$|wait$/i.test(h)
+    const yMax=isPctM?100:undefined
+    scales['y-'+mi]={type:'linear',display:false,min:0,max:yMax,suggestedMax:yMax?undefined:undefined,grid:{drawOnChartArea:mi===0,color:'rgba(0,0,0,0.06)'}}
+    datasets[mi].yAxisID='y-'+mi
+  })
+
+  // Restart annotation plugin
+  const restartPlugin={id:'sarRestarts',afterDraw:(chart)=>{
+    if(!restarts.length) return
+    const ctx=chart.ctx,xScale=chart.scales.x
+    ctx.save(); ctx.strokeStyle='#D83B01'; ctx.setLineDash([4,3]); ctx.lineWidth=1.5
+    restarts.forEach(ms=>{
+      const x=xScale.getPixelForValue(ms)
+      if(x<chart.chartArea.left||x>chart.chartArea.right) return
+      ctx.beginPath(); ctx.moveTo(x,chart.chartArea.top); ctx.lineTo(x,chart.chartArea.bottom); ctx.stroke()
+    })
+    ctx.restore()
+  }}
+
+  st.chart=new Chart(canvas,{type:'line',data:{datasets},options:{
+    responsive:true,maintainAspectRatio:false,animation:false,
+    interaction:{intersect:false,mode:'index'},
+    plugins:{legend:{display:false},tooltip:{callbacks:{
+      title:items=>{const ms=items[0]?.parsed?.x||0;const d=new Date(ms);return`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`},
+      label:item=>{if(item.dataset.hidden)return null;const v=item.parsed.y;return`${item.dataset.label}: ${typeof v==='number'?v.toLocaleString(undefined,{maximumFractionDigits:2}):'-'}`}
+    }}},
+    scales
+  },plugins:[restartPlugin]})
+  const ptsEl=document.getElementById(cid+'-pts')
+  if(ptsEl) ptsEl.textContent=`${timestamps.length.toLocaleString()} pts${timestamps.length>MAX?` · LTTB→${MAX}`:''}`
+}
+
 async function hsiRenderExplorerContent(container, dirHandle, sid){
   _hsiExplHandles = []
   _hsiRteDirEntries = []
   container.innerHTML = '<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
   try{
+    // SAR folder detection — renders chart viewer instead of file list
+    if(await sarRenderFolder(container, dirHandle, sid)) return
     const items = []
     for await(const [name, handle] of dirHandle.entries()) items.push({name, handle})
     items.sort((a,b) => {
