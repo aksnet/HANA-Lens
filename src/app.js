@@ -5329,45 +5329,50 @@ const _sarState={}  // cid → {chart, visibleMetrics, parsedData, cid}
 
 function _sarParseFile(txt){
   const lines=txt.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n')
-  let fileDate=null, headers=null, hasCpuCol=false
-  const timestamps=[], rows=[], restarts=[]
+  let fileDate=null, curHeaders=null, hasCpuCol=false
+  const globalRestarts=[], sections=[]
+  let curTs=[], curRows=[]
+  const flushSection=()=>{
+    if(curHeaders&&curRows.length) sections.push({headers:curHeaders,timestamps:[...curTs],rows:[...curRows],hasCpu:hasCpuCol})
+    curTs=[]; curRows=[]
+  }
   for(const line of lines){
     const t=line.trim(); if(!t) continue
-    // File header line with date
     if(t.startsWith('Linux')){
       const dm=t.match(/\b(\d{2})\/(\d{2})\/(\d{2})\b/)
       if(dm) fileDate=`20${dm[3]}-${dm[1]}-${dm[2]}`
       continue
     }
-    // LINUX RESTART
     const rm=t.match(/^(\d{2}:\d{2}:\d{2})\s+LINUX RESTART/)
-    if(rm){ if(fileDate) restarts.push(_sarTimeToMs(fileDate,rm[1])); continue }
-    // Time + rest
+    if(rm){ if(fileDate) globalRestarts.push(_sarTimeToMs(fileDate,rm[1])); continue }
+    if(/^Average:/.test(t)) continue
     const lm=t.match(/^(\d{2}:\d{2}:\d{2})\s+(.+)$/)
     if(!lm) continue
     const [,timeStr,rest]=lm
     const parts=rest.trim().split(/\s+/)
-    // Header line: first token is not a number and not 'all'
     if(!/^(all|\d)/.test(parts[0])){
-      headers=[...parts]
-      hasCpuCol=headers[0]==='CPU'
-      if(hasCpuCol) headers=headers.slice(1)
+      flushSection()
+      curHeaders=[...parts]; hasCpuCol=curHeaders[0]==='CPU'
+      if(hasCpuCol) curHeaders=curHeaders.slice(1)
       continue
     }
-    if(!headers||!fileDate) continue
+    if(!curHeaders||!fileDate) continue
     const ms=_sarTimeToMs(fileDate,timeStr)
     if(hasCpuCol){
-      if(parts[0]!=='all') continue  // skip per-core rows for simplicity
-      const vals=parts.slice(1).map(v=>parseFloat(v))
-      timestamps.push(ms); rows.push(vals)
+      if(parts[0]!=='all') continue
+      curTs.push(ms); curRows.push(parts.slice(1).map(v=>parseFloat(v)))
     } else {
-      const vals=parts.map(v=>parseFloat(v))
-      timestamps.push(ms); rows.push(vals)
+      curTs.push(ms); curRows.push(parts.map(v=>parseFloat(v)))
     }
   }
-  const nM=headers?headers.length:0
-  const values=Array.from({length:nM},(_,mi)=>rows.map(r=>r[mi]??NaN))
-  return{headers:headers||[], timestamps, values, restarts, fileDate}
+  flushSection()
+  // Pick best section: prefer CPU (hasCpu flag), else largest by row count
+  let best=sections.find(s=>s.hasCpu)
+  if(!best) best=sections.reduce((a,b)=>(!a||b.rows.length>a.rows.length)?b:a, null)
+  if(!best) return{headers:[],timestamps:[],values:[],restarts:globalRestarts,fileDate}
+  const nM=best.headers.length
+  const values=Array.from({length:nM},(_,mi)=>best.rows.map(r=>r[mi]??NaN))
+  return{headers:best.headers, timestamps:best.timestamps, values, restarts:globalRestarts, fileDate}
 }
 
 function _sarTimeToMs(dateStr,timeStr){
@@ -5442,9 +5447,9 @@ async function sarRenderFolder(container, dirHandle, sid){
 
 async function _sarRenderLive(body, liveItems, cid){
   const subTabs=[]
-  if(liveItems.u) subTabs.push({id:'cpu',  label:'CPU',      handle:liveItems.u})
-  if(liveItems.b) subTabs.push({id:'block',label:'Block I/O', handle:liveItems.b})
-  if(liveItems.q) subTabs.push({id:'queue',label:'Queue/Load',handle:liveItems.q})
+  if(liveItems.u) subTabs.push({id:'cpu',  label:'CPU',      handle:liveItems.u.handle})
+  if(liveItems.b) subTabs.push({id:'block',label:'Block I/O', handle:liveItems.b.handle})
+  if(liveItems.q) subTabs.push({id:'queue',label:'Queue/Load',handle:liveItems.q.handle})
   if(!subTabs.length){ body.innerHTML='<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No live SAR files found.</span></div>'; return }
   if(subTabs.length===1){
     try{
