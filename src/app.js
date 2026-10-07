@@ -4396,10 +4396,10 @@ function renderMarkdown(md){
       html+=`<blockquote style="border-left:3px solid #0078D4;margin:8px 0;padding:4px 12px;background:#F5F9FF;color:#323130;">${bqLines.map(l=>mdInline(l)).join('<br>')}</blockquote>`
       continue
     }
-    // Table
-    if(line.includes('|')&&i+1<lines.length&&/^\|?[-: |]+\|/.test(lines[i+1])){
+    // Table — pipe at line start (pipe-fenced rows with or without separator)
+    if(line.trimStart().startsWith('|')){
       const tLines=[]
-      while(i<lines.length&&lines[i].includes('|')){tLines.push(lines[i]);i++}
+      while(i<lines.length&&lines[i].trimStart().startsWith('|')){tLines.push(lines[i]);i++}
       html+=renderMdTable(tLines);continue
     }
     // Unordered list
@@ -4427,6 +4427,7 @@ function renderMarkdown(md){
       paraLines.push(lines[i]);i++
     }
     if(paraLines.length)html+=`<p style="margin:6px 0;line-height:1.6;">${paraLines.map(l=>mdInline(l)).join('<br>')}</p>`
+    else i++ // safety: skip unrecognized line to prevent infinite loop
   }
   return html
 }
