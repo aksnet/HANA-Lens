@@ -5380,7 +5380,7 @@ function _sarTimeToMs(dateStr,timeStr){
 }
 
 function _sarDiaryLabel(filename){
-  const m=filename.match(/sa(\d{4})(\d{2})(\d{2})/)
+  const m=filename.match(/sar?(\d{4})(\d{2})(\d{2})/)
   if(!m) return filename
   const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   return`${MONTHS[parseInt(m[2])-1]} ${m[3]}, ${m[1]}`
@@ -5390,7 +5390,7 @@ async function sarRenderFolder(container, dirHandle, sid){
   const items=[]
   for await(const [name,handle] of dirHandle.entries())
     if(handle.kind==='file') items.push({name,handle})
-  const diaryItems=items.filter(i=>/^sa\d{8}\.txt$/i.test(i.name)).sort((a,b)=>a.name.localeCompare(b.name))
+  const diaryItems=items.filter(i=>/^sar?\d{8}\.txt$/i.test(i.name)).sort((a,b)=>a.name.localeCompare(b.name))
   const liveU=items.find(i=>i.name.toLowerCase()==='sar_live_u.txt')
   const liveB=items.find(i=>i.name.toLowerCase()==='sar_live_b.txt')
   const liveQ=items.find(i=>i.name.toLowerCase()==='sar_live_q.txt')
