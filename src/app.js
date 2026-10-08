@@ -5668,7 +5668,7 @@ function _hsiExplFileRow(name, handle, parentHandle, sid){
     const p = parentHandle._path||''
     const label = isZip ? '.zip — extract to browse contents' : '.xz compressed'
     const icon = '🗜️'
-    const btn = (p && window.__TAURI__) ? `<button onclick="openFolderInExplorer(${JSON.stringify(p)})" style="margin-left:auto;padding:2px 8px;background:#0078D4;color:#fff;border:none;border-radius:2px;cursor:pointer;font-size:10px;flex-shrink:0;">📂 Open folder</button>` : ''
+    const btn = (p && window.__TAURI__) ? `<button data-path="${escHtml(p)}" onclick="openFolderInExplorer(this.dataset.path)" style="margin-left:auto;padding:2px 8px;background:#0078D4;color:#fff;border:none;border-radius:2px;cursor:pointer;font-size:10px;flex-shrink:0;">📂 Open folder</button>` : ''
     return `<div class="lcm-file-item" style="cursor:default;"><span class="lcm-file-icon">${icon}</span><span style="color:#323130;">${escHtml(name)}</span><span style="font-size:10px;color:#A19F9D;margin-left:6px;">${label}</span>${btn}</div>`
   }
   const idx = _hsiExplHandles.push({handle, name, parentHandle, sid}) - 1
