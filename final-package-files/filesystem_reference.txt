@@ -1,1424 +1,1443 @@
-ls -lah /
-------------------------------------------------------------
-total 0
-drwxr-xr-x   1 root root  188 Jul 22 07:53 .
-drwxr-xr-x   1 root root  188 Jul 22 07:53 ..
-drwxr-x---   1 root root   46 May 19 11:02 .snapshots
-drwxr-xr-x   1 root root 1.8K May 13 09:42 bin
-drwxr-xr-x   1 root root  630 May 13 09:44 boot
-drwxr-xr-x  20 root root 4.3K Jul 22 07:25 dev
-drwxr-xr-x   1 root root 5.0K Jul 22 08:08 etc
-drwxr-xr-x   1 root root   38 Jul 22 07:57 hana
-drwxr-xr-x   1 root root    0 Mar 15  2022 home
-drwxr-xr-x   1 root root 1.2K May 13 09:42 lib
-drwxr-xr-x   1 root root 2.1K May 13 09:43 lib64
-drwxr-xr-x   1 root root   12 Jul 22 07:53 lss
-drwxr-xr-x   1 root root    0 Mar 15  2022 mnt
-drwxr-xr-x   2 root root    0 Jul 17 08:35 nfs-share
-drwxr-xr-x   1 root root    0 Mar 15  2022 opt
-dr-xr-xr-x 436 root root    0 Jul 22 07:24 proc
-drwx------   1 root root  290 Jul 20 13:46 root
-drwxr-xr-x  44 root root 1.2K Jul 22 07:25 run
-drwxr-xr-x   1 root root 3.8K May 13 09:44 sbin
-drwxr-xr-x   1 root root    0 Mar 15  2022 selinux
-drwxr-xr-x   1 root root    6 May 13 09:39 srv
-dr-xr-xr-x  13 root root    0 Jul 22 07:24 sys
-drwxrwxrwt   1 root root 1.8K Jul 22 11:16 tmp
-drwxr-xr-x   1 root root  130 May 19 11:24 usr
-drwxr-xr-x   1 root root  114 May 19 12:11 var
-
-ls -lah /hana
-------------------------------------------------------------
-total 0
-drwxr-xr-x 1 root root  38 Jul 22 07:57 .
-drwxr-xr-x 1 root root 188 Jul 22 07:53 ..
-drwxr-xr-x 3 root root  17 Jul 22 07:52 data
-drwxr-xr-x 3 root root  17 Jul 22 07:52 log
-drwxr-xr-x 3 root root  17 Jul 22 07:52 shared
-drwxrwxrwx 1 root root   6 Jul 22 07:57 tmpfs0
-
-    |--> ls -lah /hana/data
-    ------------------------------------------------------------
-    total 0
-    drwxr-xr-x 3 root   root   17 Jul 22 07:52 .
-    drwxr-xr-x 1 root   root   38 Jul 22 07:57 ..
-    drwxr-x--- 3 h78adm sapsys 22 Jul 22 07:56 H78
-
-        |--> ls -lah /hana/data/H78
-        ------------------------------------------------------------
-        total 0
-        drwxr-x--- 3 h78adm sapsys 22 Jul 22 07:56 .
-        drwxr-xr-x 3 root   root   17 Jul 22 07:52 ..
-        drwxr-x--- 5 h78adm sapsys 88 Jul 22 11:16 mnt00001
-
-            |--> ls -lah /hana/data/H78/mnt00001
-            ------------------------------------------------------------
-            total 4.0K
-            drwxr-x--- 5 h78adm sapsys  88 Jul 22 11:16 .
-            drwxr-x--- 3 h78adm sapsys  22 Jul 22 07:56 ..
-            drwxr-x--- 2 h78adm sapsys 101 Jul 22 07:57 hdb00001
-            drwxr-xr-- 2 h78adm sapsys  81 Jul 22 07:59 hdb00002.00003
-            drwxr-xr-- 2 h78adm sapsys  81 Jul 22 07:59 hdb00003.00003
-            -rw-r--r-- 1 h78adm sapsys  17 Jul 22 11:16 nameserver.lck
-
-                |--> ls -lah /hana/data/H78/mnt00001/hdb00001
-                ------------------------------------------------------------
-                total 5.2G
-                drwxr-x--- 2 h78adm sapsys  101 Jul 22 07:57 .
-                drwxr-x--- 5 h78adm sapsys   88 Jul 22 11:16 ..
-                -rw-r----- 1 h78adm sapsys    0 Jul 22 07:56 __DO_NOT_TOUCH_FILES_IN_THIS_DIRECTORY__
-                -rw-r----- 1 h78adm sapsys 5.3G Jul 22 11:16 datavolume_0000.dat
-                -rw-r----- 1 h78adm sapsys   36 Jul 22 09:01 landscape.id
-
-                |--> ls -lah /hana/data/H78/mnt00001/hdb00002.00003
-                ------------------------------------------------------------
-                total 84M
-                drwxr-xr-- 2 h78adm sapsys   81 Jul 22 07:59 .
-                drwxr-x--- 5 h78adm sapsys   88 Jul 22 11:16 ..
-                -rw-r--r-- 1 h78adm sapsys    0 Jul 22 07:59 __DO_NOT_TOUCH_FILES_IN_THIS_DIRECTORY__
-                -rw-r--r-- 1 h78adm sapsys 258M Jul 22 11:11 datavolume_0000.dat
-
-                |--> ls -lah /hana/data/H78/mnt00001/hdb00003.00003
-                ------------------------------------------------------------
-                total 11G
-                drwxr-xr-- 2 h78adm sapsys  81 Jul 22 07:59 .
-                drwxr-x--- 5 h78adm sapsys  88 Jul 22 11:16 ..
-                -rw-r--r-- 1 h78adm sapsys   0 Jul 22 07:59 __DO_NOT_TOUCH_FILES_IN_THIS_DIRECTORY__
-                -rw-r--r-- 1 h78adm sapsys 12G Jul 22 11:15 datavolume_0000.dat
-
-    |--> ls -lah /hana/log
-    ------------------------------------------------------------
-    total 0
-    drwxr-xr-x 3 root   root   17 Jul 22 07:52 .
-    drwxr-xr-x 1 root   root   38 Jul 22 07:57 ..
-    drwxr-x--- 3 h78adm sapsys 22 Jul 22 07:56 H78
-
-        |--> ls -lah /hana/log/H78
-        ------------------------------------------------------------
-        total 0
-        drwxr-x--- 3 h78adm sapsys 22 Jul 22 07:56 .
-        drwxr-xr-x 3 root   root   17 Jul 22 07:52 ..
-        drwxr-x--- 5 h78adm sapsys 66 Jul 22 07:59 mnt00001
-
-            |--> ls -lah /hana/log/H78/mnt00001
-            ------------------------------------------------------------
-            total 0
-            drwxr-x--- 5 h78adm sapsys  66 Jul 22 07:59 .
-            drwxr-x--- 3 h78adm sapsys  22 Jul 22 07:56 ..
-            drwxr-x--- 2 h78adm sapsys 215 Jul 22 09:45 hdb00001
-            drwxr-xr-- 2 h78adm sapsys 195 Jul 22 09:01 hdb00002.00003
-            drwxr-xr-- 2 h78adm sapsys 195 Jul 22 09:45 hdb00003.00003
-
-                |--> ls -lah /hana/log/H78/mnt00001/hdb00001
-                ------------------------------------------------------------
-                total 194M
-                drwxr-x--- 2 h78adm sapsys  215 Jul 22 09:45 .
-                drwxr-x--- 5 h78adm sapsys   66 Jul 22 07:59 ..
-                -rw-r----- 1 h78adm sapsys    0 Jul 22 07:56 __DO_NOT_TOUCH_FILES_IN_THIS_DIRECTORY__
-                -rw-r----- 1 h78adm sapsys   36 Jul 22 09:01 landscape.id
-                -rw-r----- 1 h78adm sapsys  64M Jul 22 07:56 logsegment_000_00000000.dat
-                -rw-r--r-- 1 h78adm sapsys  64M Jul 22 11:01 logsegment_000_00000018.dat
-                -rw-r--r-- 1 h78adm sapsys  64M Jul 22 11:16 logsegment_000_00000019.dat
-                -rw-r----- 1 h78adm sapsys 1.3M Jul 22 11:06 logsegment_000_directory.dat
-
-                |--> ls -lah /hana/log/H78/mnt00001/hdb00002.00003
-                ------------------------------------------------------------
-                total 26M
-                drwxr-xr-- 2 h78adm sapsys  195 Jul 22 09:01 .
-                drwxr-x--- 5 h78adm sapsys   66 Jul 22 07:59 ..
-                -rw-r--r-- 1 h78adm sapsys    0 Jul 22 07:59 __DO_NOT_TOUCH_FILES_IN_THIS_DIRECTORY__
-                -rw-r--r-- 1 h78adm sapsys 8.0M Jul 22 08:00 logsegment_000_00000000.dat
-                -rw-r--r-- 1 h78adm sapsys 8.0M Jul 22 11:16 logsegment_000_00000001.dat
-                -rw-r--r-- 1 h78adm sapsys 8.0M Jul 22 11:01 logsegment_000_00000002.dat
-                -rw-r--r-- 1 h78adm sapsys 1.3M Jul 22 11:06 logsegment_000_directory.dat
-
-                |--> ls -lah /hana/log/H78/mnt00001/hdb00003.00003
-                ------------------------------------------------------------
-                total 3.1G
-                drwxr-xr-- 2 h78adm sapsys  195 Jul 22 09:45 .
-                drwxr-x--- 5 h78adm sapsys   66 Jul 22 07:59 ..
-                -rw-r--r-- 1 h78adm sapsys    0 Jul 22 07:59 __DO_NOT_TOUCH_FILES_IN_THIS_DIRECTORY__
-                -rw-r--r-- 1 h78adm sapsys 1.0G Jul 22 07:59 logsegment_000_00000000.dat
-                -rw-r--r-- 1 h78adm sapsys 1.0G Jul 22 11:01 logsegment_000_00000001.dat
-                -rw-r--r-- 1 h78adm sapsys 1.0G Jul 22 11:16 logsegment_000_00000002.dat
-                -rw-r--r-- 1 h78adm sapsys 1.3M Jul 22 11:06 logsegment_000_directory.dat
-
-    |--> ls -lah /hana/shared
-    ------------------------------------------------------------
-    total 0
-    drwxr-xr-x  3 root   root    17 Jul 22 07:52 .
-    drwxr-xr-x  1 root   root    38 Jul 22 07:57 ..
-    drwxr-xr-x 11 h78adm sapsys 155 Jul 22 09:09 H78
-
-        |--> ls -lah /hana/shared/H78
-        ------------------------------------------------------------
-        total 4.0K
-        drwxr-xr-x 11 h78adm sapsys  155 Jul 22 09:09 .
-        drwxr-xr-x  3 root   root     17 Jul 22 07:52 ..
-        drwxr-x---  4 h78adm sapsys  167 Jul 22 07:53 HDB77
-        dr-xr-x---  3 h78adm sapsys   25 Jul 22 07:52 exe
-        drwxr-x---  6 h78adm sapsys   62 Jul 22 08:07 global
-        drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 hdbclient
-        drwxr-xr-x  7 root   root    195 Jul 22 09:00 hdblcm
-        drwxr-xr-x  2 h78adm sapsys  138 Jul 22 08:16 lm_structure
-        lrwxrwxrwx  1 root   root     15 Jul 22 07:53 lss -> /lss/shared/H78
-        drwxr-xr-x  2 h78adm sapsys   49 Jul 22 07:57 profile
-        drwxr-xr-x  2 root   root      6 Jul 22 08:16 sapdbctrl-config
-        drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 xs
-
-            |--> ls -lah /hana/shared/H78/HDB77
-            ------------------------------------------------------------
-            total 52K
-            drwxr-x---  4 h78adm sapsys  167 Jul 22 07:53 .
-            drwxr-xr-x 11 h78adm sapsys  155 Jul 22 09:09 ..
-            -r-xr-xr-x  1 h78adm sapsys  14K Jul 22 07:53 HDB
-            -r-xr-xr-x  1 h78adm sapsys  538 Jul 22 07:53 HDBAdmin.sh
-            -r-xr-xr-x  1 h78adm sapsys 2.4K Jul 22 07:53 HDBSettings.csh
-            -r-xr-xr-x  1 h78adm sapsys 3.2K Jul 22 07:53 HDBSettings.sh
-            lrwxrwxrwx  1 h78adm sapsys   22 Jul 22 07:53 exe -> ../exe/linuxx86_64/hdb
-            -r-xr-xr-x  1 h78adm sapsys 8.0K Jul 22 07:53 hdbenv.csh
-            -r-xr-xr-x  1 h78adm sapsys  12K Jul 22 07:53 hdbenv.sh
-            drwxr-x---  9 h78adm sapsys  172 Jul 22 09:02 host78
-            drwxr-x---  3 h78adm sapsys   22 Jul 22 08:00 work
-            -r-xr-xr-x  1 h78adm sapsys 3.7K Jul 22 07:53 xterms
-
-                |--> ls -lah /hana/shared/H78/HDB77/host78
-                ------------------------------------------------------------
-                total 32K
-                drwxr-x--- 9 h78adm sapsys  172 Jul 22 09:02 .
-                drwxr-x--- 4 h78adm sapsys  167 Jul 22 07:53 ..
-                -rw-r--r-- 1 h78adm sapsys 5.7K Jul 22 09:02 daemon.ini
-                -rw-r----- 1 h78adm sapsys  116 Jul 22 07:57 global.ini
-                drwxr-x--- 2 h78adm sapsys  255 Jul 22 11:16 lock
-                drwxr-x--- 5 h78adm sapsys   48 Jul 22 07:57 log
-                -rwxr-x--- 1 h78adm sapsys  203 Jul 22 07:53 sapprofile.ini
-                drwxr-x--- 2 h78adm sapsys  208 Jul 22 09:02 sec
-                drwxr-x--- 3 h78adm sapsys   61 Jul 22 09:02 tmp
-                drwxr-x--- 3 h78adm sapsys 8.0K Jul 22 11:16 trace
-                drwxr-x--- 4 h78adm sapsys   66 Jul 22 08:00 wdisp
-                -rw-r----- 1 h78adm sapsys  467 Jul 22 07:57 webdispatcher.ini
-                drwxr-x--- 3 h78adm sapsys   20 Jul 22 07:58 work
-
-                |--> ls -lah /hana/shared/H78/HDB77/work
-                ------------------------------------------------------------
-                total 0
-                drwxr-x--- 3 h78adm sapsys  22 Jul 22 08:00 .
-                drwxr-x--- 4 h78adm sapsys 167 Jul 22 07:53 ..
-                drwxr-x--- 2 h78adm sapsys   6 Jul 22 08:07 SYSTEMDB
-
-            |--> ls -lah /hana/shared/H78/exe
-            ------------------------------------------------------------
-            total 0
-            dr-xr-x---  3 h78adm sapsys  25 Jul 22 07:52 .
-            drwxr-xr-x 11 h78adm sapsys 155 Jul 22 09:09 ..
-            dr-xr-x---  4 h78adm sapsys 107 Jul 22 07:54 linuxx86_64
-
-                |--> ls -lah /hana/shared/H78/exe/linuxx86_64
-                ------------------------------------------------------------
-                total 40K
-                dr-xr-x---  4 h78adm sapsys 107 Jul 22 07:54 .
-                dr-xr-x---  3 h78adm sapsys  25 Jul 22 07:52 ..
-                dr-xr-x--- 15 h78adm sapsys 24K Jul 22 07:55 HDB_2.00.083.00.1740646891_cb354e5c10ab5b780c40441638dc36604b7e9205
-                lrwxrwxrwx  1 h78adm sapsys  67 Jul 22 07:52 hdb -> HDB_2.00.083.00.1740646891_cb354e5c10ab5b780c40441638dc36604b7e9205
-                drwxr-xr-x  6 h78adm sapsys 296 Jul 22 07:54 plugins
-
-            |--> ls -lah /hana/shared/H78/global
-            ------------------------------------------------------------
-            total 0
-            drwxr-x---  6 h78adm sapsys  62 Jul 22 08:07 .
-            drwxr-xr-x 11 h78adm sapsys 155 Jul 22 09:09 ..
-            drwxr-x--- 19 h78adm sapsys 334 Jul 22 11:16 hdb
-            drwxr-xr-x  3 h78adm sapsys  64 Jul 22 09:47 sapcontrol
-            drwxr-x---  5 h78adm sapsys  45 Jul 22 07:52 security
-            drwx------  3 h78adm sapsys  46 Jul 22 08:07 xsa
-
-                |--> ls -lah /hana/shared/H78/global/hdb
-                ------------------------------------------------------------
-                total 68K
-                drwxr-x--- 19 h78adm sapsys  334 Jul 22 11:16 .
-                drwxr-x---  6 h78adm sapsys   62 Jul 22 08:07 ..
-                drwxr-x---  3 h78adm sapsys   28 Jul 22 07:52 IM
-                -rw-r--r--  1 h78adm sapsys  46K Apr  3  2025 SIGNATURE.SMF
-                dr-xr-xr-x  3 h78adm sapsys 4.0K Jul 22 08:03 auto_content
-                drwxr-x---  4 h78adm sapsys   36 Jul 22 07:59 backint
-                drwxr-x---  2 h78adm sapsys    6 Jul 22 07:52 checks
-                dr-xr-xr-x  2 h78adm sapsys   91 Jul 22 07:53 content
-                drwxr-x---  4 h78adm sapsys   42 Jul 22 07:52 custom
-                drwxr-x---  2 h78adm sapsys    6 Jul 22 07:52 data
-                drwxr-x---  6 h78adm sapsys  331 Jul 22 07:53 doc
-                dr-xr-xr-x  3 h78adm sapsys   43 Jul 22 07:53 hdbcockpit
-                drwxr-x---  7 h78adm sapsys   74 Jul 22 07:53 install
-                drwx------  2 h78adm sapsys   27 Jul 22 08:07 mdc
-                drwxr-x---  3 h78adm sapsys   59 Jul 22 09:01 metadata
-                -rw-r--r--  1 h78adm sapsys   16 Jul 22 11:16 nameserver.lck
-                drwxr-xr-x  2 h78adm sapsys 4.0K Jul 22 07:52 operations.d
-                drwxr-x---  2 h78adm sapsys    6 Jul 22 07:52 opt
-                drwxr-x---  4 h78adm sapsys   50 Jul 22 07:52 plugins
-                dr-xr-xr-x  2 root   sapsys 4.0K Jul 22 07:52 saphostagent_setup
-                drwx------  4 h78adm sapsys   29 Jul 22 07:52 security
-                -rw-r--r--  1 h78adm sapsys  117 Jul 22 07:58 versionhistory.csv
-
-                |--> ls -lah /hana/shared/H78/global/sapcontrol
-                ------------------------------------------------------------
-                total 4.0K
-                drwxr-xr-x 3 h78adm sapsys 64 Jul 22 09:47 .
-                drwxr-x--- 6 h78adm sapsys 62 Jul 22 08:07 ..
-                -rw-r--r-- 1 h78adm sapsys 21 Jul 22 11:15 0.3_57713_57714_12288_2_77_host78
-                drwxrwx--- 2 h78adm sapsys  6 Jul 22 09:47 snapshots
-
-                |--> ls -lah /hana/shared/H78/global/security
-                ------------------------------------------------------------
-                total 0
-                drwxr-x--- 5 h78adm sapsys 45 Jul 22 07:52 .
-                drwxr-x--- 6 h78adm sapsys 62 Jul 22 08:07 ..
-                drwxr-x--- 2 h78adm sapsys  6 Jul 22 07:52 data
-                drwxr-x--- 3 h78adm sapsys 19 Jul 22 07:52 lib
-                drwx------ 4 h78adm sapsys 29 Jul 22 07:52 rsecssfs
-
-                |--> ls -lah /hana/shared/H78/global/xsa
-                ------------------------------------------------------------
-                total 4.0K
-                drwx------ 3 h78adm sapsys  46 Jul 22 08:07 .
-                drwxr-x--- 6 h78adm sapsys  62 Jul 22 08:07 ..
-                drwx------ 3 h78adm sapsys  18 Jul 22 08:07 security
-                -rw-r----- 1 h78adm sapsys 148 Jul 22 08:07 xsa_rsecssfs.pfl
-
-            |--> ls -lah /hana/shared/H78/hdbclient
-            ------------------------------------------------------------
-            total 237M
-            drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 .
-            drwxr-xr-x 11 h78adm sapsys  155 Jul 22 09:09 ..
-            drwxr-xr-x  3 h78adm sapsys   31 Jul 22 08:03 deprecated
-            dr-xr-xr-x  4 h78adm sapsys   53 Jul 22 08:03 dotnetcore
-            drwxr-xr-x  5 h78adm sapsys   68 Jul 22 08:03 examples
-            dr-xr-xr-x  3 h78adm sapsys   17 Jul 22 08:03 golang
-            -r--r-Sr--  1 h78adm sapsys 1.3M Feb 18  2025 hana.ml.r_2.17.24011100.tar.gz
-            -r--r-Sr--  1 h78adm sapsys 9.0M Feb 18  2025 hana_ml-2.24.25031800.tar.gz
-            -rwxr-xr-x  1 h78adm sapsys 2.0K Feb 18  2025 hdbalm
-            -rwxr-xr-x  1 h78adm sapsys 253K Feb 18  2025 hdbalm.py
-            -rwxr-xr-x  1 h78adm sapsys 251K Feb 18  2025 hdbalm3.py
-            -r--r--r--  1 h78adm sapsys  22M Feb 18  2025 hdbcli-2.24.21.tar.gz
-            -rw-r--r--  1 h78adm sapsys  572 Jul 22 08:03 hdbclient.lst
-            -rwxr-xr-x  1 h78adm sapsys 2.1K Jul 22 08:03 hdbclienv.sh
-            -r-xr-xr-x  1 h78adm sapsys 7.5M Feb 18  2025 hdbkeystore
-            -r-xr-xr-x  1 h78adm sapsys 3.9M Feb 18  2025 hdbodbc_cons
-            -r-xr-xr-x  1 h78adm sapsys  34M Feb 18  2025 hdbsql
-            -r-xr-xr-x  1 h78adm sapsys 3.9M Feb 18  2025 hdbsqldbc_cons
-            -r-xr-xr-x  1 h78adm sapsys 3.4M Feb 18  2025 hdbuserstore
-            drwxr-xr-x  3 h78adm sapsys  116 Jul 22 09:02 install
-            -r-xr-xr-x  1 h78adm sapsys  33M Feb 18  2025 libSQLDBCHDB.so
-            -r-xr-xr-x  1 h78adm sapsys  33M Feb 18  2025 libdbcapiHDB.so
-            -r-xr-xr-x  1 h78adm sapsys  35M Feb 18  2025 libodbcHDB.so
-            -r-xr-xr-x  1 h78adm sapsys 5.6M Dec 13  2024 libsapcrypto.so
-            -r--r--r--  1 h78adm sapsys 488K Dec 19  2024 libslcryptokernel.so
-            -r--r--r--  1 h78adm sapsys  150 Dec 19  2024 libslcryptokernel.so.sha256
-            -r--r--r--  1 h78adm sapsys 1.1K Feb 18  2025 manifest
-            -r--r-Sr--  1 h78adm sapsys 1.5M Feb 18  2025 ngdbc.jar
-            dr-xr-xr-x  5 h78adm sapsys  108 Jul 22 08:03 node
-            -r-xr-xr-x  1 h78adm sapsys  18K Feb 18  2025 odbcreg
-            -r-xr-xr-x  1 h78adm sapsys  46M Feb 18  2025 regi
-            dr-xr-xr-x  4 h78adm sapsys   44 Jul 22 08:03 ruby
-            -r-xr-xr-x  1 h78adm sapsys  38K Dec 13  2024 sapgenpse
-            drwxr-xr-x  2 h78adm sapsys   39 Jul 22 08:03 scripts
-            dr-xr-xr-x  3 h78adm sapsys   18 Jul 22 08:03 sdk
-
-                |--> ls -lah /hana/shared/H78/hdbclient/deprecated
-                ------------------------------------------------------------
-                total 8.0K
-                drwxr-xr-x  3 h78adm sapsys   31 Jul 22 08:03 .
-                drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
-                drwxr-xr-x  3 h78adm sapsys   57 Jul 22 08:03 rtt
-                -rwxr-xr-x  1 h78adm sapsys  112 Feb 18  2025 rtt.sh
-
-                |--> ls -lah /hana/shared/H78/hdbclient/dotnetcore
-                ------------------------------------------------------------
-                total 33M
-                dr-xr-xr-x  4 h78adm sapsys   53 Jul 22 08:03 .
-                drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
-                -r-xr-xr-x  1 h78adm sapsys  33M Feb 18  2025 libadonetHDB.so
-                dr-xr-xr-x  2 h78adm sapsys 4.0K Jul 22 08:03 v6.0
-                dr-xr-xr-x  2 h78adm sapsys 4.0K Jul 22 08:03 v8.0
-
-                |--> ls -lah /hana/shared/H78/hdbclient/examples
-                ------------------------------------------------------------
-                total 8.0K
-                drwxr-xr-x  5 h78adm sapsys   68 Jul 22 08:03 .
-                drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
-                drwxr-xr-x  4 h78adm sapsys   56 Jul 22 08:03 dotnetcore
-                drwxr-xr-x  3 h78adm sapsys   17 Jul 22 08:03 golang
-                drwxr-xr-x  2 h78adm sapsys   69 Jul 22 08:03 node
-                -rw-r--r--  1 h78adm sapsys  812 Feb 18  2025 readme.txt
-
-                |--> ls -lah /hana/shared/H78/hdbclient/golang
-                ------------------------------------------------------------
-                total 4.0K
-                dr-xr-xr-x  3 h78adm sapsys   17 Jul 22 08:03 .
-                drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
-                dr-xr-xr-x  3 h78adm sapsys   17 Jul 22 08:03 src
-
-                |--> ls -lah /hana/shared/H78/hdbclient/install
-                ------------------------------------------------------------
-                total 112K
-                drwxr-xr-x  3 h78adm sapsys  116 Jul 22 09:02 .
-                drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
-                -rw-r--r--  1 h78adm sapsys  52K Jul 22 09:02 INSTREG
-                -r-xr-xr-x  1 h78adm sapsys  15K Dec 20  2024 hdbclientreg
-                -r-xr-xr-x  1 h78adm sapsys  15K Dec 20  2024 hdbinst
-                -r-xr-xr-x  1 h78adm sapsys  15K Dec 20  2024 hdbuninst
-                -rw-r--r--  1 h78adm sapsys   36 Jul 22 09:02 installation.ini
-                drwxr-xr-x  6 h78adm sapsys 4.0K Jul 22 08:03 instruntime
-
-                |--> ls -lah /hana/shared/H78/hdbclient/node
-                ------------------------------------------------------------
-                total 20K
-                dr-xr-xr-x  5 h78adm sapsys  108 Jul 22 08:03 .
-                drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
-                -r--r--r--  1 h78adm sapsys 6.4K Feb 18  2025 README.md
-                -r--r--r--  1 h78adm sapsys  928 Feb 18  2025 checkbuild.js
-                dr-xr-xr-x  2 h78adm sapsys  119 Jul 22 08:03 extension
-                dr-xr-xr-x  2 h78adm sapsys   40 Jul 22 08:03 lib
-                -r--r--r--  1 h78adm sapsys  558 Feb 18  2025 package.json
-                dr-xr-xr-x  3 h78adm sapsys   30 Jul 22 08:03 prebuilt
-
-                |--> ls -lah /hana/shared/H78/hdbclient/ruby
-                ------------------------------------------------------------
-                total 4.0K
-                dr-xr-xr-x  4 h78adm sapsys   44 Jul 22 08:03 .
-                drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
-                dr-xr-xr-x  2 h78adm sapsys   57 Jul 22 08:03 activerecord
-                dr-xr-xr-x  2 h78adm sapsys   49 Jul 22 08:03 hanaclient
-
-                |--> ls -lah /hana/shared/H78/hdbclient/scripts
-                ------------------------------------------------------------
-                total 12K
-                drwxr-xr-x  2 h78adm sapsys   39 Jul 22 08:03 .
-                drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
-                -rwxr-xr-x  1 h78adm sapsys  162 Feb 18  2025 hdbkeystore
-                -rwxr-xr-x  1 h78adm sapsys  162 Feb 18  2025 hdbsql
-
-                |--> ls -lah /hana/shared/H78/hdbclient/sdk
-                ------------------------------------------------------------
-                total 4.0K
-                dr-xr-xr-x  3 h78adm sapsys   18 Jul 22 08:03 .
-                drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
-                dr-xr-xr-x  3 h78adm sapsys   18 Jul 22 08:03 odbc
-
-            |--> ls -lah /hana/shared/H78/hdblcm
-            ------------------------------------------------------------
-            total 108K
-            drwxr-xr-x  7 root   root    195 Jul 22 09:00 .
-            drwxr-xr-x 11 h78adm sapsys  155 Jul 22 09:09 ..
-            -rw-r--r--  1 h78adm sapsys  46K Apr  3  2025 SIGNATURE.SMF
-            drwxr-xr-x  2 root   root     55 Jul 22 09:00 adapters.d
-            drwxr-xr-x  2 root   root     56 Jul 22 09:00 descriptors.d
-            -rw-r--r--  1 root   root   3.5K Feb 27  2025 filelist.resident
-            -rwxr-xr-x  1 root   root    15K Feb 27  2025 hdblcm
-            -rwxr-xr-x  1 root   root    15K Feb 27  2025 hdblcmgui
-            -rwxr-xr-x  1 root   root    15K Feb 27  2025 hdblcmweb
-            drwxr-xr-x  9 root   root   4.0K Jul 22 09:00 instruntime
-            drwxr-xr-x  2 root   root   4.0K Jul 22 09:00 operations.d
-            drwxr-xr-x  5 h78adm sapsys   76 Jul 22 09:00 resources
-
-                |--> ls -lah /hana/shared/H78/hdblcm/adapters.d
-                ------------------------------------------------------------
-                total 8.0K
-                drwxr-xr-x 2 root root   55 Jul 22 09:00 .
-                drwxr-xr-x 7 root root  195 Jul 22 09:00 ..
-                -rw-r--r-- 1 root root 3.8K Feb 27  2025 HDBLCM.adapter
-                -rw-r--r-- 1 root root 1.6K Feb 27  2025 HDBLCM_ext1.adapter
-
-                |--> ls -lah /hana/shared/H78/hdblcm/descriptors.d
-                ------------------------------------------------------------
-                total 8.0K
-                drwxr-xr-x 2 root root  56 Jul 22 09:00 .
-                drwxr-xr-x 7 root root 195 Jul 22 09:00 ..
-                -rw-r--r-- 1 root root 315 Feb 27  2025 HDBLCM.lmsldesc
-                -rw-r--r-- 1 root root 268 Feb 27  2025 hdbcockpit.lmsldesc
-
-                |--> ls -lah /hana/shared/H78/hdblcm/instruntime
-                ------------------------------------------------------------
-                total 66M
-                drwxr-xr-x 9 root root 4.0K Jul 22 09:00 .
-                drwxr-xr-x 7 root root  195 Jul 22 09:00 ..
-                -rw-r--r-- 1 root root  18K Feb 27  2025 Base64.so
-                -rw-r--r-- 1 root root  36K Feb 27  2025 Carp.pm
-                -rw-r--r-- 1 root root  22K Feb 27  2025 Clone.so
-                -rw-r--r-- 1 root root  23K Feb 27  2025 Cwd.so
-                -rw-r--r-- 1 root root 109K Feb 27  2025 DND.so
-                -rw-r--r-- 1 root root  44K Feb 27  2025 Dumper.so
-                -rw-r--r-- 1 root root  54K Feb 27  2025 Encode.so
-                drwxr-xr-x 2 root root   22 Jul 22 09:00 Exporter
-                -rw-r--r-- 1 root root  19K Feb 27  2025 Exporter.pm
-                -rw-r--r-- 1 root root  69K Feb 27  2025 FCGI.so
-                drwxr-xr-x 2 root root   21 Jul 22 09:00 Getopt
-                -rw-r--r-- 1 root root 422K Feb 27  2025 Grid.so
-                -rw-r--r-- 1 root root  32K Feb 27  2025 HiRes.so
-                -rw-r--r-- 1 root root  23K Feb 27  2025 IO.so
-                -rw-r--r-- 1 root root 2.2M Feb 27  2025 LibXML.so
-                -rw-r--r-- 1 root root  58K Feb 27  2025 Parser.so
-                -rw-r--r-- 1 root root  47K Feb 27  2025 SHA.so
-                -rw-r--r-- 1 root root  88K Feb 27  2025 SQLDBC.so
-                -rw-r--r-- 1 root root 144K Feb 27  2025 SSH2.so
-                -rw-r--r-- 1 root root 573K Feb 27  2025 SSLeay.so
-                -rw-r--r-- 1 root root  74K Feb 27  2025 Session.so
-                -rw-r--r-- 1 root root  52K Feb 27  2025 Socket.so
-                -rw-r--r-- 1 root root 4.1M Feb 27  2025 Wx.so
-                -rw-r--r-- 1 root root  77K Feb 27  2025 Zlib.so
-                -rw-r--r-- 1 root root  11K Feb 27  2025 base.pm
-                -rw-r--r-- 1 root root  15K Feb 27  2025 constant.pm
-                drwxr-xr-x 2 root root   38 Jul 22 09:00 distcompat_ssl102k
-                drwxr-xr-x 2 root root   38 Jul 22 09:00 distcompat_ssl11
-                drwxr-xr-x 2 root root   38 Jul 22 09:00 distcompat_ssl30
-                -rw-r--r-- 1 root root  31K Feb 27  2025 feature.pm
-                -rw-r--r-- 1 root root  21K Feb 27  2025 hdblcm_update_help.txt
-                -rw-r--r-- 1 root root  25K Feb 27  2025 hdblcm_update_passthrough_help.txt
-                -rw-r--r-- 1 root root 1.5M Feb 27  2025 lcm_pm.tgz
-                -rw-r--r-- 1 root root 1.6M Feb 27  2025 lcm_pm_ext.tgz
-                -rw-r--r-- 1 root root  31K Feb 27  2025 lcm_res.tgz
-                -rw-r--r-- 1 root root  32M Feb 27  2025 libSQLDBCHDB.so
-                -rw-r--r-- 1 root root 3.9M Feb 27  2025 libperl.so
-                -rw-r--r-- 1 root root 2.0M Feb 27  2025 libsdbrun.so
-                -rw-r--r-- 1 root root  17M Feb 27  2025 libwx_gtk2u-3.0.so.0
-                -r--r--r-- 1 root root  384 Feb 27  2025 manifest
-                -rw-r--r-- 1 root root  54K Feb 27  2025 overload.pm
-                -rw-r--r-- 1 root root 1.8K Feb 27  2025 overloading.pm
-                -rw-r--r-- 1 root root 2.7K Feb 27  2025 parent.pm
-                -rwxr-xr-x 1 root root  12K Feb 27  2025 sdbrun
-                -rw-r--r-- 1 root root 5.1K Feb 27  2025 strict.pm
-                -rw-r--r-- 1 root root 2.5K Feb 27  2025 vars.pm
-                drwxr-xr-x 2 root root   22 Jul 22 09:00 version
-                -rw-r--r-- 1 root root 2.0K Feb 27  2025 version.pm
-                drwxr-xr-x 2 root root   25 Jul 22 09:00 warnings
-                -rw-r--r-- 1 root root  57K Feb 27  2025 warnings.pm
-
-                |--> ls -lah /hana/shared/H78/hdblcm/operations.d
-                ------------------------------------------------------------
-                total 204K
-                drwxr-xr-x 2 root root 4.0K Jul 22 09:00 .
-                drwxr-xr-x 7 root root  195 Jul 22 09:00 ..
-                -rw-r--r-- 1 root root  188 Feb 27  2025 CheckPathExists_v1.conf
-                -rw-r--r-- 1 root root  238 Feb 27  2025 CheckSHAVersion_v1.conf
-                -rw-r--r-- 1 root root  606 Feb 27  2025 CollectComponentHashes_v3.conf
-                -rw-r--r-- 1 root root  605 Feb 27  2025 DeleteXSADirectories_v1.conf
-                -rw-r--r-- 1 root root 1.4K Feb 27  2025 HdbAddHost_v12.conf
-                -rw-r--r-- 1 root root  710 Feb 27  2025 HdbCheckHost_v2.conf
-                -rw-r--r-- 1 root root  548 Feb 27  2025 HdbClientInstall_v4.conf
-                -rw-r--r-- 1 root root 1.1K Feb 27  2025 HdbCollectHostInfo_v11.conf
-                -rw-r--r-- 1 root root 1.2K Feb 27  2025 HdbCollectInstallerInfo_v8.conf
-                -rw-r--r-- 1 root root  699 Feb 27  2025 HdbConfigureLssRemoteHost_v2.conf
-                -rw-r--r-- 1 root root 2.3K Feb 27  2025 HdbCopyClientInstaller_v3.conf
-                -rw-r--r-- 1 root root 2.2K Feb 27  2025 HdbCopyHdblcmInstaller_v5.conf
-                -rw-r--r-- 1 root root 1.7K Feb 27  2025 HdbCopyLSSInstaller_v1.conf
-                -rw-r--r-- 1 root root 2.9K Feb 27  2025 HdbCopyServerInstaller_v7.conf
-                -rw-r--r-- 1 root root 1.1K Feb 27  2025 HdbDBUpgradeHost_v10.conf
-                -rw-r--r-- 1 root root  622 Feb 27  2025 HdbMigrateSecureStore_v1.conf
-                -rw-r--r-- 1 root root 1.1K Feb 27  2025 HdbModifyHostRoles_v6.conf
-                -rw-r--r-- 1 root root  679 Feb 27  2025 HdbModifyHost_v4.conf
-                -rw-r--r-- 1 root root 1.2K Feb 27  2025 HdbRegisterHost_v9.conf
-                -rw-r--r-- 1 root root 1.4K Feb 27  2025 HdbRemoveCopiedClientInstaller_v2.conf
-                -rw-r--r-- 1 root root 1.5K Feb 27  2025 HdbRemoveCopiedHdblcmInstaller_v2.conf
-                -rw-r--r-- 1 root root 1.4K Feb 27  2025 HdbRemoveCopiedLSSInstaller_v1.conf
-                -rw-r--r-- 1 root root 1.4K Feb 27  2025 HdbRemoveCopiedServerInstaller_v4.conf
-                -rw-r--r-- 1 root root 1008 Feb 27  2025 HdbRemoveHost_v9.conf
-                -rw-r--r-- 1 root root 1.3K Feb 27  2025 HdbRenameHost_v9.conf
-                -rw-r--r-- 1 root root 1.5K Feb 27  2025 HdbServerUpdate_v15.conf
-                -rw-r--r-- 1 root root 1.1K Feb 27  2025 HdbUninstallInstance_v7.conf
-                -rw-r--r-- 1 root root  626 Feb 27  2025 HdbUninstallServerPlugin_v4.conf
-                -rw-r--r-- 1 root root 1.1K Feb 27  2025 HdbUnregisterHost_v7.conf
-                -rw-r--r-- 1 root root  678 Feb 27  2025 HdblcmCheckLssPath_v1.conf
-                -rw-r--r-- 1 root root 1.2K Feb 27  2025 HdblcmCollectInstallerInfo_v9.conf
-                -rw-r--r-- 1 root root 1.7K Feb 27  2025 HdblcmCopyResidentInstaller_v4.conf
-                -rw-r--r-- 1 root root  612 Feb 27  2025 HdblcmLSSInstall_v2.conf
-                -rw-r--r-- 1 root root  536 Feb 27  2025 HdblcmLSSRemoveHost_v1.conf
-                -rw-r--r-- 1 root root  479 Feb 27  2025 HdblcmLSSUninstall_v1.conf
-                -rw-r--r-- 1 root root  610 Feb 27  2025 HdblcmModifyComponentTrustLevel_v1.conf
-                -rw-r--r-- 1 root root 1.4K Feb 27  2025 HdblcmRemoveResidentInstaller.conf
-                -rw-r--r-- 1 root root  570 Feb 27  2025 HdblcmUnregisterComponentFromLSS_v3.conf
-                -rw-r--r-- 1 root root  469 Feb 27  2025 START_HDBLCM.conf
-                -rw-r--r-- 1 root root  491 Feb 27  2025 START_HDBLCM_v2.conf
-                -rw-r--r-- 1 root root  241 Feb 27  2025 START_UI_HDBLCM.conf
-                -rw-r--r-- 1 root root 1.5K Feb 27  2025 hdblcm_add_hosts_v12.conf
-                -rw-r--r-- 1 root root 1.1K Feb 27  2025 hdblcm_assign_roles_v8.conf
-                -rw-r--r-- 1 root root  697 Feb 27  2025 hdblcm_check_system_v1.conf
-                -rw-r--r-- 1 root root  570 Feb 27  2025 hdblcm_detect_system.conf
-                -rw-r--r-- 1 root root 1.3K Feb 27  2025 hdblcm_remove_hosts_v8.conf
-                -rw-r--r-- 1 root root 1.1K Feb 27  2025 hdblcm_remove_roles_v5.conf
-                -rw-r--r-- 1 root root 1.1K Feb 27  2025 hdblcm_update_host_v5.conf
-                -rw-r--r-- 1 root root  625 Feb 27  2025 update_resident_hdblcm_v4.conf
-                -rw-r--r-- 1 root root  703 Feb 27  2025 update_resident_hdblcm_v6.conf
-
-                |--> ls -lah /hana/shared/H78/hdblcm/resources
-                ------------------------------------------------------------
-                total 4.0K
-                drwxr-xr-x  5 h78adm sapsys   76 Jul 22 09:00 .
-                drwxr-xr-x  7 root   root    195 Jul 22 09:00 ..
-                -rw-r--r--  1 h78adm sapsys 2.2K Feb 27  2025 index.html
-                drwxr-xr-x  2 h78adm sapsys   57 Jul 22 07:53 nonresident
-                drwxr-xr-x 12 h78adm sapsys  205 Jul 22 09:00 resident
-                drwxr-xr-x  2 h78adm sapsys   31 Jul 22 09:00 templates
-
-            |--> ls -lah /hana/shared/H78/lm_structure
-            ------------------------------------------------------------
-            total 32K
-            drwxr-xr-x  2 h78adm sapsys 138 Jul 22 08:16 .
-            drwxr-xr-x 11 h78adm sapsys 155 Jul 22 09:09 ..
-            -rwxr-xr-x  1 h78adm sapsys  95 Jul 22 09:09 currentStack.properties
-            -rwxr-xr-x  1 h78adm sapsys 11K Jul 22 09:09 landscapeDescription.xml
-            -rwxr-xr-x  1 h78adm sapsys 12K Jul 22 09:09 landscapeDescription.xsd
-            -rwxr-xr-x  1 h78adm sapsys 285 Jul 22 09:09 landscapeVariables.properties
-
-            |--> ls -lah /hana/shared/H78/profile
-            ------------------------------------------------------------
-            total 8.0K
-            drwxr-xr-x  2 h78adm sapsys   49 Jul 22 07:57 .
-            drwxr-xr-x 11 h78adm sapsys  155 Jul 22 09:09 ..
-            -rw-r--r--  1 h78adm sapsys  244 Jul 22 07:53 DEFAULT.PFL
-            -rw-r--r--  1 h78adm sapsys 2.2K Jul 22 07:57 H78_HDB77_host78
-
-            |--> ls -lah /hana/shared/H78/sapdbctrl-config
-            ------------------------------------------------------------
-            total 0
-            drwxr-xr-x  2 root   root     6 Jul 22 08:16 .
-            drwxr-xr-x 11 h78adm sapsys 155 Jul 22 09:09 ..
-
-            |--> ls -lah /hana/shared/H78/xs
-            ------------------------------------------------------------
-            total 20K
-            drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 .
-            drwxr-xr-x 11 h78adm sapsys  155 Jul 22 09:09 ..
-            -rw-r--r--  1 h78adm sapsys    0 Jul 22 08:08 .lock
-            -rw-------  1 h78adm sapsys    5 Jul 22 09:02 .pid
-            -r--r-----  1 h78adm sapsys 1020 Mar 19  2025 PD.XML
-            drwxr-x--x  4 h78adm sapsys   34 Jul 22 09:03 app_working
-            dr-xr-x---  2 h78adm sapsys  215 Jul 22 09:02 bin
-            drwxr-x---  2 h78adm sapsys   34 Jul 22 09:09 cmp-registry
-            drwxr-x--x  4 h78adm sapsys   60 Jul 22 08:09 controller_data
-            drwxr-x---  4 h78adm sapsys  160 Jul 22 07:54 install
-            dr-xr-x---  5 h78adm sapsys   51 Jul 22 07:54 installation-scripts
-            dr-xr-x---  5 h78adm sapsys   52 Jul 22 07:54 installdata
-            dr-xr-x--x  3 h78adm sapsys 4.0K Jul 22 07:54 jars
-            -r--r--r--  1 h78adm sapsys  746 Mar 19  2025 manifest
-            dr-xr-x--x  7 h78adm sapsys  158 Jul 22 09:02 node_14
-            dr-xr-----  3 h78adm sapsys   27 Jul 22 07:54 router
-            dr-xr-xr-x  7 h78adm sapsys  155 Jul 22 09:02 sapjvm_8
-            dr-xr-x--x 10 h78adm sapsys  118 Jul 22 09:02 sapmachine-17
-            dr-xr-x---  3 h78adm sapsys   20 Jul 22 07:54 uaaserver
-
-                |--> ls -lah /hana/shared/H78/xs/app_working
-                ------------------------------------------------------------
-                total 0
-                drwxr-x--x  4 h78adm sapsys  34 Jul 22 09:03 .
-                drwxr-xr-x 15 h78adm sapsys 291 Jul 22 09:09 ..
-                drwx--x--x  6 h78adm sapsys  96 Jul 22 08:09 host78
-                drwx--x--x  7 h78adm sapsys  78 Jul 22 09:04 stager
-
-                |--> ls -lah /hana/shared/H78/xs/bin
-                ------------------------------------------------------------
-                total 40K
-                dr-xr-x---  2 h78adm sapsys  215 Jul 22 09:02 .
-                drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
-                -r-xr-x---  1 h78adm sapsys 1.1K Mar 19  2025 XSA
-                -r-xr-x---  1 h78adm sapsys 1.5K Mar 19  2025 hdbxscheckstartup
-                -r-xr-x---  1 h78adm sapsys 1.8K Mar 19  2025 hdbxscontroller
-                -r-xr-x---  1 h78adm sapsys 3.0K Mar 19  2025 hdbxsenv
-                -r-xr-x---  1 h78adm sapsys 1.5K Mar 19  2025 hdbxsexecagent
-                -r-xr-x---  1 h78adm sapsys 9.4K Mar 19  2025 hdbxsuaaserver
-                -r-xr-x---  1 h78adm sapsys 2.5K Mar 19  2025 xs
-                -r-xr-x---  1 h78adm sapsys 1.6K Mar 19  2025 xs-admin-login
-                lrwxrwxrwx  1 h78adm sapsys   25 Jul 22 09:02 xscontroller -> ../sapmachine-17/bin/java
-                lrwxrwxrwx  1 h78adm sapsys   25 Jul 22 09:02 xsexecagent -> ../sapmachine-17/bin/java
-                lrwxrwxrwx  1 h78adm sapsys   25 Jul 22 09:02 xsuaaserver -> ../sapmachine-17/bin/java
-
-                |--> ls -lah /hana/shared/H78/xs/cmp-registry
-                ------------------------------------------------------------
-                total 4.0K
-                drwxr-x---  2 h78adm sapsys   34 Jul 22 09:09 .
-                drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
-                -rw-r--r--  1 h78adm sapsys 2.3K Jul 22 09:09 cmp_registry_sap.xml
-
-                |--> ls -lah /hana/shared/H78/xs/controller_data
-                ------------------------------------------------------------
-                total 4.0K
-                drwxr-x--x  4 h78adm sapsys  60 Jul 22 08:09 .
-                drwxr-xr-x 15 h78adm sapsys 291 Jul 22 09:09 ..
-                -rw-r--r--  1 h78adm sapsys   0 Jul 22 08:08 .lock
-                -rw-------  1 h78adm sapsys   5 Jul 22 09:02 .pid
-                drwxr-x--x  6 h78adm sapsys  61 Jul 22 08:08 controller
-                drwx--x--x  4 h78adm sapsys  94 Jul 22 08:13 fss
-
-                |--> ls -lah /hana/shared/H78/xs/install
-                ------------------------------------------------------------
-                total 164K
-                drwxr-x---  4 h78adm sapsys  160 Jul 22 07:54 .
-                drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
-                drwxr-xr-x  2 h78adm sapsys   92 Jul 22 07:54 CustomModules
-                -rw-r--r--  1 h78adm sapsys  81K Jul 22 09:00 INSTREG
-                -r--r--r--  1 h78adm sapsys  18K Mar 19  2025 InstallParams.xml
-                -r-xr-xr-x  1 h78adm sapsys  15K Feb 21  2025 hdbclientreg
-                -r-xr-xr-x  1 h78adm sapsys  15K Feb 21  2025 hdbinst
-                -r-xr-xr-x  1 h78adm sapsys  15K Feb 21  2025 hdbuninst
-                -r--r--r--  1 h78adm sapsys 5.1K Feb 21  2025 installcfg.dtd
-                drwxr-xr-x  9 h78adm sapsys 4.0K Jul 22 07:54 instruntime
-
-                |--> ls -lah /hana/shared/H78/xs/installation-scripts
-                ------------------------------------------------------------
-                total 0
-                dr-xr-x---  5 h78adm sapsys  51 Jul 22 07:54 .
-                drwxr-xr-x 15 h78adm sapsys 291 Jul 22 09:09 ..
-                dr-xr-x---  4 h78adm sapsys  29 Jul 22 07:54 db
-                dr-xr-x---  5 h78adm sapsys 161 Jul 22 07:54 installation
-                dr-xr-x---  2 h78adm sapsys  61 Jul 22 07:54 support
-
-                |--> ls -lah /hana/shared/H78/xs/installdata
-                ------------------------------------------------------------
-                total 4.0K
-                dr-xr-x---  5 h78adm sapsys   52 Jul 22 07:54 .
-                drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
-                dr-xr-x---  7 h78adm sapsys   92 Jul 22 07:54 apps
-                dr-xr-x---  2 h78adm sapsys  100 Jul 22 07:54 buildpacks
-                dr-xr-x---  3 h78adm sapsys 4.0K Jul 22 07:55 runtimes
-
-                |--> ls -lah /hana/shared/H78/xs/jars
-                ------------------------------------------------------------
-                total 47M
-                dr-xr-x--x  3 h78adm sapsys 4.0K Jul 22 07:54 .
-                drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
-                -r--r--r--  1 h78adm sapsys 163K Mar 19  2025 JavaEWAH-1.1.13.jar
-                -r--r--r--  1 h78adm sapsys  27K Mar 19  2025 aopalliance-repackaged-3.0.4.jar
-                -r--r--r--  1 h78adm sapsys 123K Mar 19  2025 asm-9.7.jar
-                -r--r--r--  1 h78adm sapsys  746 Mar 19  2025 buildinfo.mf
-                -r--r--r--  1 h78adm sapsys  287 Mar 19  2025 buildinfo.txt
-                dr-xr-xr-x  5 h78adm sapsys   40 Jul 22 07:54 cli-plugins
-                -r--r--r--  1 h78adm sapsys 4.8K Mar 19  2025 com.sap.security.nw.SystemPKI-1.0.6.jar
-                -r--r--r--  1 h78adm sapsys 115K Mar 19  2025 commoncryptolib-8.5.23.jar
-                -r--r--r--  1 h78adm sapsys 357K Mar 19  2025 commons-codec-1.16.1.jar
-                -r--r--r--  1 h78adm sapsys 1.1M Mar 19  2025 commons-compress-1.26.0.jar
-                -r--r--r--  1 h78adm sapsys 497K Mar 19  2025 commons-io-2.16.1.jar
-                -r--r--r--  1 h78adm sapsys 643K Mar 19  2025 commons-lang3-3.14.0.jar
-                -r--r--r--  1 h78adm sapsys 4.5K Mar 19  2025 docker-java-3.3.3.jar
-                -r--r--r--  1 h78adm sapsys 460K Mar 19  2025 docker-java-api-3.3.3.jar
-                -r--r--r--  1 h78adm sapsys 364K Mar 19  2025 docker-java-core-3.3.3.jar
-                -r--r--r--  1 h78adm sapsys  37K Mar 19  2025 docker-java-transport-3.3.3.jar
-                -r--r--r--  1 h78adm sapsys  43K Mar 19  2025 docker-java-transport-netty-3.3.3.jar
-                -r--r--r--  1 h78adm sapsys 8.9M Mar 19  2025 eclipselink-4.0.2.jar
-                -r--r--r--  1 h78adm sapsys 4.6K Mar 19  2025 failureaccess-1.0.1.jar
-                -r--r--r--  1 h78adm sapsys 210K Mar 19  2025 gmbal-4.0.3.jar
-                -r--r--r--  1 h78adm sapsys 823K Mar 19  2025 grizzly-framework-4.0.2.jar
-                -r--r--r--  1 h78adm sapsys 354K Mar 19  2025 grizzly-http-4.0.2.jar
-                -r--r--r--  1 h78adm sapsys 307K Mar 19  2025 grizzly-http-server-4.0.2.jar
-                -r--r--r--  1 h78adm sapsys 145K Mar 19  2025 grizzly-http-servlet-4.0.2.jar
-                -r--r--r--  1 h78adm sapsys 2.3M Mar 19  2025 grizzly-http-servlet-server-4.0.2.jar
-                -r--r--r--  1 h78adm sapsys 110K Mar 19  2025 grizzly-websockets-4.0.2.jar
-                -r--r--r--  1 h78adm sapsys 2.9M Mar 19  2025 guava-32.0.0-jre.jar
-                -r--r--r--  1 h78adm sapsys 203K Mar 19  2025 hk2-api-3.0.4.jar
-                -r--r--r--  1 h78adm sapsys 201K Mar 19  2025 hk2-locator-3.0.4.jar
-                -r--r--r--  1 h78adm sapsys 129K Mar 19  2025 hk2-utils-3.0.4.jar
-                -r--r--r--  1 h78adm sapsys 100K Mar 19  2025 ini4j-0.5.4.jar
-                -r--r--r--  1 h78adm sapsys  26K Mar 19  2025 istack-commons-runtime-4.1.2.jar
-                -r--r--r--  1 h78adm sapsys  74K Mar 19  2025 jackson-annotations-2.15.4.jar
-                -r--r--r--  1 h78adm sapsys 536K Mar 19  2025 jackson-core-2.15.4.jar
-                -r--r--r--  1 h78adm sapsys 1.6M Mar 19  2025 jackson-databind-2.15.4.jar
-                -r--r--r--  1 h78adm sapsys  32K Mar 19  2025 jackson-jaxrs-base-2.15.4.jar
-                -r--r--r--  1 h78adm sapsys  17K Mar 19  2025 jackson-jaxrs-json-provider-2.15.4.jar
-                -r--r--r--  1 h78adm sapsys  32K Mar 19  2025 jackson-module-jakarta-xmlbind-annotations-2.15.4.jar
-                -r--r--r--  1 h78adm sapsys  36K Mar 19  2025 jackson-module-jaxb-annotations-2.15.4.jar
-                -r--r--r--  1 h78adm sapsys  65K Mar 19  2025 jakarta.activation-api-2.1.3.jar
-                -r--r--r--  1 h78adm sapsys  26K Mar 19  2025 jakarta.annotation-api-2.1.1.jar
-                -r--r--r--  1 h78adm sapsys  11K Mar 19  2025 jakarta.inject-api-2.0.1.jar
-                -r--r--r--  1 h78adm sapsys 162K Mar 19  2025 jakarta.persistence-api-3.1.0.jar
-                -r--r--r--  1 h78adm sapsys 354K Mar 19  2025 jakarta.servlet-api-6.1.0-M2.jar
-                -r--r--r--  1 h78adm sapsys  92K Mar 19  2025 jakarta.validation-api-3.0.2.jar
-                -r--r--r--  1 h78adm sapsys 152K Mar 19  2025 jakarta.ws.rs-api-3.1.0.jar
-                -r--r--r--  1 h78adm sapsys 128K Mar 19  2025 jakarta.xml.bind-api-4.0.2.jar
-                -r--r--r--  1 h78adm sapsys  38K Mar 19  2025 jakarta.xml.soap-api-3.0.1.jar
-                -r--r--r--  1 h78adm sapsys  74K Mar 19  2025 jakarta.xml.ws-api-4.0.1.jar
-                -r--r--r--  1 h78adm sapsys 777K Mar 19  2025 javassist-3.30.2-GA.jar
-                -r--r--r--  1 h78adm sapsys  26K Mar 19  2025 javax.annotation-api-1.2.jar
-                -r--r--r--  1 h78adm sapsys  94K Mar 19  2025 javax.servlet-api-4.0.1.jar
-                -r--r--r--  1 h78adm sapsys 126K Mar 19  2025 jaxb-api-2.3.1.jar
-                -r--r--r--  1 h78adm sapsys 136K Mar 19  2025 jaxb-core-4.0.5.jar
-                -r--r--r--  1 h78adm sapsys 899K Mar 19  2025 jaxb-runtime-4.0.5.jar
-                -r--r--r--  1 h78adm sapsys 1.9M Mar 19  2025 jaxb-xjc-4.0.3.jar
-                -r--r--r--  1 h78adm sapsys 2.6M Mar 19  2025 jaxws-rt-4.0.2.jar
-                -r--r--r--  1 h78adm sapsys  17K Mar 19  2025 jcl-over-slf4j-1.7.29.jar
-                -r--r--r--  1 h78adm sapsys 296K Mar 19  2025 jersey-client-3.1.7.jar
-                -r--r--r--  1 h78adm sapsys 1.2M Mar 19  2025 jersey-common-3.1.7.jar
-                -r--r--r--  1 h78adm sapsys  47K Mar 19  2025 jersey-container-grizzly2-http-3.1.7.jar
-                -r--r--r--  1 h78adm sapsys  83K Mar 19  2025 jersey-entity-filtering-3.1.7.jar
-                -r--r--r--  1 h78adm sapsys  77K Mar 19  2025 jersey-hk2-3.1.7.jar
-                -r--r--r--  1 h78adm sapsys  95K Mar 19  2025 jersey-media-jaxb-3.1.7.jar
-                -r--r--r--  1 h78adm sapsys  84K Mar 19  2025 jersey-media-json-jackson-3.1.7.jar
-                -r--r--r--  1 h78adm sapsys 960K Mar 19  2025 jersey-server-3.1.7.jar
-                -r--r--r--  1 h78adm sapsys 321K Mar 19  2025 jetty-client-9.4.55.v20240627.jar
-                -r--r--r--  1 h78adm sapsys 244K Mar 19  2025 jetty-http-9.4.55.v20240627.jar
-                -r--r--r--  1 h78adm sapsys 179K Mar 19  2025 jetty-io-9.4.55.v20240627.jar
-                -r--r--r--  1 h78adm sapsys 576K Mar 19  2025 jetty-util-9.4.55.v20240627.jar
-                -r--r--r--  1 h78adm sapsys 1.5M Mar 19  2025 ngdbc.jar
-                -r--r--r--  1 h78adm sapsys 2.8M Mar 19  2025 org.eclipse.jgit-5.13.3.202401111512-r.jar
-                -r--r--r--  1 h78adm sapsys  39K Mar 19  2025 semver4j-4.2.1.jar
-                -r--r--r--  1 h78adm sapsys  41K Mar 19  2025 slf4j-api-1.7.29.jar
-                -r--r--r--  1 h78adm sapsys 8.4K Mar 19  2025 slf4j-jdk14-1.7.29.jar
-                -r--r--r--  1 h78adm sapsys 327K Mar 19  2025 snakeyaml-2.0.jar
-                -r--r--r--  1 h78adm sapsys  38K Mar 19  2025 stax-ex-2.1.0.jar
-                -r--r--r--  1 h78adm sapsys  74K Mar 19  2025 streambuffer-2.1.0.jar
-                -r--r--r--  1 h78adm sapsys  22K Mar 19  2025 tls-sni-4.0.2.jar
-                -r--r--r--  1 h78adm sapsys  72K Mar 19  2025 txw2-4.0.5.jar
-                -r--r--r--  1 h78adm sapsys  51K Mar 19  2025 websocket-api-9.4.55.v20240627.jar
-                -r--r--r--  1 h78adm sapsys  45K Mar 19  2025 websocket-client-9.4.55.v20240627.jar
-                -r--r--r--  1 h78adm sapsys 210K Mar 19  2025 websocket-common-9.4.55.v20240627.jar
-                -r--r--r--  1 h78adm sapsys  60K Mar 19  2025 xs2rt_1.0_client_api.jar
-                -r--r--r--  1 h78adm sapsys 1.1M Mar 19  2025 xs2rt_1.0_client_impl.jar
-                -r--r--r--  1 h78adm sapsys 2.0M Mar 19  2025 xs2rt_1.0_controller.jar
-                -r--r--r--  1 h78adm sapsys 1.6M Mar 19  2025 xs2rt_1.0_core.jar
-                -r--r--r--  1 h78adm sapsys  14K Mar 19  2025 xs2rt_1.0_droplet_addon.jar
-                -r--r--r--  1 h78adm sapsys 449K Mar 19  2025 xs2rt_1.0_execution_agent.jar
-                -r--r--r--  1 h78adm sapsys 692K Mar 19  2025 xs2rt_1.0_installation.jar
-                -r--r--r--  1 h78adm sapsys 923K Mar 19  2025 xs2rt_1.0_server.jar
-                -r--r--r--  1 h78adm sapsys  20K Mar 19  2025 xs2rt_1.0_services_fs.jar
-                -r--r--r--  1 h78adm sapsys  27K Mar 19  2025 xs2rt_1.0_uaa_server.jar
-                -r--r--r--  1 h78adm sapsys 304K Mar 19  2025 xs2rt_1.0_utils.jar
-
-                |--> ls -lah /hana/shared/H78/xs/node_14
-                ------------------------------------------------------------
-                total 796K
-                dr-xr-x--x  7 h78adm sapsys  158 Jul 22 09:02 .
-                drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
-                -r--r--r--  1 h78adm sapsys 671K Feb 20  2023 CHANGELOG_V14.md
-                -r--r--r--  1 h78adm sapsys  82K Feb 20  2023 LICENSE
-                -r--r--r--  1 h78adm sapsys  32K Feb 20  2023 README.md
-                dr-xr-xr-x  3 h78adm sapsys  122 Jul 22 09:02 bin
-                -r--r--r--  1 h78adm sapsys  178 Feb 20  2023 buildinfo.txt
-                dr-xr-xr-x  3 h78adm sapsys   17 Jul 22 09:02 doc
-                -r--r--r--  1 h78adm sapsys  165 Feb 20  2023 env.sh
-                dr-xr-xr-x  3 h78adm sapsys   18 Jul 22 09:02 include
-                dr-xr-xr-x  5 h78adm sapsys   55 Jul 22 09:02 lib
-                dr-xr-xr-x  5 h78adm sapsys   45 Jul 22 09:02 share
-
-                |--> ls -lah /hana/shared/H78/xs/router
-                ------------------------------------------------------------
-                total 4.0K
-                dr-xr-----  3 h78adm sapsys   27 Jul 22 07:54 .
-                drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
-                dr-xr-x---  3 h78adm sapsys 4.0K Jul 22 07:54 webdispatcher
-
-                |--> ls -lah /hana/shared/H78/xs/sapjvm_8
-                ------------------------------------------------------------
-                total 43M
-                dr-xr-xr-x  7 h78adm sapsys  155 Jul 22 09:02 .
-                drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
-                -r--r--r--  1 h78adm sapsys 3.2K Jan 15  2025 COPYRIGHT
-                -r--r--r--  1 h78adm sapsys  190 Jan 15  2025 THIRDPARTYLICENSEREADME.txt
-                dr-xr-xr-x  2 h78adm sapsys 4.0K Jul 22 09:02 bin
-                -r--r--r--  1 h78adm sapsys  178 Jan 15  2025 buildinfo.txt
-                dr-xr-xr-x  3 h78adm sapsys  132 Jul 22 09:02 include
-                dr-xr-xr-x  5 h78adm sapsys  159 Jul 22 09:02 jre
-                dr-xr-xr-x  3 h78adm sapsys   17 Jul 22 09:02 legal
-                dr-xr-xr-x  3 h78adm sapsys  160 Jul 22 09:02 lib
-                -r--r--r--  1 h78adm sapsys  43M Jan 15  2025 src.zip
-
-                |--> ls -lah /hana/shared/H78/xs/sapmachine-17
-                ------------------------------------------------------------
-                total 20K
-                dr-xr-x--x 10 h78adm sapsys  118 Jul 22 09:02 .
-                drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
-                dr-xr-xr-x  2 h78adm sapsys 4.0K Jul 22 09:02 bin
-                dr-xr-xr-x  5 h78adm sapsys  123 Jul 22 09:02 conf
-                dr-xr-xr-x  2 h78adm sapsys   47 Jul 22 09:02 ext
-                dr-xr-xr-x  3 h78adm sapsys  153 Jul 22 09:02 include
-                dr-xr-xr-x  2 h78adm sapsys 4.0K Jul 22 09:02 jmods
-                dr-xr-xr-x 74 h78adm sapsys 4.0K Jul 22 09:02 legal
-                dr-xr-xr-x  5 h78adm sapsys 4.0K Jul 22 09:02 lib
-                dr-xr-xr-x  3 h78adm sapsys   18 Jul 22 09:02 man
-                -r--r--r--  1 h78adm sapsys 1.3K Jan 21  2025 release
-
-                |--> ls -lah /hana/shared/H78/xs/uaaserver
-                ------------------------------------------------------------
-                total 0
-                dr-xr-x---  3 h78adm sapsys  20 Jul 22 07:54 .
-                drwxr-xr-x 15 h78adm sapsys 291 Jul 22 09:09 ..
-                dr-xr-x---  8 h78adm sapsys 208 Jul 22 08:07 tomcat
-
-    |--> ls -lah /hana/tmpfs0
-    ------------------------------------------------------------
-    total 0
-    drwxrwxrwx 1 root   root    6 Jul 22 07:57 .
-    drwxr-xr-x 1 root   root   38 Jul 22 07:57 ..
-    drwxrwxrwx 4 h78adm sapsys 80 Jul 22 07:58 H78
-
-        |--> ls -lah /hana/tmpfs0/H78
-        ------------------------------------------------------------
-        total 0
-        drwxrwxrwx 4 h78adm sapsys  80 Jul 22 07:58 .
-        drwxrwxrwx 1 root   root     6 Jul 22 07:57 ..
-        drwxr-x--- 2 h78adm sapsys  60 Jul 22 07:58 NVM-GMD-SID-H78
-        drwxr-xr-- 5 h78adm sapsys 100 Jul 22 07:59 mnt00001
-
-            |--> ls -lah /hana/tmpfs0/H78/NVM-GMD-SID-H78
-            ------------------------------------------------------------
-            total 192K
-            drwxr-x--- 2 h78adm sapsys   60 Jul 22 07:58 .
-            drwxrwxrwx 4 h78adm sapsys   80 Jul 22 07:58 ..
-            -rw-rw---- 1 h78adm sapsys 192K Jul 22 07:58 SAP_NVM_GAL_Manager_o011a_T4_host78
-
-            |--> ls -lah /hana/tmpfs0/H78/mnt00001
-            ------------------------------------------------------------
-            total 0
-            drwxr-xr-- 5 h78adm sapsys 100 Jul 22 07:59 .
-            drwxrwxrwx 4 h78adm sapsys  80 Jul 22 07:58 ..
-            drwxr-xr-- 3 h78adm sapsys  60 Jul 22 07:58 hdb00001
-            drwxr-xr-- 2 h78adm sapsys  40 Jul 22 07:59 hdb00002.00003
-            drwxr-xr-- 3 h78adm sapsys  60 Jul 22 07:59 hdb00003.00003
-
-                |--> ls -lah /hana/tmpfs0/H78/mnt00001/hdb00001
-                ------------------------------------------------------------
-                total 0
-                drwxr-xr-- 3 h78adm sapsys  60 Jul 22 07:58 .
-                drwxr-xr-- 5 h78adm sapsys 100 Jul 22 07:59 ..
-                drwx------ 3 h78adm sapsys  60 Jul 22 07:58 NVM-Root
-
-                |--> ls -lah /hana/tmpfs0/H78/mnt00001/hdb00002.00003
-                ------------------------------------------------------------
-                total 0
-                drwxr-xr-- 2 h78adm sapsys  40 Jul 22 07:59 .
-                drwxr-xr-- 5 h78adm sapsys 100 Jul 22 07:59 ..
-
-                |--> ls -lah /hana/tmpfs0/H78/mnt00001/hdb00003.00003
-                ------------------------------------------------------------
-                total 0
-                drwxr-xr-- 3 h78adm sapsys  60 Jul 22 07:59 .
-                drwxr-xr-- 5 h78adm sapsys 100 Jul 22 07:59 ..
-                drwx------ 3 h78adm sapsys  60 Jul 22 07:59 NVM-Root
-
-    |--> ls -lah /usr/sap
-    ------------------------------------------------------------
-    total 8.0K
-    drwxr-xr-x 1 root   root   104 Jul 22 07:52 .
-    drwxr-xr-x 1 root   root   130 May 19 11:24 ..
-    drwxr-xr-x 1 h78adm sapsys  58 Jul 22 08:16 H78
-    drwxr-x--x 1 root   sapsys  14 May 19 11:27 hostctrl
-    -rwxr-xr-x 1 root   sapsys 139 Jul 22 07:53 sapservices
-    -rwxr-xr-- 1 root   sapsys 117 May 19 11:25 sapservices_202605_19_11.25.43
-
-        |--> ls -lah /usr/sap/H78
-        ------------------------------------------------------------
-        total 4.0K
-        drwxr-xr-x 1 h78adm   sapsys    58 Jul 22 08:16 .
-        drwxr-xr-x 1 root     root     104 Jul 22 07:52 ..
-        lrwxrwxrwx 1 h78adm   sapsys    22 Jul 22 07:53 HDB77 -> /hana/shared/H78/HDB77
-        drwxr-x--- 1 h78adm   sapsys    32 Jul 22 07:52 SYS
-        drwxr-x--- 1 h78adm   sapsys    38 Jul 22 08:16 hdblcm_uploads
-        drwxr-xr-x 1 h78adm   sapsys   392 Jul 22 08:16 home
-        drwxr-x--x 1 h78crypt h78crypt  36 Jul 22 07:53 lss
-
-            |--> ls -lah /usr/sap/H78/SYS
-            ------------------------------------------------------------
-            total 8.0K
-            drwxr-x--- 1 h78adm sapsys 32 Jul 22 07:52 .
-            drwxr-xr-x 1 h78adm sapsys 58 Jul 22 08:16 ..
-            drwxr-x--- 1 h78adm sapsys  6 Jul 22 07:52 exe
-            lrwxrwxrwx 1 h78adm sapsys 23 Jul 22 07:52 global -> /hana/shared/H78/global
-            lrwxrwxrwx 1 h78adm sapsys 24 Jul 22 07:52 profile -> /hana/shared/H78/profile
-
-                |--> ls -lah /usr/sap/H78/SYS/exe
-                ------------------------------------------------------------
-                total 4.0K
-                drwxr-x--- 1 h78adm sapsys  6 Jul 22 07:52 .
-                drwxr-x--- 1 h78adm sapsys 32 Jul 22 07:52 ..
-                lrwxrwxrwx 1 h78adm sapsys 36 Jul 22 07:52 hdb -> /hana/shared/H78/exe/linuxx86_64/hdb
-
-            |--> ls -lah /usr/sap/H78/hdblcm_uploads
-            ------------------------------------------------------------
-            total 0
-            drwxr-x--- 1 h78adm sapsys 38 Jul 22 08:16 .
-            drwxr-xr-x 1 h78adm sapsys 58 Jul 22 08:16 ..
-            drwxr-x--- 1 h78adm sapsys  0 Jul 22 08:16 SAPHostAgentUploads
-
-                |--> ls -lah /usr/sap/H78/hdblcm_uploads/SAPHostAgentUploads
-                ------------------------------------------------------------
-                total 0
-                drwxr-x--- 1 h78adm sapsys  0 Jul 22 08:16 .
-                drwxr-x--- 1 h78adm sapsys 38 Jul 22 08:16 ..
-
-            |--> ls -lah /usr/sap/H78/home
-            ------------------------------------------------------------
-            total 64K
-            drwxr-xr-x 1 h78adm sapsys  392 Jul 22 08:16 .
-            drwxr-xr-x 1 h78adm sapsys   58 Jul 22 08:16 ..
-            -rw------- 1 h78adm sapsys   50 Jul 22 07:57 .bash_history
-            -r-xr-xr-x 1 h78adm sapsys 2.3K Feb  7  2025 .bashrc
-            drwx------ 1 h78adm sapsys    0 Mar 15  2022 .cache
-            drwx------ 1 h78adm sapsys   18 May 13 09:45 .config
-            -r-xr-xr-x 1 h78adm sapsys 2.5K Feb  7  2025 .cshrc
-            -rw-r--r-- 1 h78adm sapsys 1.6K Apr  9  2018 .emacs
-            drwxr-xr-x 1 h78adm sapsys    0 Mar 15  2022 .fonts
-            drwxr-xr-x 1 h78adm sapsys   12 Jul 22 07:55 .hdb
-            -rw-r--r-- 1 h78adm sapsys   73 May 25  2018 .i18n
-            -rw-r--r-- 1 h78adm sapsys  861 Apr  9  2018 .inputrc
-            drwx------ 1 h78adm sapsys    0 Mar 15  2022 .local
-            -rw-r--r-- 1 h78adm sapsys 5.4K May  9  2024 .muttrc
-            -r-xr-xr-x 1 h78adm sapsys 1.8K Feb  7  2025 .profile
-            -rwxr-x--- 1 h78adm sapsys 3.2K Jul 22 07:53 .sapenv.csh
-            -rwxr-x--- 1 h78adm sapsys 3.0K Jul 22 07:53 .sapenv.sh
-            -r-xr-xr-x 1 h78adm sapsys  176 Feb  7  2025 .sapsrc.csh
-            -r-xr-xr-x 1 h78adm sapsys  159 Feb  7  2025 .sapsrc.sh
-            drwxr-x--- 1 h78adm sapsys   26 Jul 22 08:07 .sdb
-            -rw-r--r-- 1 h78adm sapsys 2.0K May 25  2018 .xim.template
-            -rwxr-xr-x 1 h78adm sapsys 1.1K Apr 28  2025 .xinitrc.template
-            drwxr-x--- 1 h78adm sapsys   44 Jul 22 08:16 .xs_logs
-            -rw------- 1 h78adm sapsys  495 Jul 22 08:43 .xsconfig
-            drwxr-xr-x 1 h78adm sapsys    0 Mar 15  2022 bin
-            drwxr-xr-x 1 h78adm sapsys   20 May 13 09:40 public_html
-
-                |--> ls -lah /usr/sap/H78/home/.cache
-                ------------------------------------------------------------
-                total 0
-                drwx------ 1 h78adm sapsys   0 Mar 15  2022 .
-                drwxr-xr-x 1 h78adm sapsys 392 Jul 22 08:16 ..
-
-                |--> ls -lah /usr/sap/H78/home/.config
-                ------------------------------------------------------------
-                total 0
-                drwx------ 1 h78adm sapsys  18 May 13 09:45 .
-                drwxr-xr-x 1 h78adm sapsys 392 Jul 22 08:16 ..
-                drwxr-xr-x 1 h78adm sapsys  38 May 13 09:45 autostart
-
-                    |--> ls -lah /usr/sap/H78/home/.config/autostart
-                    ------------------------------------------------------------
-                    total 4.0K
-                    drwxr-xr-x 1 h78adm sapsys  38 May 13 09:45 .
-                    drwx------ 1 h78adm sapsys  18 May 13 09:45 ..
-                    -rw-r--r-- 1 h78adm sapsys 190 May  9  2024 set_trusted.desktop
-
-                |--> ls -lah /usr/sap/H78/home/.fonts
-                ------------------------------------------------------------
-                total 0
-                drwxr-xr-x 1 h78adm sapsys   0 Mar 15  2022 .
-                drwxr-xr-x 1 h78adm sapsys 392 Jul 22 08:16 ..
-
-                |--> ls -lah /usr/sap/H78/home/.hdb
-                ------------------------------------------------------------
-                total 4.0K
-                drwxr-xr-x 1 h78adm sapsys  12 Jul 22 07:55 .
-                drwxr-xr-x 1 h78adm sapsys 392 Jul 22 08:16 ..
-                drwxr-xr-x 1 h78adm sapsys 180 Jul 22 08:16 host78
-
-                    |--> ls -lah /usr/sap/H78/home/.hdb/host78
-                    ------------------------------------------------------------
-                    total 44K
-                    drwxr-xr-x 1 h78adm sapsys 180 Jul 22 08:16 .
-                    drwxr-xr-x 1 h78adm sapsys  12 Jul 22 07:55 ..
-                    -rw------- 1 h78adm sapsys   0 Jul 22 08:00 SQLDBC.loc
-                    -rw------- 1 h78adm sapsys 27K Jul 22 08:00 SQLDBC.shm
-                    -rw-r----- 1 h78adm sapsys 871 Jul 22 08:16 SSFS_HDB.DAT
-                    -rw-r----- 1 h78adm sapsys  92 Jul 22 08:16 SSFS_HDB.KEY
-                    -rw-r--r-- 1 h78adm sapsys   0 Jul 22 08:00 SSFS_HDB.LOC
-                    -rw-r--r-- 1 h78adm sapsys  39 Jul 22 07:55 installations.73555000100200004274
-
-                |--> ls -lah /usr/sap/H78/home/.local
-                ------------------------------------------------------------
-                total 0
-                drwx------ 1 h78adm sapsys   0 Mar 15  2022 .
-                drwxr-xr-x 1 h78adm sapsys 392 Jul 22 08:16 ..
-
-                |--> ls -lah /usr/sap/H78/home/.sdb
-                ------------------------------------------------------------
-                total 4.0K
-                drwxr-x--- 1 h78adm sapsys   26 Jul 22 08:07 .
-                drwxr-xr-x 1 h78adm sapsys  392 Jul 22 08:16 ..
-                -rw-r----- 1 h78adm sapsys 4.0K Jul 22 08:07 jdbctrace.shm
-
-                |--> ls -lah /usr/sap/H78/home/.xs_logs
-                ------------------------------------------------------------
-                total 56K
-                drwxr-x--- 1 h78adm sapsys  44 Jul 22 08:16 .
-                drwxr-xr-x 1 h78adm sapsys 392 Jul 22 08:16 ..
-                -rw-r----- 1 h78adm sapsys   0 Jul 22 08:43 .xs_0.log.lock
-                -rw-r----- 1 h78adm sapsys 55K Jul 22 08:43 xs_0.log
-
-                |--> ls -lah /usr/sap/H78/home/bin
-                ------------------------------------------------------------
-                total 0
-                drwxr-xr-x 1 h78adm sapsys   0 Mar 15  2022 .
-                drwxr-xr-x 1 h78adm sapsys 392 Jul 22 08:16 ..
-
-                |--> ls -lah /usr/sap/H78/home/public_html
-                ------------------------------------------------------------
-                total 4.0K
-                drwxr-xr-x 1 h78adm sapsys  20 May 13 09:40 .
-                drwxr-xr-x 1 h78adm sapsys 392 Jul 22 08:16 ..
-                -rw-r--r-- 1 h78adm sapsys  48 Feb  9  2016 .directory
-
-            |--> ls -lah /usr/sap/H78/lss
-            ------------------------------------------------------------
-            total 8.0K
-            drwxr-x--x 1 h78crypt h78crypt  36 Jul 22 07:53 .
-            drwxr-xr-x 1 h78adm   sapsys    58 Jul 22 08:16 ..
-            lrwxrwxrwx 1 root     root      19 Jul 22 07:53 exe -> /lss/shared/H78/exe
-            drwxr-xr-x 1 h78crypt h78crypt 300 Jul 22 07:53 home
-            drwxr-x--- 1 h78crypt h78crypt  14 Jul 22 07:53 local
-            lrwxrwxrwx 1 root     root      15 Jul 22 07:53 shared -> /lss/shared/H78
-
-                |--> ls -lah /usr/sap/H78/lss/home
-                ------------------------------------------------------------
-                total 48K
-                drwxr-xr-x 1 h78crypt h78crypt  300 Jul 22 07:53 .
-                drwxr-x--x 1 h78crypt h78crypt   36 Jul 22 07:53 ..
-                -rw------- 1 h78crypt h78crypt    0 May 18  1996 .bash_history
-                -r--r--r-- 1 h78crypt h78crypt 2.3K Nov 11  2024 .bashrc
-                drwx------ 1 h78crypt h78crypt    0 Mar 15  2022 .cache
-                drwx------ 1 h78crypt h78crypt   18 May 13 09:45 .config
-                -r-xr-xr-x 1 h78crypt h78crypt 2.5K Nov 11  2024 .cshrc
-                -rw-r--r-- 1 h78crypt h78crypt 1.6K Apr  9  2018 .emacs
-                drwxr-xr-x 1 h78crypt h78crypt    0 Mar 15  2022 .fonts
-                -rw-r--r-- 1 h78crypt h78crypt   73 May 25  2018 .i18n
-                -rw-r--r-- 1 h78crypt h78crypt  861 Apr  9  2018 .inputrc
-                drwx------ 1 h78crypt h78crypt    0 Mar 15  2022 .local
-                -rw-r--r-- 1 h78crypt h78crypt 5.4K May  9  2024 .muttrc
-                -r--r--r-- 1 h78crypt h78crypt 1.8K Nov 11  2024 .profile
-                -r-xr-xr-x 1 h78crypt h78crypt 1.3K Nov 11  2024 .sapenv.csh
-                -r--r--r-- 1 h78crypt h78crypt 1.3K Nov 11  2024 .sapenv.sh
-                -rw-r--r-- 1 h78crypt h78crypt 2.0K May 25  2018 .xim.template
-                -rwxr-xr-x 1 h78crypt h78crypt 1.1K Apr 28  2025 .xinitrc.template
-                drwxr-xr-x 1 h78crypt h78crypt    0 Mar 15  2022 bin
-                drwxr-xr-x 1 h78crypt h78crypt   20 May 13 09:40 public_html
-
-                    |--> ls -lah /usr/sap/H78/lss/home/.cache
-                    ------------------------------------------------------------
-                    total 0
-                    drwx------ 1 h78crypt h78crypt   0 Mar 15  2022 .
-                    drwxr-xr-x 1 h78crypt h78crypt 300 Jul 22 07:53 ..
-
-                    |--> ls -lah /usr/sap/H78/lss/home/.config
-                    ------------------------------------------------------------
-                    total 0
-                    drwx------ 1 h78crypt h78crypt  18 May 13 09:45 .
-                    drwxr-xr-x 1 h78crypt h78crypt 300 Jul 22 07:53 ..
-                    drwxr-xr-x 1 h78crypt h78crypt  38 May 13 09:45 autostart
-
-                    |--> ls -lah /usr/sap/H78/lss/home/.fonts
-                    ------------------------------------------------------------
-                    total 0
-                    drwxr-xr-x 1 h78crypt h78crypt   0 Mar 15  2022 .
-                    drwxr-xr-x 1 h78crypt h78crypt 300 Jul 22 07:53 ..
-
-                    |--> ls -lah /usr/sap/H78/lss/home/.local
-                    ------------------------------------------------------------
-                    total 0
-                    drwx------ 1 h78crypt h78crypt   0 Mar 15  2022 .
-                    drwxr-xr-x 1 h78crypt h78crypt 300 Jul 22 07:53 ..
-
-                    |--> ls -lah /usr/sap/H78/lss/home/bin
-                    ------------------------------------------------------------
-                    total 0
-                    drwxr-xr-x 1 h78crypt h78crypt   0 Mar 15  2022 .
-                    drwxr-xr-x 1 h78crypt h78crypt 300 Jul 22 07:53 ..
-
-                    |--> ls -lah /usr/sap/H78/lss/home/public_html
-                    ------------------------------------------------------------
-                    total 4.0K
-                    drwxr-xr-x 1 h78crypt h78crypt  20 May 13 09:40 .
-                    drwxr-xr-x 1 h78crypt h78crypt 300 Jul 22 07:53 ..
-                    -rw-r--r-- 1 h78crypt h78crypt  48 Feb  9  2016 .directory
-
-                |--> ls -lah /usr/sap/H78/lss/local
-                ------------------------------------------------------------
-                total 0
-                drwxr-x--- 1 h78crypt h78crypt 14 Jul 22 07:53 .
-                drwxr-x--x 1 h78crypt h78crypt 36 Jul 22 07:53 ..
-                drwx------ 1 h78crypt sapsys   52 Jul 22 07:53 private
-
-                    |--> ls -lah /usr/sap/H78/lss/local/private
-                    ------------------------------------------------------------
-                    total 4.0K
-                    drwx------ 1 h78crypt sapsys    52 Jul 22 07:53 .
-                    drwxr-x--- 1 h78crypt h78crypt  14 Jul 22 07:53 ..
-                    drwx------ 1 h78crypt sapsys    26 Jul 22 07:53 common
-                    drwx------ 1 h78crypt sapsys    20 Jul 22 07:53 config
-                    -rw------- 1 h78crypt sapsys   145 Jul 22 07:53 lss.ini
-                    drwx------ 1 h78crypt sapsys    22 Jul 22 07:55 tenants
-
-        |--> ls -lah /usr/sap/hostctrl
-        ------------------------------------------------------------
-        total 0
-        drwxr-x--x 1 root   sapsys   14 May 19 11:27 .
-        drwxr-xr-x 1 root   root    104 Jul 22 07:52 ..
-        drwxr-x--x 1 root   sapsys 1.3K Jul 22 07:25 exe
-        drwxr-x--- 1 sapadm sapsys  382 Jul 22 11:11 work
-
-            |--> ls -lah /usr/sap/hostctrl/exe
-            ------------------------------------------------------------
-            total 198M
-            drwxr-x--x 1 root   sapsys 1.3K Jul 22 07:25 .
-            drwxr-x--x 1 root   sapsys   14 May 19 11:27 ..
-            -rwxr-x--- 1 root   sapsys 4.3M May 19 11:27 SAPCAR
-            -rw-r----- 1 root   sapsys    0 May 19 11:27 SIGNATURE.SMF
-            drwxr-x--- 1 root   sapsys   66 May 19 11:31 adapters.d
-            drwxr-x--- 1 root   sapsys  682 Jul 22 09:09 config.d
-            -rwxr-x--- 1 root   sapsys 4.3M May 19 11:27 convertoscolfilter
-            drwxr-x--- 1 root   sapsys   68 May 19 11:31 descriptors.d
-            -rw-r----- 1 root   sapsys  459 May 19 11:27 host_profile
-            -rwxr-x--- 1 root   sapsys  371 May 19 11:27 hostagent.mf
-            -rwxr-x--- 1 root   sapsys 3.4K May 19 11:27 hostagent_acknowledgements.txt
-            -rwsr-x--- 1 root   sapsys 3.7M May 19 11:27 hostexecstart
-            -rwxr-x--- 1 root   sapsys 4.5M May 19 11:27 http.monitor
-            -rwxr-x--- 1 root   sapsys 7.5K May 19 11:27 installsapinit.sh
-            -rwxr-x--- 1 root   sapsys 1.4M May 19 11:27 ldappasswd
-            -rwxr-x--- 1 root   sapsys 1.4M May 19 11:27 ldapreg
-            -rwxr-x--- 1 root   sapsys  31M May 19 11:27 libSQLDBCHDB.so
-            -rwxr-x--- 1 root   sapsys 5.3M May 19 11:27 librfccm.so
-            -rwxr-x--- 1 root   sapsys 4.8M May 19 11:27 libsapacosprep.so
-            -rwxr-xr-x 1 root   sapsys 5.6M May 19 11:27 libsapcrypto.so
-            -rwxr-x--- 1 root   sapsys 4.5M May 19 11:27 libsapdbadactrl.so
-            -rwxr-x--- 1 root   sapsys 4.2M May 19 11:27 libsapdbadapwrt.so
-            -rwxr-x--- 1 root   sapsys 4.2M May 19 11:27 libsapdbadasql.so
-            -rwxr-x--- 1 root   sapsys 5.2M May 19 11:27 libsapdbdb6ctrl.so
-            -rwxr-x--- 1 root   sapsys 4.8M May 19 11:27 libsapdbhdbctrl.so
-            -rwxr-x--- 1 root   sapsys 4.2M May 19 11:27 libsapdbhdbsql.so
-            -rwxr-x--- 1 root   sapsys 4.8M May 19 11:27 libsapdboractrl.so
-            -rwxr-x--- 1 root   sapsys 5.3M May 19 11:27 libsapdbsiqctrl.so
-            -rwxr-x--- 1 root   sapsys  12M May 19 11:27 libsapdbsybctrl.so
-            -rwxr-x--- 1 root   sapsys 488K May 19 11:27 libslcryptokernel.so
-            -rwxr-x--- 1 root   sapsys  150 May 19 11:27 libslcryptokernel.so.sha256
-            -rwxr-x--- 1 root   sapsys 5.3M May 19 11:27 lssap
-            drwxr-x--- 1 root   sapsys 2.9K Jul 22 08:16 operations.d
-            -rwxr-x--- 1 root   sapsys 4.8M May 19 11:27 sapacosprep
-            -rwxr-x--- 1 root   sapsys 5.2M May 19 11:27 sapcimb
-            -rwxr-x--- 1 root   sapsys 4.3M May 19 11:27 sapcimc
-            -rwxr-x--- 1 root   sapsys 5.0M May 19 11:27 sapcontrol
-            -rwxr-x--- 1 root   sapsys 1.3M May 19 11:27 sapcpp47.so
-            -rwxr-x--- 1 root   sapsys 5.9M May 19 11:27 sapdbctrl
-            -rwxr-x--- 1 root   sapsys 4.6M May 19 11:27 sapdsigner
-            -rwxr-x--- 1 root   sapsys  38K May 19 11:27 sapgenpse
-            -rwxr-x--- 1 root   sapsys 5.9M May 19 11:27 saphostctrl
-            -rwxr-x--- 1 root   root   5.7M May 19 11:27 saphostexec
-            -rwxr-x--- 1 root   sapsys  17K May 19 11:27 saphostv
-            -rwxr-x--- 1 root   sapsys  22K May 19 11:27 sapinit
-            -rwxr-x--- 1 root   sapsys 2.4M May 19 11:27 saposcol
-            -rwxr-x--- 1 root   sapsys 5.0M May 19 11:27 sapsbproxy
-            -rwxr-x--- 1 sapadm sapsys  19M May 19 11:27 sapstartsrv
-            -rwsr-x--- 1 root   sapsys 3.7M May 19 11:27 sapuxuserchk
-            -rwxr-xr-x 1 root   sapsys 340K May 19 11:27 sapuxusergetrtinfo
-            drwx------ 1 sapadm sapsys   56 May 19 11:27 sec
-            -rwxr-x--- 1 root   sapsys 4.4M May 19 11:27 sldreg
-            -rwxr-x--- 1 root   sapsys  17K Jul 22 07:25 sldreglib.so
-            -rwxr-x--- 1 root   sapsys 1.5M May 19 11:27 xml71d.so
-
-                |--> ls -lah /usr/sap/hostctrl/exe/adapters.d
-                ------------------------------------------------------------
-                total 8.0K
-                drwxr-x--- 1 root sapsys   66 May 19 11:31 .
-                drwxr-x--x 1 root sapsys 1.3K Jul 22 07:25 ..
-                -rw------- 1 root root   3.8K May 19 11:31 HDBLCM.adapter
-                -rw------- 1 root root   1.6K May 19 11:31 HDBLCM_ext1.adapter
-
-                |--> ls -lah /usr/sap/hostctrl/exe/config.d
-                ------------------------------------------------------------
-                total 2.0M
-                drwxr-x--- 1 root sapsys   682 Jul 22 09:09 .
-                drwxr-x--x 1 root sapsys  1.3K Jul 22 07:25 ..
-                -rw-r--r-- 1 root sapsys    92 May 19 11:31 SLToolsDetector.conf
-                -rwxr-x--- 1 root sapsys   18K Sep 18  2024 dbmetric.definition.db4.cimobj
-                -rwxr-x--- 1 root sapsys  207K Sep 18  2024 dbmetric.definition.db6.cimobj
-                -rwxr-x--- 1 root sapsys 1020K Sep 18  2024 dbmetric.definition.hdb.cimobj
-                -rwxr-x--- 1 root sapsys   71K Sep 18  2024 dbmetric.definition.mss.cimobj
-                -rwxr-x--- 1 root sapsys  197K Sep 18  2024 dbmetric.definition.ora.cimobj
-                -rwxr-x--- 1 root sapsys   81K Sep 18  2024 dbmetric.definition.sap.cimobj
-                -rwxr-x--- 1 root sapsys   23K Sep 18  2024 dbmetric.definition.siq.cimobj
-                -rwxr-x--- 1 root sapsys  309K Sep 18  2024 dbmetric.definition.syb.cimobj
-                -rwxr-x--- 1 root sapsys   50K Sep 18  2024 dbmetric.definition.tst.cimobj
-                drwxr-x--- 1 root sapsys   346 Sep 18  2024 dbmetrics.d
-                -rw-r----- 1 root sapsys    75 Jul 22 08:16 http.server.settings
-                -rw------- 1 root root    1.7K Jul 22 08:16 logfiles.config
-                drwxr-x--- 1 root root      48 May 19 11:31 vault
-
-                    |--> ls -lah /usr/sap/hostctrl/exe/config.d/dbmetrics.d
-                    ------------------------------------------------------------
-                    total 712K
-                    drwxr-x--- 1 root sapsys  346 Sep 18  2024 .
-                    drwxr-x--- 1 root sapsys  682 Jul 22 09:09 ..
-                    -rwxr-x--- 1 root sapsys  24K Sep 18  2024 00.general.hdb.cimobj
-                    -rwxr-x--- 1 root sapsys  78K Sep 18  2024 00.state.hdb.cimobj
-                    -rwxr-x--- 1 root sapsys  28K Sep 18  2024 10.host.capacity.hdb.cimobj
-                    -rwxr-x--- 1 root sapsys  398 Sep 18  2024 20.indexserver.hdb.cimobj
-                    -rwxr-x--- 1 root sapsys  396 Sep 18  2024 20.nameserver.hdb.cimobj
-                    -rwxr-x--- 1 root sapsys 565K Sep 18  2024 50.adhocsql.frun.hdb.cimobj
-                    -rwxr-x--- 1 root sapsys 2.1K Sep 18  2024 99.outsidediscovery.hdb.cimobj
-
-                    |--> ls -lah /usr/sap/hostctrl/exe/config.d/vault
-                    ------------------------------------------------------------
-                    total 8.0K
-                    drwxr-x--- 1 root root    48 May 19 11:31 .
-                    drwxr-x--- 1 root sapsys 682 Jul 22 09:09 ..
-                    -rw------- 1 root root   212 May 19 11:31 SSFS_SAP.DAT
-                    -rw------- 1 root root    92 May 19 11:31 SSFS_SAP.KEY
-
-                |--> ls -lah /usr/sap/hostctrl/exe/descriptors.d
-                ------------------------------------------------------------
-                total 8.0K
-                drwxr-x--- 1 root sapsys   68 May 19 11:31 .
-                drwxr-x--x 1 root sapsys 1.3K Jul 22 07:25 ..
-                -rw------- 1 root root    315 May 19 11:31 HDBLCM.lmsldesc
-                -rw------- 1 root root    268 May 19 11:31 hdbcockpit.lmsldesc
-
-                |--> ls -lah /usr/sap/hostctrl/exe/operations.d
-                ------------------------------------------------------------
-                total 208K
-                drwxr-x--- 1 root sapsys 2.9K Jul 22 08:16 .
-                drwxr-x--x 1 root sapsys 1.3K Jul 22 07:25 ..
-                -rw------- 1 root root    188 May 19 11:31 CheckPathExists_v1.conf
-                -rw------- 1 root root    238 May 19 11:31 CheckSHAVersion_v1.conf
-                -rw------- 1 root root    606 May 19 11:31 CollectComponentHashes_v3.conf
-                -rw------- 1 root root    605 May 19 11:31 DeleteXSADirectories_v1.conf
-                -rw------- 1 root root   1.4K May 19 11:31 HdbAddHost_v12.conf
-                -rw------- 1 root root    710 May 19 11:31 HdbCheckHost_v2.conf
-                -rw------- 1 root root    548 May 19 11:31 HdbClientInstall_v4.conf
-                -rw------- 1 root root   1.1K Jul 22 08:16 HdbCollectHostInfo_v11.conf
-                -rw------- 1 root root   1.2K May 19 11:31 HdbCollectHostInfo_v12.conf
-                -rw------- 1 root root   1.2K May 19 11:31 HdbCollectInstallerInfo_v8.conf
-                -rw------- 1 root root    699 May 19 11:31 HdbConfigureLssRemoteHost_v2.conf
-                -rw------- 1 root root   2.3K May 19 11:31 HdbCopyClientInstaller_v3.conf
-                -rw------- 1 root root   2.2K May 19 11:31 HdbCopyHdblcmInstaller_v5.conf
-                -rw------- 1 root root   1.7K May 19 11:31 HdbCopyLSSInstaller_v1.conf
-                -rw------- 1 root root   2.9K May 19 11:31 HdbCopyServerInstaller_v7.conf
-                -rw------- 1 root root   1.1K May 19 11:31 HdbDBUpgradeHost_v10.conf
-                -rw------- 1 root root    622 May 19 11:31 HdbMigrateSecureStore_v1.conf
-                -rw------- 1 root root   1.1K May 19 11:31 HdbModifyHostRoles_v6.conf
-                -rw------- 1 root root    679 May 19 11:31 HdbModifyHost_v4.conf
-                -rw------- 1 root root   1.2K May 19 11:31 HdbRegisterHost_v9.conf
-                -rw------- 1 root root   1.4K May 19 11:31 HdbRemoveCopiedClientInstaller_v2.conf
-                -rw------- 1 root root   1.5K May 19 11:31 HdbRemoveCopiedHdblcmInstaller_v2.conf
-                -rw------- 1 root root   1.4K May 19 11:31 HdbRemoveCopiedLSSInstaller_v1.conf
-                -rw------- 1 root root   1.4K May 19 11:31 HdbRemoveCopiedServerInstaller_v4.conf
-                -rw------- 1 root root   1008 May 19 11:31 HdbRemoveHost_v9.conf
-                -rw------- 1 root root   1.3K May 19 11:31 HdbRenameHost_v9.conf
-                -rw------- 1 root root   1.5K May 19 11:31 HdbServerUpdate_v15.conf
-                -rw------- 1 root root   1.1K May 19 11:31 HdbUninstallInstance_v7.conf
-                -rw------- 1 root root    626 May 19 11:31 HdbUninstallServerPlugin_v4.conf
-                -rw------- 1 root root   1.1K May 19 11:31 HdbUnregisterHost_v7.conf
-                -rw------- 1 root root    678 Jul 22 08:16 HdblcmCheckLssPath_v1.conf
-                -rw------- 1 root root    681 May 19 11:31 HdblcmCheckLssPath_v2.conf
-                -rw------- 1 root root   1.2K May 19 11:31 HdblcmCollectInstallerInfo_v9.conf
-                -rw------- 1 root root   1.7K May 19 11:31 HdblcmCopyResidentInstaller_v4.conf
-                -rw------- 1 root root    612 May 19 11:31 HdblcmLSSInstall_v2.conf
-                -rw------- 1 root root    536 May 19 11:31 HdblcmLSSRemoveHost_v1.conf
-                -rw------- 1 root root    479 May 19 11:31 HdblcmLSSUninstall_v1.conf
-                -rw------- 1 root root    610 May 19 11:31 HdblcmModifyComponentTrustLevel_v1.conf
-                -rw------- 1 root root   1.4K May 19 11:31 HdblcmRemoveResidentInstaller.conf
-                -rw------- 1 root root    570 May 19 11:31 HdblcmUnregisterComponentFromLSS_v3.conf
-                -rw------- 1 root root    469 May 19 11:31 START_HDBLCM.conf
-                -rw------- 1 root root    491 May 19 11:31 START_HDBLCM_v2.conf
-                -rw------- 1 root root    241 May 19 11:31 START_UI_HDBLCM.conf
-                -rw------- 1 root root   1.5K May 19 11:31 hdblcm_add_hosts_v12.conf
-                -rw------- 1 root root   1.1K May 19 11:31 hdblcm_assign_roles_v8.conf
-                -rw------- 1 root root    697 May 19 11:31 hdblcm_check_system_v1.conf
-                -rw------- 1 root root    570 May 19 11:31 hdblcm_detect_system.conf
-                -rw------- 1 root root   1.3K May 19 11:31 hdblcm_remove_hosts_v8.conf
-                -rw------- 1 root root   1.1K May 19 11:31 hdblcm_remove_roles_v5.conf
-                -rw------- 1 root root   1.1K May 19 11:31 hdblcm_update_host_v5.conf
-                -rw------- 1 root root    625 May 19 11:31 update_resident_hdblcm_v4.conf
-                -rw------- 1 root root    703 May 19 11:31 update_resident_hdblcm_v6.conf
-
-                |--> ls -lah /usr/sap/hostctrl/exe/sec
-                ------------------------------------------------------------
-                total 12K
-                drwx------ 1 sapadm sapsys   56 May 19 11:27 .
-                drwxr-x--x 1 root   sapsys 1.3K Jul 22 07:25 ..
-                -rw------- 1 sapadm sapsys 1.9K May 19 11:27 SAPSSLS.pse
-                -rw-r----- 1 sapadm sapsys   93 May 19 11:27 cred_v2
-                -rw-r----- 1 sapadm sapsys  888 May 19 11:27 host78.p10
-
-            |--> ls -lah /usr/sap/hostctrl/work
-            ------------------------------------------------------------
-            total 1.3M
-            drwxr-x--- 1 sapadm sapsys  382 Jul 22 11:11 .
-            drwxr-x--x 1 root   sapsys   14 May 19 11:27 ..
-            -rw-r--r-- 1 root   sapsys   66 Jul 22 09:09 .foundmobj
-            drwx------ 1 sapadm sapsys 1.2K Jul 22 10:07 .osmetrics
-            -rw------- 1 root   root    201 Jul 22 10:30 .osmonitor.context
-            -rw-r----- 1 sapadm sapsys  965 Jul 21 12:54 ALALERTS
-            -rw-r----- 1 sapadm sapsys 303K Jul 21 12:54 ALMTTREE
-            -rw-r----- 1 sapadm sapsys 254K Jul 21 12:54 ALPERFHI
-            -rw-rw-r-- 1 root   root   619K Jul 22 11:00 coll.put
-            -rw-rw-r-- 1 root   sapsys  13K Jul 22 07:59 dev_coll
-            -rw-rw-r-- 1 root   sapsys  13K Jul 21 12:54 dev_coll.old
-            -rw-r--r-- 1 root   root   3.5K Jul 22 09:09 dev_sapdbctrl
-            -rw-r--r-- 1 root   sapsys 7.3K Jul 22 07:25 dev_saphostexec
-            -rw-r--r-- 1 root   sapsys 7.6K Jul 21 12:54 dev_saphostexec.old
-            drwxr-x--- 1 sapadm sapsys    0 May 19 11:27 dsr
-            drwxr-x--- 1 sapadm sapsys    0 May 19 11:27 grmg
-            drwxr-x--- 1 root   root      0 May 19 11:31 lib
-            drwxr-x--- 1 sapadm sapsys    0 May 19 11:27 logmon
-            drwxr-x--- 1 sapadm sapsys  184 Jul 22 07:25 sapccmsr
-            -rw-r----- 1 sapadm sapsys 5.6K Jul 22 08:16 sapstartsrv.log
-            -rw-r----- 1 sapadm sapsys 5.8K Jul 21 12:54 sapstartsrv.old
-
-                |--> ls -lah /usr/sap/hostctrl/work/.osmetrics
-                ------------------------------------------------------------
-                total 2.0M
-                drwx------ 1 sapadm sapsys 1.2K Jul 22 10:07 .
-                drwxr-x--- 1 sapadm sapsys  382 Jul 22 11:11 ..
-                -rw------- 1 root   root      0 Jul 22 07:25 .metrics-300-5.dat.gz.tmp
-                -rw------- 1 root   root      0 Jul 22 07:25 .metrics-3600-3.dat.gz.tmp
-                -rw------- 1 root   root      0 Jul 22 10:07 .metrics-60-4.dat.gz.tmp
-                -rw------- 1 root   root      0 Jul 22 07:25 .metrics-900-3.dat.gz.tmp
-                -rw------- 1 root   root   164K May 20 13:06 metrics-300-0.dat.gz
-                -rw------- 1 root   root    71K May 21 11:49 metrics-300-1.dat.gz
-                -rw------- 1 root   root    38K Jun 30 14:22 metrics-300-2.dat.gz
-                -rw------- 1 root   root   3.4K Jun 30 14:28 metrics-300-3.dat.gz
-                -rw------- 1 root   root   126K Jul 21 12:54 metrics-300-4.dat.gz
-                -rw------- 1 root   root    78K Jul 22 11:15 metrics-300-5.dat.gz
-                -rw------- 1 root   root    21K May 21 11:49 metrics-3600-0.dat.gz
-                -rw------- 1 root   root   3.3K Jun 30 14:22 metrics-3600-1.dat.gz
-                -rw------- 1 root   root   1.2K Jun 30 14:28 metrics-3600-2.dat.gz
-                -rw------- 1 root   root    20K Jul 22 10:25 metrics-3600-3.dat.gz
-                -rw------- 1 root   root   226K Jul 21 09:07 metrics-60-0.dat.gz
-                -rw------- 1 root   root    73K Jul 21 09:57 metrics-60-1.dat.gz
-                -rw------- 1 root   root    11K Jul 21 12:54 metrics-60-2.dat.gz
-                -rw------- 1 root   root   263K Jul 22 10:07 metrics-60-3.dat.gz
-                -rw------- 1 root   root   112K Jul 22 11:16 metrics-60-4.dat.gz
-                -rw------- 1 root   root    94K May 21 11:49 metrics-60-5.dat.gz
-                -rw------- 1 root   root   176K Jun 30 14:22 metrics-60-6.dat.gz
-                -rw------- 1 root   root   9.7K Jun 30 14:28 metrics-60-7.dat.gz
-                -rw------- 1 root   root   248K Jul 20 15:25 metrics-60-8.dat.gz
-                -rw------- 1 root   root    38K Jul 20 15:50 metrics-60-9.dat.gz
-                -rw------- 1 root   root    79K May 21 11:49 metrics-900-0.dat.gz
-                -rw------- 1 root   root    13K Jun 30 14:22 metrics-900-1.dat.gz
-                -rw------- 1 root   root   1.2K Jun 30 14:28 metrics-900-2.dat.gz
-                -rw------- 1 root   root    72K Jul 22 11:10 metrics-900-3.dat.gz
-
-                |--> ls -lah /usr/sap/hostctrl/work/dsr
-                ------------------------------------------------------------
-                total 0
-                drwxr-x--- 1 sapadm sapsys   0 May 19 11:27 .
-                drwxr-x--- 1 sapadm sapsys 382 Jul 22 11:11 ..
-
-                |--> ls -lah /usr/sap/hostctrl/work/grmg
-                ------------------------------------------------------------
-                total 0
-                drwxr-x--- 1 sapadm sapsys   0 May 19 11:27 .
-                drwxr-x--- 1 sapadm sapsys 382 Jul 22 11:11 ..
-
-                |--> ls -lah /usr/sap/hostctrl/work/lib
-                ------------------------------------------------------------
-                total 0
-                drwxr-x--- 1 root   root     0 May 19 11:31 .
-                drwxr-x--- 1 sapadm sapsys 382 Jul 22 11:11 ..
-
-                |--> ls -lah /usr/sap/hostctrl/work/logmon
-                ------------------------------------------------------------
-                total 0
-                drwxr-x--- 1 sapadm sapsys   0 May 19 11:27 .
-                drwxr-x--- 1 sapadm sapsys 382 Jul 22 11:11 ..
-
-                |--> ls -lah /usr/sap/hostctrl/work/sapccmsr
-                ------------------------------------------------------------
-                total 32K
-                drwxr-x--- 1 sapadm sapsys  184 Jul 22 07:25 .
-                drwxr-x--- 1 sapadm sapsys  382 Jul 22 11:11 ..
-                -rw-r----- 1 sapadm sapsys   50 Jul 22 07:25 agent.lock
-                -rw-r----- 1 sapadm sapsys    8 Jul 22 07:25 logsave.bin
-                -rw-r----- 1 sapadm sapsys 3.9K May 19 11:27 oscolfilter.ini
-                -rw-r----- 1 sapadm sapsys 1.5K May 19 11:27 sapccmsr.ini
-                -rw-r----- 1 sapadm sapsys 4.8K Jul 22 07:26 sapstartsrv_ccms.log
-                -rw-r----- 1 sapadm sapsys 5.8K Jul 21 12:54 sapstartsrv_ccms.log.old
-
+## Captured Filesystemdetails
+
+_HANA Version: n/a (run as sidadm for version info) | SID: n/a | Host: host78 | 2026-10-08 07:44:03_
+
+```
+ ls -lah /
+ ------------------------------------------------------------
+ total 0
+ drwxr-xr-x   1 root root  188 Jul 22 07:53 .
+ drwxr-xr-x   1 root root  188 Jul 22 07:53 ..
+ drwxr-x---   1 root root   48 Aug 12 11:41 .snapshots
+ drwxr-xr-x   1 root root 1.8K May 13 09:42 bin
+ drwxr-xr-x   1 root root  630 May 13 09:44 boot
+ drwxr-xr-x  20 root root 4.3K Oct  8 07:31 dev
+ drwxr-xr-x   1 root root 5.0K Aug 12 12:46 etc
+ drwxr-xr-x   1 root root   38 Jul 22 07:57 hana
+ drwxr-xr-x   1 root root    0 Mar 15  2022 home
+ drwxr-xr-x   1 root root 1.2K May 13 09:42 lib
+ drwxr-xr-x   1 root root 2.1K May 13 09:43 lib64
+ drwxr-xr-x   1 root root   12 Jul 22 07:53 lss
+ drwxr-xr-x   1 root root    0 Mar 15  2022 mnt
+ drwxr-xr-x   2 root root    0 Oct  7 05:36 nfs-share
+ drwxr-xr-x   1 root root    0 Mar 15  2022 opt
+ dr-xr-xr-x 507 root root    0 Oct  8 07:30 proc
+ drwx------   1 root root  290 Aug 12 13:07 root
+ drwxr-xr-x  44 root root 1.2K Oct  8 07:40 run
+ drwxr-xr-x   1 root root 3.8K May 13 09:44 sbin
+ drwxr-xr-x   1 root root    0 Mar 15  2022 selinux
+ drwxr-xr-x   1 root root    6 May 13 09:39 srv
+ dr-xr-xr-x  13 root root    0 Oct  8 07:30 sys
+ drwxrwxrwt   1 root root 2.0K Oct  8 07:43 tmp
+ drwxr-xr-x   1 root root  130 May 19 11:24 usr
+ drwxr-xr-x   1 root root  114 May 19 12:11 var
+
+ ls -lah /hana
+ ------------------------------------------------------------
+ total 0
+ drwxr-xr-x 1 root root  38 Jul 22 07:57 .
+ drwxr-xr-x 1 root root 188 Jul 22 07:53 ..
+ drwxr-xr-x 3 root root  17 Aug 12 12:46 data
+ drwxr-xr-x 3 root root  17 Aug 12 12:46 log
+ drwxr-xr-x 3 root root  17 Aug 12 12:46 shared
+ drwxrwxrwx 1 root root   6 Jul 22 07:57 tmpfs0
+
+     |--> ls -lah /hana/data
+     ------------------------------------------------------------
+     total 0
+     drwxr-xr-x 3 root   root   17 Aug 12 12:46 .
+     drwxr-xr-x 1 root   root   38 Jul 22 07:57 ..
+     drwxr-x--- 3 h78adm sapsys 22 Jul 22 07:56 H78
+
+         |--> ls -lah /hana/data/H78
+         ------------------------------------------------------------
+         total 0
+         drwxr-x--- 3 h78adm sapsys 22 Jul 22 07:56 .
+         drwxr-xr-x 3 root   root   17 Aug 12 12:46 ..
+         drwxr-x--- 5 h78adm sapsys 88 Oct  8 07:43 mnt00001
+
+             |--> ls -lah /hana/data/H78/mnt00001
+             ------------------------------------------------------------
+             total 4.0K
+             drwxr-x--- 5 h78adm sapsys  88 Oct  8 07:43 .
+             drwxr-x--- 3 h78adm sapsys  22 Jul 22 07:56 ..
+             drwxr-x--- 2 h78adm sapsys 101 Jul 22 07:57 hdb00001
+             drwxr-xr-- 2 h78adm sapsys  81 Jul 22 07:59 hdb00002.00003
+             drwxr-xr-- 2 h78adm sapsys  81 Jul 22 07:59 hdb00003.00003
+             -rw-r--r-- 1 h78adm sapsys  17 Oct  8 07:43 nameserver.lck
+
+                 |--> ls -lah /hana/data/H78/mnt00001/hdb00001
+                 ------------------------------------------------------------
+                 total 5.2G
+                 drwxr-x--- 2 h78adm sapsys  101 Jul 22 07:57 .
+                 drwxr-x--- 5 h78adm sapsys   88 Oct  8 07:43 ..
+                 -rw-r----- 1 h78adm sapsys    0 Jul 22 07:56 __DO_NOT_TOUCH_FILES_IN_THIS_DIRECTORY__
+                 -rw-r----- 1 h78adm sapsys 5.3G Oct  8 07:41 datavolume_0000.dat
+                 -rw-r----- 1 h78adm sapsys   36 Oct  8 07:31 landscape.id
+
+                 |--> ls -lah /hana/data/H78/mnt00001/hdb00002.00003
+                 ------------------------------------------------------------
+                 total 85M
+                 drwxr-xr-- 2 h78adm sapsys   81 Jul 22 07:59 .
+                 drwxr-x--- 5 h78adm sapsys   88 Oct  8 07:43 ..
+                 -rw-r--r-- 1 h78adm sapsys    0 Jul 22 07:59 __DO_NOT_TOUCH_FILES_IN_THIS_DIRECTORY__
+                 -rw-r--r-- 1 h78adm sapsys 258M Oct  8 07:42 datavolume_0000.dat
+
+                 |--> ls -lah /hana/data/H78/mnt00001/hdb00003.00003
+                 ------------------------------------------------------------
+                 total 11G
+                 drwxr-xr-- 2 h78adm sapsys  81 Jul 22 07:59 .
+                 drwxr-x--- 5 h78adm sapsys  88 Oct  8 07:43 ..
+                 -rw-r--r-- 1 h78adm sapsys   0 Jul 22 07:59 __DO_NOT_TOUCH_FILES_IN_THIS_DIRECTORY__
+                 -rw-r--r-- 1 h78adm sapsys 12G Oct  8 07:42 datavolume_0000.dat
+
+     |--> ls -lah /hana/log
+     ------------------------------------------------------------
+     total 0
+     drwxr-xr-x 3 root   root   17 Aug 12 12:46 .
+     drwxr-xr-x 1 root   root   38 Jul 22 07:57 ..
+     drwxr-x--- 3 h78adm sapsys 22 Jul 22 07:56 H78
+
+         |--> ls -lah /hana/log/H78
+         ------------------------------------------------------------
+         total 0
+         drwxr-x--- 3 h78adm sapsys 22 Jul 22 07:56 .
+         drwxr-xr-x 3 root   root   17 Aug 12 12:46 ..
+         drwxr-x--- 5 h78adm sapsys 66 Jul 22 07:59 mnt00001
+
+             |--> ls -lah /hana/log/H78/mnt00001
+             ------------------------------------------------------------
+             total 0
+             drwxr-x--- 5 h78adm sapsys  66 Jul 22 07:59 .
+             drwxr-x--- 3 h78adm sapsys  22 Jul 22 07:56 ..
+             drwxr-x--- 2 h78adm sapsys 215 Oct  8 07:31 hdb00001
+             drwxr-xr-- 2 h78adm sapsys 195 Oct  8 07:32 hdb00002.00003
+             drwxr-xr-- 2 h78adm sapsys 195 Oct  8 07:32 hdb00003.00003
+
+                 |--> ls -lah /hana/log/H78/mnt00001/hdb00001
+                 ------------------------------------------------------------
+                 total 194M
+                 drwxr-x--- 2 h78adm sapsys  215 Oct  8 07:31 .
+                 drwxr-x--- 5 h78adm sapsys   66 Jul 22 07:59 ..
+                 -rw-r----- 1 h78adm sapsys    0 Jul 22 07:56 __DO_NOT_TOUCH_FILES_IN_THIS_DIRECTORY__
+                 -rw-r----- 1 h78adm sapsys   36 Oct  8 07:31 landscape.id
+                 -rw-r----- 1 h78adm sapsys  64M Jul 22 07:56 logsegment_000_00000000.dat
+                 -rw-r--r-- 1 h78adm sapsys  64M Oct  8 07:44 logsegment_000_00000018.dat
+                 -rw-r--r-- 1 h78adm sapsys  64M Oct  7 14:24 logsegment_000_00000019.dat
+                 -rw-r----- 1 h78adm sapsys 1.3M Oct  8 07:31 logsegment_000_directory.dat
+
+                 |--> ls -lah /hana/log/H78/mnt00001/hdb00002.00003
+                 ------------------------------------------------------------
+                 total 26M
+                 drwxr-xr-- 2 h78adm sapsys  195 Oct  8 07:32 .
+                 drwxr-x--- 5 h78adm sapsys   66 Jul 22 07:59 ..
+                 -rw-r--r-- 1 h78adm sapsys    0 Jul 22 07:59 __DO_NOT_TOUCH_FILES_IN_THIS_DIRECTORY__
+                 -rw-r--r-- 1 h78adm sapsys 8.0M Jul 22 08:00 logsegment_000_00000000.dat
+                 -rw-r--r-- 1 h78adm sapsys 8.0M Oct  7 14:24 logsegment_000_00000001.dat
+                 -rw-r--r-- 1 h78adm sapsys 8.0M Oct  8 07:43 logsegment_000_00000002.dat
+                 -rw-r--r-- 1 h78adm sapsys 1.3M Oct  8 07:32 logsegment_000_directory.dat
+
+                 |--> ls -lah /hana/log/H78/mnt00001/hdb00003.00003
+                 ------------------------------------------------------------
+                 total 3.1G
+                 drwxr-xr-- 2 h78adm sapsys  195 Oct  8 07:32 .
+                 drwxr-x--- 5 h78adm sapsys   66 Jul 22 07:59 ..
+                 -rw-r--r-- 1 h78adm sapsys    0 Jul 22 07:59 __DO_NOT_TOUCH_FILES_IN_THIS_DIRECTORY__
+                 -rw-r--r-- 1 h78adm sapsys 1.0G Jul 22 07:59 logsegment_000_00000000.dat
+                 -rw-r--r-- 1 h78adm sapsys 1.0G Oct  8 07:43 logsegment_000_00000001.dat
+                 -rw-r--r-- 1 h78adm sapsys 1.0G Oct  7 14:24 logsegment_000_00000002.dat
+                 -rw-r--r-- 1 h78adm sapsys 1.3M Oct  8 07:32 logsegment_000_directory.dat
+
+     |--> ls -lah /hana/shared
+     ------------------------------------------------------------
+     total 0
+     drwxr-xr-x  3 root   root    17 Aug 12 12:46 .
+     drwxr-xr-x  1 root   root    38 Jul 22 07:57 ..
+     drwxr-xr-x 11 h78adm sapsys 155 Aug 12 12:43 H78
+
+         |--> ls -lah /hana/shared/H78
+         ------------------------------------------------------------
+         total 4.0K
+         drwxr-xr-x 11 h78adm sapsys  155 Aug 12 12:43 .
+         drwxr-xr-x  3 root   root     17 Aug 12 12:46 ..
+         drwxr-x---  4 h78adm sapsys  167 Aug 12 12:23 HDB77
+         dr-xr-x---  3 h78adm sapsys   25 Jul 22 07:52 exe
+         drwxr-x---  6 h78adm sapsys   62 Jul 22 08:07 global
+         drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 hdbclient
+         drwxr-xr-x  7 root   root    195 Aug 12 12:43 hdblcm
+         drwxr-xr-x  2 h78adm sapsys  138 Jul 22 08:16 lm_structure
+         lrwxrwxrwx  1 root   root     15 Jul 22 07:53 lss -> /lss/shared/H78
+         drwxr-xr-x  2 h78adm sapsys   49 Aug 12 12:37 profile
+         drwxr-xr-x  2 root   root      6 Jul 22 08:16 sapdbctrl-config
+         drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 xs
+
+             |--> ls -lah /hana/shared/H78/HDB77
+             ------------------------------------------------------------
+             total 52K
+             drwxr-x---  4 h78adm sapsys  167 Aug 12 12:23 .
+             drwxr-xr-x 11 h78adm sapsys  155 Aug 12 12:43 ..
+             -r-xr-xr-x  1 h78adm sapsys  14K Jul 22 07:53 HDB
+             -r-xr-xr-x  1 h78adm sapsys  538 Jul 22 07:53 HDBAdmin.sh
+             -r-xr-xr-x  1 h78adm sapsys 2.4K Jul 22 07:53 HDBSettings.csh
+             -r-xr-xr-x  1 h78adm sapsys 3.2K Jul 22 07:53 HDBSettings.sh
+             lrwxrwxrwx  1 h78adm sapsys   22 Jul 22 07:53 exe -> ../exe/linuxx86_64/hdb
+             -r-xr-xr-x  1 h78adm sapsys 8.0K Jul 22 07:53 hdbenv.csh
+             -r-xr-xr-x  1 h78adm sapsys  12K Jul 22 07:53 hdbenv.sh
+             drwxr-x---  9 h78adm sapsys  172 Oct  8 07:31 host78
+             drwxr-x---  3 h78adm sapsys   22 Oct  7 14:17 work
+             -r-xr-xr-x  1 h78adm sapsys 3.7K Jul 22 07:53 xterms
+
+                 |--> ls -lah /hana/shared/H78/HDB77/host78
+                 ------------------------------------------------------------
+                 total 32K
+                 drwxr-x--- 9 h78adm sapsys  172 Oct  8 07:31 .
+                 drwxr-x--- 4 h78adm sapsys  167 Aug 12 12:23 ..
+                 -rw-r--r-- 1 h78adm sapsys 5.7K Oct  8 07:31 daemon.ini
+                 -rw-r----- 1 h78adm sapsys  116 Jul 22 07:57 global.ini
+                 drwxr-x--- 2 h78adm sapsys  255 Oct  8 07:43 lock
+                 drwxr-x--- 5 h78adm sapsys   48 Jul 22 07:57 log
+                 -rwxr-x--- 1 h78adm sapsys  203 Jul 22 07:53 sapprofile.ini
+                 drwxr-x--- 2 h78adm sapsys  208 Oct  8 07:32 sec
+                 drwxr-x--- 3 h78adm sapsys   61 Oct  8 07:32 tmp
+                 drwxr-x--- 3 h78adm sapsys 8.0K Oct  8 07:43 trace
+                 drwxr-x--- 4 h78adm sapsys   66 Jul 22 08:00 wdisp
+                 -rw-r----- 1 h78adm sapsys  467 Jul 22 07:57 webdispatcher.ini
+                 drwxr-x--- 3 h78adm sapsys   20 Jul 22 07:58 work
+
+                 |--> ls -lah /hana/shared/H78/HDB77/work
+                 ------------------------------------------------------------
+                 total 0
+                 drwxr-x--- 3 h78adm sapsys  22 Oct  7 14:17 .
+                 drwxr-x--- 4 h78adm sapsys 167 Aug 12 12:23 ..
+                 drwxr-x--- 2 h78adm sapsys   6 Jul 22 08:07 SYSTEMDB
+
+             |--> ls -lah /hana/shared/H78/exe
+             ------------------------------------------------------------
+             total 0
+             dr-xr-x---  3 h78adm sapsys  25 Jul 22 07:52 .
+             drwxr-xr-x 11 h78adm sapsys 155 Aug 12 12:43 ..
+             dr-xr-x---  4 h78adm sapsys 107 Aug 12 12:35 linuxx86_64
+
+                 |--> ls -lah /hana/shared/H78/exe/linuxx86_64
+                 ------------------------------------------------------------
+                 total 40K
+                 dr-xr-x---  4 h78adm sapsys 107 Aug 12 12:35 .
+                 dr-xr-x---  3 h78adm sapsys  25 Jul 22 07:52 ..
+                 dr-xr-x--- 14 h78adm sapsys 24K Aug 12 12:35 HDB_2.00.083.00.1740646891_cb354e5c10ab5b780c40441638dc36604b7e9205
+                 lrwxrwxrwx  1 h78adm sapsys  67 Jul 22 07:52 hdb -> HDB_2.00.083.00.1740646891_cb354e5c10ab5b780c40441638dc36604b7e9205
+                 drwxr-xr-x  6 h78adm sapsys 296 Jul 22 07:54 plugins
+
+             |--> ls -lah /hana/shared/H78/global
+             ------------------------------------------------------------
+             total 0
+             drwxr-x---  6 h78adm sapsys  62 Jul 22 08:07 .
+             drwxr-xr-x 11 h78adm sapsys 155 Aug 12 12:43 ..
+             drwxr-x--- 19 h78adm sapsys 334 Oct  8 07:43 hdb
+             drwxr-xr-x  3 h78adm sapsys  66 Oct  8 07:34 sapcontrol
+             drwxr-x---  5 h78adm sapsys  45 Jul 22 07:52 security
+             drwx------  3 h78adm sapsys  46 Jul 22 08:07 xsa
+
+                 |--> ls -lah /hana/shared/H78/global/hdb
+                 ------------------------------------------------------------
+                 total 68K
+                 drwxr-x--- 19 h78adm sapsys  334 Oct  8 07:43 .
+                 drwxr-x---  6 h78adm sapsys   62 Jul 22 08:07 ..
+                 drwxr-x---  3 h78adm sapsys   28 Jul 22 07:52 IM
+                 -rw-r--r--  1 h78adm sapsys  46K Apr  3  2025 SIGNATURE.SMF
+                 dr-xr-xr-x  3 h78adm sapsys 4.0K Jul 22 08:03 auto_content
+                 drwxr-x---  4 h78adm sapsys   36 Jul 22 07:59 backint
+                 drwxr-x---  2 h78adm sapsys    6 Jul 22 07:52 checks
+                 dr-xr-xr-x  2 h78adm sapsys   91 Jul 22 07:53 content
+                 drwxr-x---  4 h78adm sapsys   42 Jul 22 07:52 custom
+                 drwxr-x---  2 h78adm sapsys    6 Jul 22 07:52 data
+                 drwxr-x---  6 h78adm sapsys  331 Jul 22 07:53 doc
+                 dr-xr-xr-x  3 h78adm sapsys   43 Jul 22 07:53 hdbcockpit
+                 drwxr-x---  7 h78adm sapsys   74 Jul 22 07:53 install
+                 drwx------  2 h78adm sapsys   27 Jul 22 08:07 mdc
+                 drwxr-x---  3 h78adm sapsys   59 Jul 22 09:01 metadata
+                 -rw-r--r--  1 h78adm sapsys   16 Oct  8 07:43 nameserver.lck
+                 drwxr-xr-x  2 h78adm sapsys 4.0K Jul 22 07:52 operations.d
+                 drwxr-x---  2 h78adm sapsys    6 Jul 22 07:52 opt
+                 drwxr-x---  4 h78adm sapsys   50 Jul 22 07:52 plugins
+                 dr-xr-xr-x  2 root   sapsys 4.0K Jul 22 07:52 saphostagent_setup
+                 drwx------  4 h78adm sapsys   29 Jul 22 07:52 security
+                 -rw-r--r--  1 h78adm sapsys  117 Jul 22 07:58 versionhistory.csv
+
+                 |--> ls -lah /hana/shared/H78/global/sapcontrol
+                 ------------------------------------------------------------
+                 total 4.0K
+                 drwxr-xr-x 3 h78adm sapsys 66 Oct  8 07:34 .
+                 drwxr-x--- 6 h78adm sapsys 62 Jul 22 08:07 ..
+                 -rw-r--r-- 1 h78adm sapsys 20 Oct  8 07:43 0.3_57713_57714_2109440_4_77_host78
+                 drwxrwx--- 2 h78adm sapsys  6 Oct  7 14:19 snapshots
+
+                 |--> ls -lah /hana/shared/H78/global/security
+                 ------------------------------------------------------------
+                 total 0
+                 drwxr-x--- 5 h78adm sapsys 45 Jul 22 07:52 .
+                 drwxr-x--- 6 h78adm sapsys 62 Jul 22 08:07 ..
+                 drwxr-x--- 2 h78adm sapsys  6 Jul 22 07:52 data
+                 drwxr-x--- 3 h78adm sapsys 19 Jul 22 07:52 lib
+                 drwx------ 4 h78adm sapsys 29 Jul 22 07:52 rsecssfs
+
+                 |--> ls -lah /hana/shared/H78/global/xsa
+                 ------------------------------------------------------------
+                 total 4.0K
+                 drwx------ 3 h78adm sapsys  46 Jul 22 08:07 .
+                 drwxr-x--- 6 h78adm sapsys  62 Jul 22 08:07 ..
+                 drwx------ 3 h78adm sapsys  18 Jul 22 08:07 security
+                 -rw-r----- 1 h78adm sapsys 148 Jul 22 08:07 xsa_rsecssfs.pfl
+
+             |--> ls -lah /hana/shared/H78/hdbclient
+             ------------------------------------------------------------
+             total 237M
+             drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 .
+             drwxr-xr-x 11 h78adm sapsys  155 Aug 12 12:43 ..
+             drwxr-xr-x  3 h78adm sapsys   31 Jul 22 08:03 deprecated
+             dr-xr-xr-x  4 h78adm sapsys   53 Jul 22 08:03 dotnetcore
+             drwxr-xr-x  5 h78adm sapsys   68 Jul 22 08:03 examples
+             dr-xr-xr-x  3 h78adm sapsys   17 Jul 22 08:03 golang
+             -r--r-Sr--  1 h78adm sapsys 1.3M Feb 18  2025 hana.ml.r_2.17.24011100.tar.gz
+             -r--r-Sr--  1 h78adm sapsys 9.0M Feb 18  2025 hana_ml-2.24.25031800.tar.gz
+             -rwxr-xr-x  1 h78adm sapsys 2.0K Feb 18  2025 hdbalm
+             -rwxr-xr-x  1 h78adm sapsys 253K Feb 18  2025 hdbalm.py
+             -rwxr-xr-x  1 h78adm sapsys 251K Feb 18  2025 hdbalm3.py
+             -r--r--r--  1 h78adm sapsys  22M Feb 18  2025 hdbcli-2.24.21.tar.gz
+             -rw-r--r--  1 h78adm sapsys  572 Jul 22 08:03 hdbclient.lst
+             -rwxr-xr-x  1 h78adm sapsys 2.1K Jul 22 08:03 hdbclienv.sh
+             -r-xr-xr-x  1 h78adm sapsys 7.5M Feb 18  2025 hdbkeystore
+             -r-xr-xr-x  1 h78adm sapsys 3.9M Feb 18  2025 hdbodbc_cons
+             -r-xr-xr-x  1 h78adm sapsys  34M Feb 18  2025 hdbsql
+             -r-xr-xr-x  1 h78adm sapsys 3.9M Feb 18  2025 hdbsqldbc_cons
+             -r-xr-xr-x  1 h78adm sapsys 3.4M Feb 18  2025 hdbuserstore
+             drwxr-xr-x  3 h78adm sapsys  116 Jul 22 09:02 install
+             -r-xr-xr-x  1 h78adm sapsys  33M Feb 18  2025 libSQLDBCHDB.so
+             -r-xr-xr-x  1 h78adm sapsys  33M Feb 18  2025 libdbcapiHDB.so
+             -r-xr-xr-x  1 h78adm sapsys  35M Feb 18  2025 libodbcHDB.so
+             -r-xr-xr-x  1 h78adm sapsys 5.6M Dec 13  2024 libsapcrypto.so
+             -r--r--r--  1 h78adm sapsys 488K Dec 19  2024 libslcryptokernel.so
+             -r--r--r--  1 h78adm sapsys  150 Dec 19  2024 libslcryptokernel.so.sha256
+             -r--r--r--  1 h78adm sapsys 1.1K Feb 18  2025 manifest
+             -r--r-Sr--  1 h78adm sapsys 1.5M Feb 18  2025 ngdbc.jar
+             dr-xr-xr-x  5 h78adm sapsys  108 Jul 22 08:03 node
+             -r-xr-xr-x  1 h78adm sapsys  18K Feb 18  2025 odbcreg
+             -r-xr-xr-x  1 h78adm sapsys  46M Feb 18  2025 regi
+             dr-xr-xr-x  4 h78adm sapsys   44 Jul 22 08:03 ruby
+             -r-xr-xr-x  1 h78adm sapsys  38K Dec 13  2024 sapgenpse
+             drwxr-xr-x  2 h78adm sapsys   39 Jul 22 08:03 scripts
+             dr-xr-xr-x  3 h78adm sapsys   18 Jul 22 08:03 sdk
+
+                 |--> ls -lah /hana/shared/H78/hdbclient/deprecated
+                 ------------------------------------------------------------
+                 total 8.0K
+                 drwxr-xr-x  3 h78adm sapsys   31 Jul 22 08:03 .
+                 drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
+                 drwxr-xr-x  3 h78adm sapsys   57 Jul 22 08:03 rtt
+                 -rwxr-xr-x  1 h78adm sapsys  112 Feb 18  2025 rtt.sh
+
+                 |--> ls -lah /hana/shared/H78/hdbclient/dotnetcore
+                 ------------------------------------------------------------
+                 total 33M
+                 dr-xr-xr-x  4 h78adm sapsys   53 Jul 22 08:03 .
+                 drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
+                 -r-xr-xr-x  1 h78adm sapsys  33M Feb 18  2025 libadonetHDB.so
+                 dr-xr-xr-x  2 h78adm sapsys 4.0K Jul 22 08:03 v6.0
+                 dr-xr-xr-x  2 h78adm sapsys 4.0K Jul 22 08:03 v8.0
+
+                 |--> ls -lah /hana/shared/H78/hdbclient/examples
+                 ------------------------------------------------------------
+                 total 8.0K
+                 drwxr-xr-x  5 h78adm sapsys   68 Jul 22 08:03 .
+                 drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
+                 drwxr-xr-x  4 h78adm sapsys   56 Jul 22 08:03 dotnetcore
+                 drwxr-xr-x  3 h78adm sapsys   17 Jul 22 08:03 golang
+                 drwxr-xr-x  2 h78adm sapsys   69 Jul 22 08:03 node
+                 -rw-r--r--  1 h78adm sapsys  812 Feb 18  2025 readme.txt
+
+                 |--> ls -lah /hana/shared/H78/hdbclient/golang
+                 ------------------------------------------------------------
+                 total 4.0K
+                 dr-xr-xr-x  3 h78adm sapsys   17 Jul 22 08:03 .
+                 drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
+                 dr-xr-xr-x  3 h78adm sapsys   17 Jul 22 08:03 src
+
+                 |--> ls -lah /hana/shared/H78/hdbclient/install
+                 ------------------------------------------------------------
+                 total 112K
+                 drwxr-xr-x  3 h78adm sapsys  116 Jul 22 09:02 .
+                 drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
+                 -rw-r--r--  1 h78adm sapsys  52K Jul 22 09:02 INSTREG
+                 -r-xr-xr-x  1 h78adm sapsys  15K Dec 20  2024 hdbclientreg
+                 -r-xr-xr-x  1 h78adm sapsys  15K Dec 20  2024 hdbinst
+                 -r-xr-xr-x  1 h78adm sapsys  15K Dec 20  2024 hdbuninst
+                 -rw-r--r--  1 h78adm sapsys   36 Jul 22 09:02 installation.ini
+                 drwxr-xr-x  6 h78adm sapsys 4.0K Jul 22 08:03 instruntime
+
+                 |--> ls -lah /hana/shared/H78/hdbclient/node
+                 ------------------------------------------------------------
+                 total 20K
+                 dr-xr-xr-x  5 h78adm sapsys  108 Jul 22 08:03 .
+                 drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
+                 -r--r--r--  1 h78adm sapsys 6.4K Feb 18  2025 README.md
+                 -r--r--r--  1 h78adm sapsys  928 Feb 18  2025 checkbuild.js
+                 dr-xr-xr-x  2 h78adm sapsys  119 Jul 22 08:03 extension
+                 dr-xr-xr-x  2 h78adm sapsys   40 Jul 22 08:03 lib
+                 -r--r--r--  1 h78adm sapsys  558 Feb 18  2025 package.json
+                 dr-xr-xr-x  3 h78adm sapsys   30 Jul 22 08:03 prebuilt
+
+                 |--> ls -lah /hana/shared/H78/hdbclient/ruby
+                 ------------------------------------------------------------
+                 total 4.0K
+                 dr-xr-xr-x  4 h78adm sapsys   44 Jul 22 08:03 .
+                 drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
+                 dr-xr-xr-x  2 h78adm sapsys   57 Jul 22 08:03 activerecord
+                 dr-xr-xr-x  2 h78adm sapsys   49 Jul 22 08:03 hanaclient
+
+                 |--> ls -lah /hana/shared/H78/hdbclient/scripts
+                 ------------------------------------------------------------
+                 total 12K
+                 drwxr-xr-x  2 h78adm sapsys   39 Jul 22 08:03 .
+                 drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
+                 -rwxr-xr-x  1 h78adm sapsys  162 Feb 18  2025 hdbkeystore
+                 -rwxr-xr-x  1 h78adm sapsys  162 Feb 18  2025 hdbsql
+
+                 |--> ls -lah /hana/shared/H78/hdbclient/sdk
+                 ------------------------------------------------------------
+                 total 4.0K
+                 dr-xr-xr-x  3 h78adm sapsys   18 Jul 22 08:03 .
+                 drwxr-xr-x 11 h78adm sapsys 4.0K Jul 22 08:03 ..
+                 dr-xr-xr-x  3 h78adm sapsys   18 Jul 22 08:03 odbc
+
+             |--> ls -lah /hana/shared/H78/hdblcm
+             ------------------------------------------------------------
+             total 108K
+             drwxr-xr-x  7 root   root    195 Aug 12 12:43 .
+             drwxr-xr-x 11 h78adm sapsys  155 Aug 12 12:43 ..
+             -rw-r--r--  1 h78adm sapsys  46K Apr  3  2025 SIGNATURE.SMF
+             drwxr-xr-x  2 root   root     55 Aug 12 12:43 adapters.d
+             drwxr-xr-x  2 root   root     56 Aug 12 12:43 descriptors.d
+             -rw-r--r--  1 root   root   3.5K Feb 27  2025 filelist.resident
+             -rwxr-xr-x  1 root   root    15K Feb 27  2025 hdblcm
+             -rwxr-xr-x  1 root   root    15K Feb 27  2025 hdblcmgui
+             -rwxr-xr-x  1 root   root    15K Feb 27  2025 hdblcmweb
+             drwxr-xr-x  9 root   root   4.0K Aug 12 12:43 instruntime
+             drwxr-xr-x  2 root   root   4.0K Aug 12 12:43 operations.d
+             drwxr-xr-x  5 h78adm sapsys   76 Aug 12 12:43 resources
+
+                 |--> ls -lah /hana/shared/H78/hdblcm/adapters.d
+                 ------------------------------------------------------------
+                 total 8.0K
+                 drwxr-xr-x 2 root root   55 Aug 12 12:43 .
+                 drwxr-xr-x 7 root root  195 Aug 12 12:43 ..
+                 -rw-r--r-- 1 root root 3.8K Feb 27  2025 HDBLCM.adapter
+                 -rw-r--r-- 1 root root 1.6K Feb 27  2025 HDBLCM_ext1.adapter
+
+                 |--> ls -lah /hana/shared/H78/hdblcm/descriptors.d
+                 ------------------------------------------------------------
+                 total 8.0K
+                 drwxr-xr-x 2 root root  56 Aug 12 12:43 .
+                 drwxr-xr-x 7 root root 195 Aug 12 12:43 ..
+                 -rw-r--r-- 1 root root 315 Feb 27  2025 HDBLCM.lmsldesc
+                 -rw-r--r-- 1 root root 268 Feb 27  2025 hdbcockpit.lmsldesc
+
+                 |--> ls -lah /hana/shared/H78/hdblcm/instruntime
+                 ------------------------------------------------------------
+                 total 66M
+                 drwxr-xr-x 9 root root 4.0K Aug 12 12:43 .
+                 drwxr-xr-x 7 root root  195 Aug 12 12:43 ..
+                 -rw-r--r-- 1 root root  18K Feb 27  2025 Base64.so
+                 -rw-r--r-- 1 root root  36K Feb 27  2025 Carp.pm
+                 -rw-r--r-- 1 root root  22K Feb 27  2025 Clone.so
+                 -rw-r--r-- 1 root root  23K Feb 27  2025 Cwd.so
+                 -rw-r--r-- 1 root root 109K Feb 27  2025 DND.so
+                 -rw-r--r-- 1 root root  44K Feb 27  2025 Dumper.so
+                 -rw-r--r-- 1 root root  54K Feb 27  2025 Encode.so
+                 drwxr-xr-x 2 root root   22 Aug 12 12:43 Exporter
+                 -rw-r--r-- 1 root root  19K Feb 27  2025 Exporter.pm
+                 -rw-r--r-- 1 root root  69K Feb 27  2025 FCGI.so
+                 drwxr-xr-x 2 root root   21 Aug 12 12:43 Getopt
+                 -rw-r--r-- 1 root root 422K Feb 27  2025 Grid.so
+                 -rw-r--r-- 1 root root  32K Feb 27  2025 HiRes.so
+                 -rw-r--r-- 1 root root  23K Feb 27  2025 IO.so
+                 -rw-r--r-- 1 root root 2.2M Feb 27  2025 LibXML.so
+                 -rw-r--r-- 1 root root  58K Feb 27  2025 Parser.so
+                 -rw-r--r-- 1 root root  47K Feb 27  2025 SHA.so
+                 -rw-r--r-- 1 root root  88K Feb 27  2025 SQLDBC.so
+                 -rw-r--r-- 1 root root 144K Feb 27  2025 SSH2.so
+                 -rw-r--r-- 1 root root 573K Feb 27  2025 SSLeay.so
+                 -rw-r--r-- 1 root root  74K Feb 27  2025 Session.so
+                 -rw-r--r-- 1 root root  52K Feb 27  2025 Socket.so
+                 -rw-r--r-- 1 root root 4.1M Feb 27  2025 Wx.so
+                 -rw-r--r-- 1 root root  77K Feb 27  2025 Zlib.so
+                 -rw-r--r-- 1 root root  11K Feb 27  2025 base.pm
+                 -rw-r--r-- 1 root root  15K Feb 27  2025 constant.pm
+                 drwxr-xr-x 2 root root   38 Aug 12 12:43 distcompat_ssl102k
+                 drwxr-xr-x 2 root root   38 Aug 12 12:43 distcompat_ssl11
+                 drwxr-xr-x 2 root root   38 Aug 12 12:43 distcompat_ssl30
+                 -rw-r--r-- 1 root root  31K Feb 27  2025 feature.pm
+                 -rw-r--r-- 1 root root  21K Feb 27  2025 hdblcm_update_help.txt
+                 -rw-r--r-- 1 root root  25K Feb 27  2025 hdblcm_update_passthrough_help.txt
+                 -rw-r--r-- 1 root root 1.5M Feb 27  2025 lcm_pm.tgz
+                 -rw-r--r-- 1 root root 1.6M Feb 27  2025 lcm_pm_ext.tgz
+                 -rw-r--r-- 1 root root  31K Feb 27  2025 lcm_res.tgz
+                 -rw-r--r-- 1 root root  32M Feb 27  2025 libSQLDBCHDB.so
+                 -rw-r--r-- 1 root root 3.9M Feb 27  2025 libperl.so
+                 -rw-r--r-- 1 root root 2.0M Feb 27  2025 libsdbrun.so
+                 -rw-r--r-- 1 root root  17M Feb 27  2025 libwx_gtk2u-3.0.so.0
+                 -r--r--r-- 1 root root  384 Feb 27  2025 manifest
+                 -rw-r--r-- 1 root root  54K Feb 27  2025 overload.pm
+                 -rw-r--r-- 1 root root 1.8K Feb 27  2025 overloading.pm
+                 -rw-r--r-- 1 root root 2.7K Feb 27  2025 parent.pm
+                 -rwxr-xr-x 1 root root  12K Feb 27  2025 sdbrun
+                 -rw-r--r-- 1 root root 5.1K Feb 27  2025 strict.pm
+                 -rw-r--r-- 1 root root 2.5K Feb 27  2025 vars.pm
+                 drwxr-xr-x 2 root root   22 Aug 12 12:43 version
+                 -rw-r--r-- 1 root root 2.0K Feb 27  2025 version.pm
+                 drwxr-xr-x 2 root root   25 Aug 12 12:43 warnings
+                 -rw-r--r-- 1 root root  57K Feb 27  2025 warnings.pm
+
+                 |--> ls -lah /hana/shared/H78/hdblcm/operations.d
+                 ------------------------------------------------------------
+                 total 204K
+                 drwxr-xr-x 2 root root 4.0K Aug 12 12:43 .
+                 drwxr-xr-x 7 root root  195 Aug 12 12:43 ..
+                 -rw-r--r-- 1 root root  188 Feb 27  2025 CheckPathExists_v1.conf
+                 -rw-r--r-- 1 root root  238 Feb 27  2025 CheckSHAVersion_v1.conf
+                 -rw-r--r-- 1 root root  606 Feb 27  2025 CollectComponentHashes_v3.conf
+                 -rw-r--r-- 1 root root  605 Feb 27  2025 DeleteXSADirectories_v1.conf
+                 -rw-r--r-- 1 root root 1.4K Feb 27  2025 HdbAddHost_v12.conf
+                 -rw-r--r-- 1 root root  710 Feb 27  2025 HdbCheckHost_v2.conf
+                 -rw-r--r-- 1 root root  548 Feb 27  2025 HdbClientInstall_v4.conf
+                 -rw-r--r-- 1 root root 1.1K Feb 27  2025 HdbCollectHostInfo_v11.conf
+                 -rw-r--r-- 1 root root 1.2K Feb 27  2025 HdbCollectInstallerInfo_v8.conf
+                 -rw-r--r-- 1 root root  699 Feb 27  2025 HdbConfigureLssRemoteHost_v2.conf
+                 -rw-r--r-- 1 root root 2.3K Feb 27  2025 HdbCopyClientInstaller_v3.conf
+                 -rw-r--r-- 1 root root 2.2K Feb 27  2025 HdbCopyHdblcmInstaller_v5.conf
+                 -rw-r--r-- 1 root root 1.7K Feb 27  2025 HdbCopyLSSInstaller_v1.conf
+                 -rw-r--r-- 1 root root 2.9K Feb 27  2025 HdbCopyServerInstaller_v7.conf
+                 -rw-r--r-- 1 root root 1.1K Feb 27  2025 HdbDBUpgradeHost_v10.conf
+                 -rw-r--r-- 1 root root  622 Feb 27  2025 HdbMigrateSecureStore_v1.conf
+                 -rw-r--r-- 1 root root 1.1K Feb 27  2025 HdbModifyHostRoles_v6.conf
+                 -rw-r--r-- 1 root root  679 Feb 27  2025 HdbModifyHost_v4.conf
+                 -rw-r--r-- 1 root root 1.2K Feb 27  2025 HdbRegisterHost_v9.conf
+                 -rw-r--r-- 1 root root 1.4K Feb 27  2025 HdbRemoveCopiedClientInstaller_v2.conf
+                 -rw-r--r-- 1 root root 1.5K Feb 27  2025 HdbRemoveCopiedHdblcmInstaller_v2.conf
+                 -rw-r--r-- 1 root root 1.4K Feb 27  2025 HdbRemoveCopiedLSSInstaller_v1.conf
+                 -rw-r--r-- 1 root root 1.4K Feb 27  2025 HdbRemoveCopiedServerInstaller_v4.conf
+                 -rw-r--r-- 1 root root 1008 Feb 27  2025 HdbRemoveHost_v9.conf
+                 -rw-r--r-- 1 root root 1.3K Feb 27  2025 HdbRenameHost_v9.conf
+                 -rw-r--r-- 1 root root 1.5K Feb 27  2025 HdbServerUpdate_v15.conf
+                 -rw-r--r-- 1 root root 1.1K Feb 27  2025 HdbUninstallInstance_v7.conf
+                 -rw-r--r-- 1 root root  626 Feb 27  2025 HdbUninstallServerPlugin_v4.conf
+                 -rw-r--r-- 1 root root 1.1K Feb 27  2025 HdbUnregisterHost_v7.conf
+                 -rw-r--r-- 1 root root  678 Feb 27  2025 HdblcmCheckLssPath_v1.conf
+                 -rw-r--r-- 1 root root 1.2K Feb 27  2025 HdblcmCollectInstallerInfo_v9.conf
+                 -rw-r--r-- 1 root root 1.7K Feb 27  2025 HdblcmCopyResidentInstaller_v4.conf
+                 -rw-r--r-- 1 root root  612 Feb 27  2025 HdblcmLSSInstall_v2.conf
+                 -rw-r--r-- 1 root root  536 Feb 27  2025 HdblcmLSSRemoveHost_v1.conf
+                 -rw-r--r-- 1 root root  479 Feb 27  2025 HdblcmLSSUninstall_v1.conf
+                 -rw-r--r-- 1 root root  610 Feb 27  2025 HdblcmModifyComponentTrustLevel_v1.conf
+                 -rw-r--r-- 1 root root 1.4K Feb 27  2025 HdblcmRemoveResidentInstaller.conf
+                 -rw-r--r-- 1 root root  570 Feb 27  2025 HdblcmUnregisterComponentFromLSS_v3.conf
+                 -rw-r--r-- 1 root root  469 Feb 27  2025 START_HDBLCM.conf
+                 -rw-r--r-- 1 root root  491 Feb 27  2025 START_HDBLCM_v2.conf
+                 -rw-r--r-- 1 root root  241 Feb 27  2025 START_UI_HDBLCM.conf
+                 -rw-r--r-- 1 root root 1.5K Feb 27  2025 hdblcm_add_hosts_v12.conf
+                 -rw-r--r-- 1 root root 1.1K Feb 27  2025 hdblcm_assign_roles_v8.conf
+                 -rw-r--r-- 1 root root  697 Feb 27  2025 hdblcm_check_system_v1.conf
+                 -rw-r--r-- 1 root root  570 Feb 27  2025 hdblcm_detect_system.conf
+                 -rw-r--r-- 1 root root 1.3K Feb 27  2025 hdblcm_remove_hosts_v8.conf
+                 -rw-r--r-- 1 root root 1.1K Feb 27  2025 hdblcm_remove_roles_v5.conf
+                 -rw-r--r-- 1 root root 1.1K Feb 27  2025 hdblcm_update_host_v5.conf
+                 -rw-r--r-- 1 root root  625 Feb 27  2025 update_resident_hdblcm_v4.conf
+                 -rw-r--r-- 1 root root  703 Feb 27  2025 update_resident_hdblcm_v6.conf
+
+                 |--> ls -lah /hana/shared/H78/hdblcm/resources
+                 ------------------------------------------------------------
+                 total 4.0K
+                 drwxr-xr-x  5 h78adm sapsys   76 Aug 12 12:43 .
+                 drwxr-xr-x  7 root   root    195 Aug 12 12:43 ..
+                 -rw-r--r--  1 h78adm sapsys 2.2K Feb 27  2025 index.html
+                 drwxr-xr-x  2 h78adm sapsys   57 Jul 22 07:53 nonresident
+                 drwxr-xr-x 12 h78adm sapsys  205 Aug 12 12:43 resident
+                 drwxr-xr-x  2 h78adm sapsys   31 Aug 12 12:43 templates
+
+             |--> ls -lah /hana/shared/H78/lm_structure
+             ------------------------------------------------------------
+             total 28K
+             drwxr-xr-x  2 h78adm sapsys  138 Jul 22 08:16 .
+             drwxr-xr-x 11 h78adm sapsys  155 Aug 12 12:43 ..
+             -rwxr-xr-x  1 h78adm sapsys   95 Aug 12 12:43 currentStack.properties
+             -rwxr-xr-x  1 h78adm sapsys 6.4K Aug 12 12:43 landscapeDescription.xml
+             -rwxr-xr-x  1 h78adm sapsys  12K Aug 12 12:43 landscapeDescription.xsd
+             -rwxr-xr-x  1 h78adm sapsys  285 Aug 12 12:43 landscapeVariables.properties
+
+             |--> ls -lah /hana/shared/H78/profile
+             ------------------------------------------------------------
+             total 8.0K
+             drwxr-xr-x  2 h78adm sapsys   49 Aug 12 12:37 .
+             drwxr-xr-x 11 h78adm sapsys  155 Aug 12 12:43 ..
+             -rw-r--r--  1 h78adm sapsys  244 Jul 22 07:53 DEFAULT.PFL
+             -rw-r--r--  1 h78adm sapsys 2.2K Aug 12 12:37 H78_HDB77_host78
+
+             |--> ls -lah /hana/shared/H78/sapdbctrl-config
+             ------------------------------------------------------------
+             total 0
+             drwxr-xr-x  2 root   root     6 Jul 22 08:16 .
+             drwxr-xr-x 11 h78adm sapsys 155 Aug 12 12:43 ..
+
+             |--> ls -lah /hana/shared/H78/xs
+             ------------------------------------------------------------
+             total 20K
+             drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 .
+             drwxr-xr-x 11 h78adm sapsys  155 Aug 12 12:43 ..
+             -rw-r--r--  1 h78adm sapsys    0 Jul 22 08:08 .lock
+             -rw-------  1 h78adm sapsys    5 Oct  8 07:34 .pid
+             -r--r-----  1 h78adm sapsys 1020 Mar 19  2025 PD.XML
+             drwxr-x--x  4 h78adm sapsys   34 Oct  8 07:34 app_working
+             dr-xr-x---  2 h78adm sapsys  215 Jul 22 09:02 bin
+             drwxr-x---  2 h78adm sapsys   34 Aug 12 06:01 cmp-registry
+             drwxr-x--x  4 h78adm sapsys   60 Jul 22 08:09 controller_data
+             drwxr-x---  4 h78adm sapsys  160 Jul 22 07:54 install
+             dr-xr-x---  5 h78adm sapsys   51 Jul 22 07:54 installation-scripts
+             dr-xr-x---  5 h78adm sapsys   52 Jul 22 07:54 installdata
+             dr-xr-x--x  3 h78adm sapsys 4.0K Jul 22 07:54 jars
+             -r--r--r--  1 h78adm sapsys  746 Mar 19  2025 manifest
+             dr-xr-x--x  7 h78adm sapsys  158 Jul 22 09:02 node_14
+             dr-xr-----  3 h78adm sapsys   27 Jul 22 07:54 router
+             dr-xr-xr-x  7 h78adm sapsys  155 Jul 22 09:02 sapjvm_8
+             dr-xr-x--x 10 h78adm sapsys  118 Jul 22 09:02 sapmachine-17
+             dr-xr-x---  3 h78adm sapsys   20 Jul 22 07:54 uaaserver
+
+                 |--> ls -lah /hana/shared/H78/xs/app_working
+                 ------------------------------------------------------------
+                 total 0
+                 drwxr-x--x  4 h78adm sapsys  34 Oct  8 07:34 .
+                 drwxr-xr-x 15 h78adm sapsys 291 Jul 22 09:09 ..
+                 drwx--x--x  6 h78adm sapsys  96 Jul 22 08:09 host78
+                 drwx--x--x  6 h78adm sapsys  54 Oct  8 07:34 stager
+
+                 |--> ls -lah /hana/shared/H78/xs/bin
+                 ------------------------------------------------------------
+                 total 40K
+                 dr-xr-x---  2 h78adm sapsys  215 Jul 22 09:02 .
+                 drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
+                 -r-xr-x---  1 h78adm sapsys 1.1K Mar 19  2025 XSA
+                 -r-xr-x---  1 h78adm sapsys 1.5K Mar 19  2025 hdbxscheckstartup
+                 -r-xr-x---  1 h78adm sapsys 1.8K Mar 19  2025 hdbxscontroller
+                 -r-xr-x---  1 h78adm sapsys 3.0K Mar 19  2025 hdbxsenv
+                 -r-xr-x---  1 h78adm sapsys 1.5K Mar 19  2025 hdbxsexecagent
+                 -r-xr-x---  1 h78adm sapsys 9.4K Mar 19  2025 hdbxsuaaserver
+                 -r-xr-x---  1 h78adm sapsys 2.5K Mar 19  2025 xs
+                 -r-xr-x---  1 h78adm sapsys 1.6K Mar 19  2025 xs-admin-login
+                 lrwxrwxrwx  1 h78adm sapsys   25 Jul 22 09:02 xscontroller -> ../sapmachine-17/bin/java
+                 lrwxrwxrwx  1 h78adm sapsys   25 Jul 22 09:02 xsexecagent -> ../sapmachine-17/bin/java
+                 lrwxrwxrwx  1 h78adm sapsys   25 Jul 22 09:02 xsuaaserver -> ../sapmachine-17/bin/java
+
+                 |--> ls -lah /hana/shared/H78/xs/cmp-registry
+                 ------------------------------------------------------------
+                 total 4.0K
+                 drwxr-x---  2 h78adm sapsys   34 Aug 12 06:01 .
+                 drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
+                 -rw-r--r--  1 h78adm sapsys 2.3K Aug 12 06:01 cmp_registry_sap.xml
+
+                 |--> ls -lah /hana/shared/H78/xs/controller_data
+                 ------------------------------------------------------------
+                 total 4.0K
+                 drwxr-x--x  4 h78adm sapsys  60 Jul 22 08:09 .
+                 drwxr-xr-x 15 h78adm sapsys 291 Jul 22 09:09 ..
+                 -rw-r--r--  1 h78adm sapsys   0 Jul 22 08:08 .lock
+                 -rw-------  1 h78adm sapsys   5 Oct  8 07:34 .pid
+                 drwxr-x--x  6 h78adm sapsys  61 Jul 22 08:08 controller
+                 drwx--x--x  4 h78adm sapsys  94 Jul 22 08:13 fss
+
+                 |--> ls -lah /hana/shared/H78/xs/install
+                 ------------------------------------------------------------
+                 total 164K
+                 drwxr-x---  4 h78adm sapsys  160 Jul 22 07:54 .
+                 drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
+                 drwxr-xr-x  2 h78adm sapsys   92 Jul 22 07:54 CustomModules
+                 -rw-r--r--  1 h78adm sapsys  81K Jul 22 09:00 INSTREG
+                 -r--r--r--  1 h78adm sapsys  18K Mar 19  2025 InstallParams.xml
+                 -r-xr-xr-x  1 h78adm sapsys  15K Feb 21  2025 hdbclientreg
+                 -r-xr-xr-x  1 h78adm sapsys  15K Feb 21  2025 hdbinst
+                 -r-xr-xr-x  1 h78adm sapsys  15K Feb 21  2025 hdbuninst
+                 -r--r--r--  1 h78adm sapsys 5.1K Feb 21  2025 installcfg.dtd
+                 drwxr-xr-x  9 h78adm sapsys 4.0K Jul 22 07:54 instruntime
+
+                 |--> ls -lah /hana/shared/H78/xs/installation-scripts
+                 ------------------------------------------------------------
+                 total 0
+                 dr-xr-x---  5 h78adm sapsys  51 Jul 22 07:54 .
+                 drwxr-xr-x 15 h78adm sapsys 291 Jul 22 09:09 ..
+                 dr-xr-x---  4 h78adm sapsys  29 Jul 22 07:54 db
+                 dr-xr-x---  5 h78adm sapsys 161 Jul 22 07:54 installation
+                 dr-xr-x---  2 h78adm sapsys  61 Jul 22 07:54 support
+
+                 |--> ls -lah /hana/shared/H78/xs/installdata
+                 ------------------------------------------------------------
+                 total 4.0K
+                 dr-xr-x---  5 h78adm sapsys   52 Jul 22 07:54 .
+                 drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
+                 dr-xr-x---  7 h78adm sapsys   92 Jul 22 07:54 apps
+                 dr-xr-x---  2 h78adm sapsys  100 Jul 22 07:54 buildpacks
+                 dr-xr-x---  3 h78adm sapsys 4.0K Jul 22 07:55 runtimes
+
+                 |--> ls -lah /hana/shared/H78/xs/jars
+                 ------------------------------------------------------------
+                 total 47M
+                 dr-xr-x--x  3 h78adm sapsys 4.0K Jul 22 07:54 .
+                 drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
+                 -r--r--r--  1 h78adm sapsys 163K Mar 19  2025 JavaEWAH-1.1.13.jar
+                 -r--r--r--  1 h78adm sapsys  27K Mar 19  2025 aopalliance-repackaged-3.0.4.jar
+                 -r--r--r--  1 h78adm sapsys 123K Mar 19  2025 asm-9.7.jar
+                 -r--r--r--  1 h78adm sapsys  746 Mar 19  2025 buildinfo.mf
+                 -r--r--r--  1 h78adm sapsys  287 Mar 19  2025 buildinfo.txt
+                 dr-xr-xr-x  5 h78adm sapsys   40 Jul 22 07:54 cli-plugins
+                 -r--r--r--  1 h78adm sapsys 4.8K Mar 19  2025 com.sap.security.nw.SystemPKI-1.0.6.jar
+                 -r--r--r--  1 h78adm sapsys 115K Mar 19  2025 commoncryptolib-8.5.23.jar
+                 -r--r--r--  1 h78adm sapsys 357K Mar 19  2025 commons-codec-1.16.1.jar
+                 -r--r--r--  1 h78adm sapsys 1.1M Mar 19  2025 commons-compress-1.26.0.jar
+                 -r--r--r--  1 h78adm sapsys 497K Mar 19  2025 commons-io-2.16.1.jar
+                 -r--r--r--  1 h78adm sapsys 643K Mar 19  2025 commons-lang3-3.14.0.jar
+                 -r--r--r--  1 h78adm sapsys 4.5K Mar 19  2025 docker-java-3.3.3.jar
+                 -r--r--r--  1 h78adm sapsys 460K Mar 19  2025 docker-java-api-3.3.3.jar
+                 -r--r--r--  1 h78adm sapsys 364K Mar 19  2025 docker-java-core-3.3.3.jar
+                 -r--r--r--  1 h78adm sapsys  37K Mar 19  2025 docker-java-transport-3.3.3.jar
+                 -r--r--r--  1 h78adm sapsys  43K Mar 19  2025 docker-java-transport-netty-3.3.3.jar
+                 -r--r--r--  1 h78adm sapsys 8.9M Mar 19  2025 eclipselink-4.0.2.jar
+                 -r--r--r--  1 h78adm sapsys 4.6K Mar 19  2025 failureaccess-1.0.1.jar
+                 -r--r--r--  1 h78adm sapsys 210K Mar 19  2025 gmbal-4.0.3.jar
+                 -r--r--r--  1 h78adm sapsys 823K Mar 19  2025 grizzly-framework-4.0.2.jar
+                 -r--r--r--  1 h78adm sapsys 354K Mar 19  2025 grizzly-http-4.0.2.jar
+                 -r--r--r--  1 h78adm sapsys 307K Mar 19  2025 grizzly-http-server-4.0.2.jar
+                 -r--r--r--  1 h78adm sapsys 145K Mar 19  2025 grizzly-http-servlet-4.0.2.jar
+                 -r--r--r--  1 h78adm sapsys 2.3M Mar 19  2025 grizzly-http-servlet-server-4.0.2.jar
+                 -r--r--r--  1 h78adm sapsys 110K Mar 19  2025 grizzly-websockets-4.0.2.jar
+                 -r--r--r--  1 h78adm sapsys 2.9M Mar 19  2025 guava-32.0.0-jre.jar
+                 -r--r--r--  1 h78adm sapsys 203K Mar 19  2025 hk2-api-3.0.4.jar
+                 -r--r--r--  1 h78adm sapsys 201K Mar 19  2025 hk2-locator-3.0.4.jar
+                 -r--r--r--  1 h78adm sapsys 129K Mar 19  2025 hk2-utils-3.0.4.jar
+                 -r--r--r--  1 h78adm sapsys 100K Mar 19  2025 ini4j-0.5.4.jar
+                 -r--r--r--  1 h78adm sapsys  26K Mar 19  2025 istack-commons-runtime-4.1.2.jar
+                 -r--r--r--  1 h78adm sapsys  74K Mar 19  2025 jackson-annotations-2.15.4.jar
+                 -r--r--r--  1 h78adm sapsys 536K Mar 19  2025 jackson-core-2.15.4.jar
+                 -r--r--r--  1 h78adm sapsys 1.6M Mar 19  2025 jackson-databind-2.15.4.jar
+                 -r--r--r--  1 h78adm sapsys  32K Mar 19  2025 jackson-jaxrs-base-2.15.4.jar
+                 -r--r--r--  1 h78adm sapsys  17K Mar 19  2025 jackson-jaxrs-json-provider-2.15.4.jar
+                 -r--r--r--  1 h78adm sapsys  32K Mar 19  2025 jackson-module-jakarta-xmlbind-annotations-2.15.4.jar
+                 -r--r--r--  1 h78adm sapsys  36K Mar 19  2025 jackson-module-jaxb-annotations-2.15.4.jar
+                 -r--r--r--  1 h78adm sapsys  65K Mar 19  2025 jakarta.activation-api-2.1.3.jar
+                 -r--r--r--  1 h78adm sapsys  26K Mar 19  2025 jakarta.annotation-api-2.1.1.jar
+                 -r--r--r--  1 h78adm sapsys  11K Mar 19  2025 jakarta.inject-api-2.0.1.jar
+                 -r--r--r--  1 h78adm sapsys 162K Mar 19  2025 jakarta.persistence-api-3.1.0.jar
+                 -r--r--r--  1 h78adm sapsys 354K Mar 19  2025 jakarta.servlet-api-6.1.0-M2.jar
+                 -r--r--r--  1 h78adm sapsys  92K Mar 19  2025 jakarta.validation-api-3.0.2.jar
+                 -r--r--r--  1 h78adm sapsys 152K Mar 19  2025 jakarta.ws.rs-api-3.1.0.jar
+                 -r--r--r--  1 h78adm sapsys 128K Mar 19  2025 jakarta.xml.bind-api-4.0.2.jar
+                 -r--r--r--  1 h78adm sapsys  38K Mar 19  2025 jakarta.xml.soap-api-3.0.1.jar
+                 -r--r--r--  1 h78adm sapsys  74K Mar 19  2025 jakarta.xml.ws-api-4.0.1.jar
+                 -r--r--r--  1 h78adm sapsys 777K Mar 19  2025 javassist-3.30.2-GA.jar
+                 -r--r--r--  1 h78adm sapsys  26K Mar 19  2025 javax.annotation-api-1.2.jar
+                 -r--r--r--  1 h78adm sapsys  94K Mar 19  2025 javax.servlet-api-4.0.1.jar
+                 -r--r--r--  1 h78adm sapsys 126K Mar 19  2025 jaxb-api-2.3.1.jar
+                 -r--r--r--  1 h78adm sapsys 136K Mar 19  2025 jaxb-core-4.0.5.jar
+                 -r--r--r--  1 h78adm sapsys 899K Mar 19  2025 jaxb-runtime-4.0.5.jar
+                 -r--r--r--  1 h78adm sapsys 1.9M Mar 19  2025 jaxb-xjc-4.0.3.jar
+                 -r--r--r--  1 h78adm sapsys 2.6M Mar 19  2025 jaxws-rt-4.0.2.jar
+                 -r--r--r--  1 h78adm sapsys  17K Mar 19  2025 jcl-over-slf4j-1.7.29.jar
+                 -r--r--r--  1 h78adm sapsys 296K Mar 19  2025 jersey-client-3.1.7.jar
+                 -r--r--r--  1 h78adm sapsys 1.2M Mar 19  2025 jersey-common-3.1.7.jar
+                 -r--r--r--  1 h78adm sapsys  47K Mar 19  2025 jersey-container-grizzly2-http-3.1.7.jar
+                 -r--r--r--  1 h78adm sapsys  83K Mar 19  2025 jersey-entity-filtering-3.1.7.jar
+                 -r--r--r--  1 h78adm sapsys  77K Mar 19  2025 jersey-hk2-3.1.7.jar
+                 -r--r--r--  1 h78adm sapsys  95K Mar 19  2025 jersey-media-jaxb-3.1.7.jar
+                 -r--r--r--  1 h78adm sapsys  84K Mar 19  2025 jersey-media-json-jackson-3.1.7.jar
+                 -r--r--r--  1 h78adm sapsys 960K Mar 19  2025 jersey-server-3.1.7.jar
+                 -r--r--r--  1 h78adm sapsys 321K Mar 19  2025 jetty-client-9.4.55.v20240627.jar
+                 -r--r--r--  1 h78adm sapsys 244K Mar 19  2025 jetty-http-9.4.55.v20240627.jar
+                 -r--r--r--  1 h78adm sapsys 179K Mar 19  2025 jetty-io-9.4.55.v20240627.jar
+                 -r--r--r--  1 h78adm sapsys 576K Mar 19  2025 jetty-util-9.4.55.v20240627.jar
+                 -r--r--r--  1 h78adm sapsys 1.5M Mar 19  2025 ngdbc.jar
+                 -r--r--r--  1 h78adm sapsys 2.8M Mar 19  2025 org.eclipse.jgit-5.13.3.202401111512-r.jar
+                 -r--r--r--  1 h78adm sapsys  39K Mar 19  2025 semver4j-4.2.1.jar
+                 -r--r--r--  1 h78adm sapsys  41K Mar 19  2025 slf4j-api-1.7.29.jar
+                 -r--r--r--  1 h78adm sapsys 8.4K Mar 19  2025 slf4j-jdk14-1.7.29.jar
+                 -r--r--r--  1 h78adm sapsys 327K Mar 19  2025 snakeyaml-2.0.jar
+                 -r--r--r--  1 h78adm sapsys  38K Mar 19  2025 stax-ex-2.1.0.jar
+                 -r--r--r--  1 h78adm sapsys  74K Mar 19  2025 streambuffer-2.1.0.jar
+                 -r--r--r--  1 h78adm sapsys  22K Mar 19  2025 tls-sni-4.0.2.jar
+                 -r--r--r--  1 h78adm sapsys  72K Mar 19  2025 txw2-4.0.5.jar
+                 -r--r--r--  1 h78adm sapsys  51K Mar 19  2025 websocket-api-9.4.55.v20240627.jar
+                 -r--r--r--  1 h78adm sapsys  45K Mar 19  2025 websocket-client-9.4.55.v20240627.jar
+                 -r--r--r--  1 h78adm sapsys 210K Mar 19  2025 websocket-common-9.4.55.v20240627.jar
+                 -r--r--r--  1 h78adm sapsys  60K Mar 19  2025 xs2rt_1.0_client_api.jar
+                 -r--r--r--  1 h78adm sapsys 1.1M Mar 19  2025 xs2rt_1.0_client_impl.jar
+                 -r--r--r--  1 h78adm sapsys 2.0M Mar 19  2025 xs2rt_1.0_controller.jar
+                 -r--r--r--  1 h78adm sapsys 1.6M Mar 19  2025 xs2rt_1.0_core.jar
+                 -r--r--r--  1 h78adm sapsys  14K Mar 19  2025 xs2rt_1.0_droplet_addon.jar
+                 -r--r--r--  1 h78adm sapsys 449K Mar 19  2025 xs2rt_1.0_execution_agent.jar
+                 -r--r--r--  1 h78adm sapsys 692K Mar 19  2025 xs2rt_1.0_installation.jar
+                 -r--r--r--  1 h78adm sapsys 923K Mar 19  2025 xs2rt_1.0_server.jar
+                 -r--r--r--  1 h78adm sapsys  20K Mar 19  2025 xs2rt_1.0_services_fs.jar
+                 -r--r--r--  1 h78adm sapsys  27K Mar 19  2025 xs2rt_1.0_uaa_server.jar
+                 -r--r--r--  1 h78adm sapsys 304K Mar 19  2025 xs2rt_1.0_utils.jar
+
+                 |--> ls -lah /hana/shared/H78/xs/node_14
+                 ------------------------------------------------------------
+                 total 796K
+                 dr-xr-x--x  7 h78adm sapsys  158 Jul 22 09:02 .
+                 drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
+                 -r--r--r--  1 h78adm sapsys 671K Feb 20  2023 CHANGELOG_V14.md
+                 -r--r--r--  1 h78adm sapsys  82K Feb 20  2023 LICENSE
+                 -r--r--r--  1 h78adm sapsys  32K Feb 20  2023 README.md
+                 dr-xr-xr-x  3 h78adm sapsys  122 Jul 22 09:02 bin
+                 -r--r--r--  1 h78adm sapsys  178 Feb 20  2023 buildinfo.txt
+                 dr-xr-xr-x  3 h78adm sapsys   17 Jul 22 09:02 doc
+                 -r--r--r--  1 h78adm sapsys  165 Feb 20  2023 env.sh
+                 dr-xr-xr-x  3 h78adm sapsys   18 Jul 22 09:02 include
+                 dr-xr-xr-x  5 h78adm sapsys   55 Jul 22 09:02 lib
+                 dr-xr-xr-x  5 h78adm sapsys   45 Jul 22 09:02 share
+
+                 |--> ls -lah /hana/shared/H78/xs/router
+                 ------------------------------------------------------------
+                 total 4.0K
+                 dr-xr-----  3 h78adm sapsys   27 Jul 22 07:54 .
+                 drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
+                 dr-xr-x---  3 h78adm sapsys 4.0K Jul 22 07:54 webdispatcher
+
+                 |--> ls -lah /hana/shared/H78/xs/sapjvm_8
+                 ------------------------------------------------------------
+                 total 43M
+                 dr-xr-xr-x  7 h78adm sapsys  155 Jul 22 09:02 .
+                 drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
+                 -r--r--r--  1 h78adm sapsys 3.2K Jan 15  2025 COPYRIGHT
+                 -r--r--r--  1 h78adm sapsys  190 Jan 15  2025 THIRDPARTYLICENSEREADME.txt
+                 dr-xr-xr-x  2 h78adm sapsys 4.0K Jul 22 09:02 bin
+                 -r--r--r--  1 h78adm sapsys  178 Jan 15  2025 buildinfo.txt
+                 dr-xr-xr-x  3 h78adm sapsys  132 Jul 22 09:02 include
+                 dr-xr-xr-x  5 h78adm sapsys  159 Jul 22 09:02 jre
+                 dr-xr-xr-x  3 h78adm sapsys   17 Jul 22 09:02 legal
+                 dr-xr-xr-x  3 h78adm sapsys  160 Jul 22 09:02 lib
+                 -r--r--r--  1 h78adm sapsys  43M Jan 15  2025 src.zip
+
+                 |--> ls -lah /hana/shared/H78/xs/sapmachine-17
+                 ------------------------------------------------------------
+                 total 20K
+                 dr-xr-x--x 10 h78adm sapsys  118 Jul 22 09:02 .
+                 drwxr-xr-x 15 h78adm sapsys  291 Jul 22 09:09 ..
+                 dr-xr-xr-x  2 h78adm sapsys 4.0K Jul 22 09:02 bin
+                 dr-xr-xr-x  5 h78adm sapsys  123 Jul 22 09:02 conf
+                 dr-xr-xr-x  2 h78adm sapsys   47 Jul 22 09:02 ext
+                 dr-xr-xr-x  3 h78adm sapsys  153 Jul 22 09:02 include
+                 dr-xr-xr-x  2 h78adm sapsys 4.0K Jul 22 09:02 jmods
+                 dr-xr-xr-x 74 h78adm sapsys 4.0K Jul 22 09:02 legal
+                 dr-xr-xr-x  5 h78adm sapsys 4.0K Jul 22 09:02 lib
+                 dr-xr-xr-x  3 h78adm sapsys   18 Jul 22 09:02 man
+                 -r--r--r--  1 h78adm sapsys 1.3K Jan 21  2025 release
+
+                 |--> ls -lah /hana/shared/H78/xs/uaaserver
+                 ------------------------------------------------------------
+                 total 0
+                 dr-xr-x---  3 h78adm sapsys  20 Jul 22 07:54 .
+                 drwxr-xr-x 15 h78adm sapsys 291 Jul 22 09:09 ..
+                 dr-xr-x---  8 h78adm sapsys 208 Jul 22 08:07 tomcat
+
+     |--> ls -lah /hana/tmpfs0
+     ------------------------------------------------------------
+     total 0
+     drwxrwxrwx 1 root   root    6 Jul 22 07:57 .
+     drwxr-xr-x 1 root   root   38 Jul 22 07:57 ..
+     drwxrwxrwt 4 h78adm sapsys 80 Oct  8 07:31 H78
+
+         |--> ls -lah /hana/tmpfs0/H78
+         ------------------------------------------------------------
+         total 0
+         drwxrwxrwt 4 h78adm sapsys  80 Oct  8 07:31 .
+         drwxrwxrwx 1 root   root     6 Jul 22 07:57 ..
+         drwxr-x--- 2 h78adm sapsys  60 Oct  8 07:31 NVM-GMD-SID-H78
+         drwxr-xr-- 5 h78adm sapsys 100 Oct  8 07:31 mnt00001
+
+             |--> ls -lah /hana/tmpfs0/H78/NVM-GMD-SID-H78
+             ------------------------------------------------------------
+             total 192K
+             drwxr-x--- 2 h78adm sapsys   60 Oct  8 07:31 .
+             drwxrwxrwt 4 h78adm sapsys   80 Oct  8 07:31 ..
+             -rw-rw---- 1 h78adm sapsys 192K Oct  8 07:31 SAP_NVM_GAL_Manager_o011a_T4_host78
+
+             |--> ls -lah /hana/tmpfs0/H78/mnt00001
+             ------------------------------------------------------------
+             total 0
+             drwxr-xr-- 5 h78adm sapsys 100 Oct  8 07:31 .
+             drwxrwxrwt 4 h78adm sapsys  80 Oct  8 07:31 ..
+             drwxr-xr-- 3 h78adm sapsys  60 Oct  8 07:31 hdb00001
+             drwxr-xr-- 2 h78adm sapsys  40 Oct  8 07:31 hdb00002.00003
+             drwxr-xr-- 3 h78adm sapsys  60 Oct  8 07:32 hdb00003.00003
+
+                 |--> ls -lah /hana/tmpfs0/H78/mnt00001/hdb00001
+                 ------------------------------------------------------------
+                 total 0
+                 drwxr-xr-- 3 h78adm sapsys  60 Oct  8 07:31 .
+                 drwxr-xr-- 5 h78adm sapsys 100 Oct  8 07:31 ..
+                 drwx------ 3 h78adm sapsys  60 Oct  8 07:31 NVM-Root
+
+                 |--> ls -lah /hana/tmpfs0/H78/mnt00001/hdb00002.00003
+                 ------------------------------------------------------------
+                 total 0
+                 drwxr-xr-- 2 h78adm sapsys  40 Oct  8 07:31 .
+                 drwxr-xr-- 5 h78adm sapsys 100 Oct  8 07:31 ..
+
+                 |--> ls -lah /hana/tmpfs0/H78/mnt00001/hdb00003.00003
+                 ------------------------------------------------------------
+                 total 0
+                 drwxr-xr-- 3 h78adm sapsys  60 Oct  8 07:32 .
+                 drwxr-xr-- 5 h78adm sapsys 100 Oct  8 07:31 ..
+                 drwx------ 3 h78adm sapsys  60 Oct  8 07:32 NVM-Root
+
+     |--> ls -lah /usr/sap
+     ------------------------------------------------------------
+     total 8.0K
+     drwxr-xr-x 1 root   root   104 Aug 12 12:46 .
+     drwxr-xr-x 1 root   root   130 May 19 11:24 ..
+     drwxr-xr-x 1 h78adm sapsys  58 Jul 22 08:16 H78
+     drwxr-x--x 1 root   sapsys  14 May 19 11:27 hostctrl
+     -rwxr-xr-x 1 root   sapsys 139 Aug 12 12:46 sapservices
+     -rwxr-xr-- 1 root   sapsys 117 May 19 11:25 sapservices_202605_19_11.25.43
+
+         |--> ls -lah /usr/sap/H78
+         ------------------------------------------------------------
+         total 4.0K
+         drwxr-xr-x 1 h78adm   sapsys    58 Jul 22 08:16 .
+         drwxr-xr-x 1 root     root     104 Aug 12 12:46 ..
+         lrwxrwxrwx 1 h78adm   sapsys    22 Jul 22 07:53 HDB77 -> /hana/shared/H78/HDB77
+         drwxr-x--- 1 h78adm   sapsys    32 Jul 22 07:52 SYS
+         drwxr-x--- 1 h78adm   sapsys    38 Jul 22 08:16 hdblcm_uploads
+         drwxr-xr-x 1 h78adm   sapsys   392 Jul 22 08:16 home
+         drwxr-x--x 1 h78crypt h78crypt  36 Jul 22 07:53 lss
+
+             |--> ls -lah /usr/sap/H78/SYS
+             ------------------------------------------------------------
+             total 8.0K
+             drwxr-x--- 1 h78adm sapsys 32 Jul 22 07:52 .
+             drwxr-xr-x 1 h78adm sapsys 58 Jul 22 08:16 ..
+             drwxr-x--- 1 h78adm sapsys  6 Jul 22 07:52 exe
+             lrwxrwxrwx 1 h78adm sapsys 23 Jul 22 07:52 global -> /hana/shared/H78/global
+             lrwxrwxrwx 1 h78adm sapsys 24 Jul 22 07:52 profile -> /hana/shared/H78/profile
+
+                 |--> ls -lah /usr/sap/H78/SYS/exe
+                 ------------------------------------------------------------
+                 total 4.0K
+                 drwxr-x--- 1 h78adm sapsys  6 Jul 22 07:52 .
+                 drwxr-x--- 1 h78adm sapsys 32 Jul 22 07:52 ..
+                 lrwxrwxrwx 1 h78adm sapsys 36 Jul 22 07:52 hdb -> /hana/shared/H78/exe/linuxx86_64/hdb
+
+             |--> ls -lah /usr/sap/H78/hdblcm_uploads
+             ------------------------------------------------------------
+             total 0
+             drwxr-x--- 1 h78adm sapsys 38 Jul 22 08:16 .
+             drwxr-xr-x 1 h78adm sapsys 58 Jul 22 08:16 ..
+             drwxr-x--- 1 h78adm sapsys  0 Jul 22 08:16 SAPHostAgentUploads
+
+                 |--> ls -lah /usr/sap/H78/hdblcm_uploads/SAPHostAgentUploads
+                 ------------------------------------------------------------
+                 total 0
+                 drwxr-x--- 1 h78adm sapsys  0 Jul 22 08:16 .
+                 drwxr-x--- 1 h78adm sapsys 38 Jul 22 08:16 ..
+
+             |--> ls -lah /usr/sap/H78/home
+             ------------------------------------------------------------
+             total 72K
+             drwxr-xr-x 1 h78adm sapsys  392 Jul 22 08:16 .
+             drwxr-xr-x 1 h78adm sapsys   58 Jul 22 08:16 ..
+             -rw------- 1 h78adm sapsys 9.8K Aug 12 12:37 .bash_history
+             -r-xr-xr-x 1 h78adm sapsys 2.3K Feb  7  2025 .bashrc
+             drwx------ 1 h78adm sapsys    0 Mar 15  2022 .cache
+             drwx------ 1 h78adm sapsys   18 May 13 09:45 .config
+             -r-xr-xr-x 1 h78adm sapsys 2.5K Feb  7  2025 .cshrc
+             -rw-r--r-- 1 h78adm sapsys 1.6K Apr  9  2018 .emacs
+             drwxr-xr-x 1 h78adm sapsys    0 Mar 15  2022 .fonts
+             drwxr-xr-x 1 h78adm sapsys   12 Jul 22 07:55 .hdb
+             -rw-r--r-- 1 h78adm sapsys   73 May 25  2018 .i18n
+             -rw-r--r-- 1 h78adm sapsys  861 Apr  9  2018 .inputrc
+             drwx------ 1 h78adm sapsys    0 Mar 15  2022 .local
+             -rw-r--r-- 1 h78adm sapsys 5.4K May  9  2024 .muttrc
+             -r-xr-xr-x 1 h78adm sapsys 1.8K Feb  7  2025 .profile
+             -rwxr-x--- 1 h78adm sapsys 3.2K Jul 22 07:53 .sapenv.csh
+             -rwxr-x--- 1 h78adm sapsys 3.0K Jul 22 07:53 .sapenv.sh
+             -r-xr-xr-x 1 h78adm sapsys  176 Feb  7  2025 .sapsrc.csh
+             -r-xr-xr-x 1 h78adm sapsys  159 Feb  7  2025 .sapsrc.sh
+             drwxr-x--- 1 h78adm sapsys   26 Jul 22 08:07 .sdb
+             -rw-r--r-- 1 h78adm sapsys 2.0K May 25  2018 .xim.template
+             -rwxr-xr-x 1 h78adm sapsys 1.1K Apr 28  2025 .xinitrc.template
+             drwxr-x--- 1 h78adm sapsys   44 Jul 22 08:16 .xs_logs
+             -rw------- 1 h78adm sapsys  495 Jul 22 08:43 .xsconfig
+             drwxr-xr-x 1 h78adm sapsys    0 Mar 15  2022 bin
+             drwxr-xr-x 1 h78adm sapsys   20 May 13 09:40 public_html
+
+                 |--> ls -lah /usr/sap/H78/home/.cache
+                 ------------------------------------------------------------
+                 total 0
+                 drwx------ 1 h78adm sapsys   0 Mar 15  2022 .
+                 drwxr-xr-x 1 h78adm sapsys 392 Jul 22 08:16 ..
+
+                 |--> ls -lah /usr/sap/H78/home/.config
+                 ------------------------------------------------------------
+                 total 0
+                 drwx------ 1 h78adm sapsys  18 May 13 09:45 .
+                 drwxr-xr-x 1 h78adm sapsys 392 Jul 22 08:16 ..
+                 drwxr-xr-x 1 h78adm sapsys  38 May 13 09:45 autostart
+
+                     |--> ls -lah /usr/sap/H78/home/.config/autostart
+                     ------------------------------------------------------------
+                     total 4.0K
+                     drwxr-xr-x 1 h78adm sapsys  38 May 13 09:45 .
+                     drwx------ 1 h78adm sapsys  18 May 13 09:45 ..
+                     -rw-r--r-- 1 h78adm sapsys 190 May  9  2024 set_trusted.desktop
+
+                 |--> ls -lah /usr/sap/H78/home/.fonts
+                 ------------------------------------------------------------
+                 total 0
+                 drwxr-xr-x 1 h78adm sapsys   0 Mar 15  2022 .
+                 drwxr-xr-x 1 h78adm sapsys 392 Jul 22 08:16 ..
+
+                 |--> ls -lah /usr/sap/H78/home/.hdb
+                 ------------------------------------------------------------
+                 total 0
+                 drwxr-xr-x 1 h78adm sapsys  12 Jul 22 07:55 .
+                 drwxr-xr-x 1 h78adm sapsys 392 Jul 22 08:16 ..
+                 drwxr-xr-x 1 h78adm sapsys 180 Jul 22 08:16 host78
+
+                     |--> ls -lah /usr/sap/H78/home/.hdb/host78
+                     ------------------------------------------------------------
+                     total 40K
+                     drwxr-xr-x 1 h78adm sapsys 180 Jul 22 08:16 .
+                     drwxr-xr-x 1 h78adm sapsys  12 Jul 22 07:55 ..
+                     -rw------- 1 h78adm sapsys   0 Jul 22 08:00 SQLDBC.loc
+                     -rw------- 1 h78adm sapsys 27K Jul 22 08:00 SQLDBC.shm
+                     -rw-r----- 1 h78adm sapsys 871 Jul 22 08:16 SSFS_HDB.DAT
+                     -rw-r----- 1 h78adm sapsys  92 Jul 22 08:16 SSFS_HDB.KEY
+                     -rw-r--r-- 1 h78adm sapsys   0 Jul 22 08:00 SSFS_HDB.LOC
+                     -rw-r--r-- 1 h78adm sapsys  39 Jul 22 07:55 installations.73555000100200004274
+
+                 |--> ls -lah /usr/sap/H78/home/.local
+                 ------------------------------------------------------------
+                 total 0
+                 drwx------ 1 h78adm sapsys   0 Mar 15  2022 .
+                 drwxr-xr-x 1 h78adm sapsys 392 Jul 22 08:16 ..
+
+                 |--> ls -lah /usr/sap/H78/home/.sdb
+                 ------------------------------------------------------------
+                 total 4.0K
+                 drwxr-x--- 1 h78adm sapsys   26 Jul 22 08:07 .
+                 drwxr-xr-x 1 h78adm sapsys  392 Jul 22 08:16 ..
+                 -rw-r----- 1 h78adm sapsys 4.0K Jul 22 08:07 jdbctrace.shm
+
+                 |--> ls -lah /usr/sap/H78/home/.xs_logs
+                 ------------------------------------------------------------
+                 total 56K
+                 drwxr-x--- 1 h78adm sapsys  44 Jul 22 08:16 .
+                 drwxr-xr-x 1 h78adm sapsys 392 Jul 22 08:16 ..
+                 -rw-r----- 1 h78adm sapsys   0 Jul 22 08:43 .xs_0.log.lock
+                 -rw-r----- 1 h78adm sapsys 55K Jul 22 08:43 xs_0.log
+
+                 |--> ls -lah /usr/sap/H78/home/bin
+                 ------------------------------------------------------------
+                 total 0
+                 drwxr-xr-x 1 h78adm sapsys   0 Mar 15  2022 .
+                 drwxr-xr-x 1 h78adm sapsys 392 Jul 22 08:16 ..
+
+                 |--> ls -lah /usr/sap/H78/home/public_html
+                 ------------------------------------------------------------
+                 total 4.0K
+                 drwxr-xr-x 1 h78adm sapsys  20 May 13 09:40 .
+                 drwxr-xr-x 1 h78adm sapsys 392 Jul 22 08:16 ..
+                 -rw-r--r-- 1 h78adm sapsys  48 Feb  9  2016 .directory
+
+             |--> ls -lah /usr/sap/H78/lss
+             ------------------------------------------------------------
+             total 8.0K
+             drwxr-x--x 1 h78crypt h78crypt  36 Jul 22 07:53 .
+             drwxr-xr-x 1 h78adm   sapsys    58 Jul 22 08:16 ..
+             lrwxrwxrwx 1 root     root      19 Jul 22 07:53 exe -> /lss/shared/H78/exe
+             drwxr-xr-x 1 h78crypt h78crypt 300 Jul 22 07:53 home
+             drwxr-x--- 1 h78crypt h78crypt  14 Jul 22 07:53 local
+             lrwxrwxrwx 1 root     root      15 Jul 22 07:53 shared -> /lss/shared/H78
+
+                 |--> ls -lah /usr/sap/H78/lss/home
+                 ------------------------------------------------------------
+                 total 48K
+                 drwxr-xr-x 1 h78crypt h78crypt  300 Jul 22 07:53 .
+                 drwxr-x--x 1 h78crypt h78crypt   36 Jul 22 07:53 ..
+                 -rw------- 1 h78crypt h78crypt    0 May 18  1996 .bash_history
+                 -r--r--r-- 1 h78crypt h78crypt 2.3K Nov 11  2024 .bashrc
+                 drwx------ 1 h78crypt h78crypt    0 Mar 15  2022 .cache
+                 drwx------ 1 h78crypt h78crypt   18 May 13 09:45 .config
+                 -r-xr-xr-x 1 h78crypt h78crypt 2.5K Nov 11  2024 .cshrc
+                 -rw-r--r-- 1 h78crypt h78crypt 1.6K Apr  9  2018 .emacs
+                 drwxr-xr-x 1 h78crypt h78crypt    0 Mar 15  2022 .fonts
+                 -rw-r--r-- 1 h78crypt h78crypt   73 May 25  2018 .i18n
+                 -rw-r--r-- 1 h78crypt h78crypt  861 Apr  9  2018 .inputrc
+                 drwx------ 1 h78crypt h78crypt    0 Mar 15  2022 .local
+                 -rw-r--r-- 1 h78crypt h78crypt 5.4K May  9  2024 .muttrc
+                 -r--r--r-- 1 h78crypt h78crypt 1.8K Nov 11  2024 .profile
+                 -r-xr-xr-x 1 h78crypt h78crypt 1.3K Nov 11  2024 .sapenv.csh
+                 -r--r--r-- 1 h78crypt h78crypt 1.3K Nov 11  2024 .sapenv.sh
+                 -rw-r--r-- 1 h78crypt h78crypt 2.0K May 25  2018 .xim.template
+                 -rwxr-xr-x 1 h78crypt h78crypt 1.1K Apr 28  2025 .xinitrc.template
+                 drwxr-xr-x 1 h78crypt h78crypt    0 Mar 15  2022 bin
+                 drwxr-xr-x 1 h78crypt h78crypt   20 May 13 09:40 public_html
+
+                     |--> ls -lah /usr/sap/H78/lss/home/.cache
+                     ------------------------------------------------------------
+                     total 0
+                     drwx------ 1 h78crypt h78crypt   0 Mar 15  2022 .
+                     drwxr-xr-x 1 h78crypt h78crypt 300 Jul 22 07:53 ..
+
+                     |--> ls -lah /usr/sap/H78/lss/home/.config
+                     ------------------------------------------------------------
+                     total 0
+                     drwx------ 1 h78crypt h78crypt  18 May 13 09:45 .
+                     drwxr-xr-x 1 h78crypt h78crypt 300 Jul 22 07:53 ..
+                     drwxr-xr-x 1 h78crypt h78crypt  38 May 13 09:45 autostart
+
+                     |--> ls -lah /usr/sap/H78/lss/home/.fonts
+                     ------------------------------------------------------------
+                     total 0
+                     drwxr-xr-x 1 h78crypt h78crypt   0 Mar 15  2022 .
+                     drwxr-xr-x 1 h78crypt h78crypt 300 Jul 22 07:53 ..
+
+                     |--> ls -lah /usr/sap/H78/lss/home/.local
+                     ------------------------------------------------------------
+                     total 0
+                     drwx------ 1 h78crypt h78crypt   0 Mar 15  2022 .
+                     drwxr-xr-x 1 h78crypt h78crypt 300 Jul 22 07:53 ..
+
+                     |--> ls -lah /usr/sap/H78/lss/home/bin
+                     ------------------------------------------------------------
+                     total 0
+                     drwxr-xr-x 1 h78crypt h78crypt   0 Mar 15  2022 .
+                     drwxr-xr-x 1 h78crypt h78crypt 300 Jul 22 07:53 ..
+
+                     |--> ls -lah /usr/sap/H78/lss/home/public_html
+                     ------------------------------------------------------------
+                     total 4.0K
+                     drwxr-xr-x 1 h78crypt h78crypt  20 May 13 09:40 .
+                     drwxr-xr-x 1 h78crypt h78crypt 300 Jul 22 07:53 ..
+                     -rw-r--r-- 1 h78crypt h78crypt  48 Feb  9  2016 .directory
+
+                 |--> ls -lah /usr/sap/H78/lss/local
+                 ------------------------------------------------------------
+                 total 0
+                 drwxr-x--- 1 h78crypt h78crypt 14 Jul 22 07:53 .
+                 drwxr-x--x 1 h78crypt h78crypt 36 Jul 22 07:53 ..
+                 drwx------ 1 h78crypt sapsys   52 Jul 22 07:53 private
+
+                     |--> ls -lah /usr/sap/H78/lss/local/private
+                     ------------------------------------------------------------
+                     total 4.0K
+                     drwx------ 1 h78crypt sapsys    52 Jul 22 07:53 .
+                     drwxr-x--- 1 h78crypt h78crypt  14 Jul 22 07:53 ..
+                     drwx------ 1 h78crypt sapsys    26 Jul 22 07:53 common
+                     drwx------ 1 h78crypt sapsys    20 Jul 22 07:53 config
+                     -rw------- 1 h78crypt sapsys   145 Jul 22 07:53 lss.ini
+                     drwx------ 1 h78crypt sapsys    22 Jul 22 07:55 tenants
+
+         |--> ls -lah /usr/sap/hostctrl
+         ------------------------------------------------------------
+         total 0
+         drwxr-x--x 1 root   sapsys   14 May 19 11:27 .
+         drwxr-xr-x 1 root   root    104 Aug 12 12:46 ..
+         drwxr-x--x 1 root   sapsys 1.3K Oct  8 07:31 exe
+         drwxr-x--- 1 sapadm sapsys  382 Oct  8 07:42 work
+
+             |--> ls -lah /usr/sap/hostctrl/exe
+             ------------------------------------------------------------
+             total 198M
+             drwxr-x--x 1 root   sapsys 1.3K Oct  8 07:31 .
+             drwxr-x--x 1 root   sapsys   14 May 19 11:27 ..
+             -rwxr-x--- 1 root   sapsys 4.3M May 19 11:27 SAPCAR
+             -rw-r----- 1 root   sapsys    0 May 19 11:27 SIGNATURE.SMF
+             drwxr-x--- 1 root   sapsys   66 May 19 11:31 adapters.d
+             drwxr-x--- 1 root   sapsys  682 Aug 12 12:46 config.d
+             -rwxr-x--- 1 root   sapsys 4.3M May 19 11:27 convertoscolfilter
+             drwxr-x--- 1 root   sapsys   68 May 19 11:31 descriptors.d
+             -rw-r----- 1 root   sapsys  459 May 19 11:27 host_profile
+             -rwxr-x--- 1 root   sapsys  371 May 19 11:27 hostagent.mf
+             -rwxr-x--- 1 root   sapsys 3.4K May 19 11:27 hostagent_acknowledgements.txt
+             -rwsr-x--- 1 root   sapsys 3.7M May 19 11:27 hostexecstart
+             -rwxr-x--- 1 root   sapsys 4.5M May 19 11:27 http.monitor
+             -rwxr-x--- 1 root   sapsys 7.5K May 19 11:27 installsapinit.sh
+             -rwxr-x--- 1 root   sapsys 1.4M May 19 11:27 ldappasswd
+             -rwxr-x--- 1 root   sapsys 1.4M May 19 11:27 ldapreg
+             -rwxr-x--- 1 root   sapsys  31M May 19 11:27 libSQLDBCHDB.so
+             -rwxr-x--- 1 root   sapsys 5.3M May 19 11:27 librfccm.so
+             -rwxr-x--- 1 root   sapsys 4.8M May 19 11:27 libsapacosprep.so
+             -rwxr-xr-x 1 root   sapsys 5.6M May 19 11:27 libsapcrypto.so
+             -rwxr-x--- 1 root   sapsys 4.5M May 19 11:27 libsapdbadactrl.so
+             -rwxr-x--- 1 root   sapsys 4.2M May 19 11:27 libsapdbadapwrt.so
+             -rwxr-x--- 1 root   sapsys 4.2M May 19 11:27 libsapdbadasql.so
+             -rwxr-x--- 1 root   sapsys 5.2M May 19 11:27 libsapdbdb6ctrl.so
+             -rwxr-x--- 1 root   sapsys 4.8M May 19 11:27 libsapdbhdbctrl.so
+             -rwxr-x--- 1 root   sapsys 4.2M May 19 11:27 libsapdbhdbsql.so
+             -rwxr-x--- 1 root   sapsys 4.8M May 19 11:27 libsapdboractrl.so
+             -rwxr-x--- 1 root   sapsys 5.3M May 19 11:27 libsapdbsiqctrl.so
+             -rwxr-x--- 1 root   sapsys  12M May 19 11:27 libsapdbsybctrl.so
+             -rwxr-x--- 1 root   sapsys 488K May 19 11:27 libslcryptokernel.so
+             -rwxr-x--- 1 root   sapsys  150 May 19 11:27 libslcryptokernel.so.sha256
+             -rwxr-x--- 1 root   sapsys 5.3M May 19 11:27 lssap
+             drwxr-x--- 1 root   sapsys 2.9K Jul 22 08:16 operations.d
+             -rwxr-x--- 1 root   sapsys 4.8M May 19 11:27 sapacosprep
+             -rwxr-x--- 1 root   sapsys 5.2M May 19 11:27 sapcimb
+             -rwxr-x--- 1 root   sapsys 4.3M May 19 11:27 sapcimc
+             -rwxr-x--- 1 root   sapsys 5.0M May 19 11:27 sapcontrol
+             -rwxr-x--- 1 root   sapsys 1.3M May 19 11:27 sapcpp47.so
+             -rwxr-x--- 1 root   sapsys 5.9M May 19 11:27 sapdbctrl
+             -rwxr-x--- 1 root   sapsys 4.6M May 19 11:27 sapdsigner
+             -rwxr-x--- 1 root   sapsys  38K May 19 11:27 sapgenpse
+             -rwxr-x--- 1 root   sapsys 5.9M May 19 11:27 saphostctrl
+             -rwxr-x--- 1 root   root   5.7M May 19 11:27 saphostexec
+             -rwxr-x--- 1 root   sapsys  17K May 19 11:27 saphostv
+             -rwxr-x--- 1 root   sapsys  22K May 19 11:27 sapinit
+             -rwxr-x--- 1 root   sapsys 2.4M May 19 11:27 saposcol
+             -rwxr-x--- 1 root   sapsys 5.0M May 19 11:27 sapsbproxy
+             -rwxr-x--- 1 sapadm sapsys  19M May 19 11:27 sapstartsrv
+             -rwsr-x--- 1 root   sapsys 3.7M May 19 11:27 sapuxuserchk
+             -rwxr-xr-x 1 root   sapsys 340K May 19 11:27 sapuxusergetrtinfo
+             drwx------ 1 sapadm sapsys   56 May 19 11:27 sec
+             -rwxr-x--- 1 root   sapsys 4.4M May 19 11:27 sldreg
+             -rwxr-x--- 1 root   sapsys  17K Oct  8 07:31 sldreglib.so
+             -rwxr-x--- 1 root   sapsys 1.5M May 19 11:27 xml71d.so
+
+                 |--> ls -lah /usr/sap/hostctrl/exe/adapters.d
+                 ------------------------------------------------------------
+                 total 8.0K
+                 drwxr-x--- 1 root sapsys   66 May 19 11:31 .
+                 drwxr-x--x 1 root sapsys 1.3K Oct  8 07:31 ..
+                 -rw------- 1 root root   3.8K May 19 11:31 HDBLCM.adapter
+                 -rw------- 1 root root   1.6K May 19 11:31 HDBLCM_ext1.adapter
+
+                 |--> ls -lah /usr/sap/hostctrl/exe/config.d
+                 ------------------------------------------------------------
+                 total 2.0M
+                 drwxr-x--- 1 root sapsys   682 Aug 12 12:46 .
+                 drwxr-x--x 1 root sapsys  1.3K Oct  8 07:31 ..
+                 -rw-r--r-- 1 root sapsys    92 May 19 11:31 SLToolsDetector.conf
+                 -rwxr-x--- 1 root sapsys   18K Sep 18  2024 dbmetric.definition.db4.cimobj
+                 -rwxr-x--- 1 root sapsys  207K Sep 18  2024 dbmetric.definition.db6.cimobj
+                 -rwxr-x--- 1 root sapsys 1020K Sep 18  2024 dbmetric.definition.hdb.cimobj
+                 -rwxr-x--- 1 root sapsys   71K Sep 18  2024 dbmetric.definition.mss.cimobj
+                 -rwxr-x--- 1 root sapsys  197K Sep 18  2024 dbmetric.definition.ora.cimobj
+                 -rwxr-x--- 1 root sapsys   81K Sep 18  2024 dbmetric.definition.sap.cimobj
+                 -rwxr-x--- 1 root sapsys   23K Sep 18  2024 dbmetric.definition.siq.cimobj
+                 -rwxr-x--- 1 root sapsys  309K Sep 18  2024 dbmetric.definition.syb.cimobj
+                 -rwxr-x--- 1 root sapsys   50K Sep 18  2024 dbmetric.definition.tst.cimobj
+                 drwxr-x--- 1 root sapsys   346 Sep 18  2024 dbmetrics.d
+                 -rw-r----- 1 root sapsys   151 Aug 12 12:46 http.server.settings
+                 -rw------- 1 root root    2.4K Oct  8 07:36 logfiles.config
+                 drwxr-x--- 1 root root      48 May 19 11:31 vault
+
+                     |--> ls -lah /usr/sap/hostctrl/exe/config.d/dbmetrics.d
+                     ------------------------------------------------------------
+                     total 712K
+                     drwxr-x--- 1 root sapsys  346 Sep 18  2024 .
+                     drwxr-x--- 1 root sapsys  682 Aug 12 12:46 ..
+                     -rwxr-x--- 1 root sapsys  24K Sep 18  2024 00.general.hdb.cimobj
+                     -rwxr-x--- 1 root sapsys  78K Sep 18  2024 00.state.hdb.cimobj
+                     -rwxr-x--- 1 root sapsys  28K Sep 18  2024 10.host.capacity.hdb.cimobj
+                     -rwxr-x--- 1 root sapsys  398 Sep 18  2024 20.indexserver.hdb.cimobj
+                     -rwxr-x--- 1 root sapsys  396 Sep 18  2024 20.nameserver.hdb.cimobj
+                     -rwxr-x--- 1 root sapsys 565K Sep 18  2024 50.adhocsql.frun.hdb.cimobj
+                     -rwxr-x--- 1 root sapsys 2.1K Sep 18  2024 99.outsidediscovery.hdb.cimobj
+
+                     |--> ls -lah /usr/sap/hostctrl/exe/config.d/vault
+                     ------------------------------------------------------------
+                     total 8.0K
+                     drwxr-x--- 1 root root    48 May 19 11:31 .
+                     drwxr-x--- 1 root sapsys 682 Aug 12 12:46 ..
+                     -rw------- 1 root root   212 May 19 11:31 SSFS_SAP.DAT
+                     -rw------- 1 root root    92 May 19 11:31 SSFS_SAP.KEY
+
+                 |--> ls -lah /usr/sap/hostctrl/exe/descriptors.d
+                 ------------------------------------------------------------
+                 total 8.0K
+                 drwxr-x--- 1 root sapsys   68 May 19 11:31 .
+                 drwxr-x--x 1 root sapsys 1.3K Oct  8 07:31 ..
+                 -rw------- 1 root root    315 May 19 11:31 HDBLCM.lmsldesc
+                 -rw------- 1 root root    268 May 19 11:31 hdbcockpit.lmsldesc
+
+                 |--> ls -lah /usr/sap/hostctrl/exe/operations.d
+                 ------------------------------------------------------------
+                 total 208K
+                 drwxr-x--- 1 root sapsys 2.9K Jul 22 08:16 .
+                 drwxr-x--x 1 root sapsys 1.3K Oct  8 07:31 ..
+                 -rw------- 1 root root    188 May 19 11:31 CheckPathExists_v1.conf
+                 -rw------- 1 root root    238 May 19 11:31 CheckSHAVersion_v1.conf
+                 -rw------- 1 root root    606 May 19 11:31 CollectComponentHashes_v3.conf
+                 -rw------- 1 root root    605 May 19 11:31 DeleteXSADirectories_v1.conf
+                 -rw------- 1 root root   1.4K May 19 11:31 HdbAddHost_v12.conf
+                 -rw------- 1 root root    710 May 19 11:31 HdbCheckHost_v2.conf
+                 -rw------- 1 root root    548 May 19 11:31 HdbClientInstall_v4.conf
+                 -rw------- 1 root root   1.1K Jul 22 08:16 HdbCollectHostInfo_v11.conf
+                 -rw------- 1 root root   1.2K May 19 11:31 HdbCollectHostInfo_v12.conf
+                 -rw------- 1 root root   1.2K May 19 11:31 HdbCollectInstallerInfo_v8.conf
+                 -rw------- 1 root root    699 May 19 11:31 HdbConfigureLssRemoteHost_v2.conf
+                 -rw------- 1 root root   2.3K May 19 11:31 HdbCopyClientInstaller_v3.conf
+                 -rw------- 1 root root   2.2K May 19 11:31 HdbCopyHdblcmInstaller_v5.conf
+                 -rw------- 1 root root   1.7K May 19 11:31 HdbCopyLSSInstaller_v1.conf
+                 -rw------- 1 root root   2.9K May 19 11:31 HdbCopyServerInstaller_v7.conf
+                 -rw------- 1 root root   1.1K May 19 11:31 HdbDBUpgradeHost_v10.conf
+                 -rw------- 1 root root    622 May 19 11:31 HdbMigrateSecureStore_v1.conf
+                 -rw------- 1 root root   1.1K May 19 11:31 HdbModifyHostRoles_v6.conf
+                 -rw------- 1 root root    679 May 19 11:31 HdbModifyHost_v4.conf
+                 -rw------- 1 root root   1.2K May 19 11:31 HdbRegisterHost_v9.conf
+                 -rw------- 1 root root   1.4K May 19 11:31 HdbRemoveCopiedClientInstaller_v2.conf
+                 -rw------- 1 root root   1.5K May 19 11:31 HdbRemoveCopiedHdblcmInstaller_v2.conf
+                 -rw------- 1 root root   1.4K May 19 11:31 HdbRemoveCopiedLSSInstaller_v1.conf
+                 -rw------- 1 root root   1.4K May 19 11:31 HdbRemoveCopiedServerInstaller_v4.conf
+                 -rw------- 1 root root   1008 May 19 11:31 HdbRemoveHost_v9.conf
+                 -rw------- 1 root root   1.3K May 19 11:31 HdbRenameHost_v9.conf
+                 -rw------- 1 root root   1.5K May 19 11:31 HdbServerUpdate_v15.conf
+                 -rw------- 1 root root   1.1K May 19 11:31 HdbUninstallInstance_v7.conf
+                 -rw------- 1 root root    626 May 19 11:31 HdbUninstallServerPlugin_v4.conf
+                 -rw------- 1 root root   1.1K May 19 11:31 HdbUnregisterHost_v7.conf
+                 -rw------- 1 root root    678 Jul 22 08:16 HdblcmCheckLssPath_v1.conf
+                 -rw------- 1 root root    681 May 19 11:31 HdblcmCheckLssPath_v2.conf
+                 -rw------- 1 root root   1.2K May 19 11:31 HdblcmCollectInstallerInfo_v9.conf
+                 -rw------- 1 root root   1.7K May 19 11:31 HdblcmCopyResidentInstaller_v4.conf
+                 -rw------- 1 root root    612 May 19 11:31 HdblcmLSSInstall_v2.conf
+                 -rw------- 1 root root    536 May 19 11:31 HdblcmLSSRemoveHost_v1.conf
+                 -rw------- 1 root root    479 May 19 11:31 HdblcmLSSUninstall_v1.conf
+                 -rw------- 1 root root    610 May 19 11:31 HdblcmModifyComponentTrustLevel_v1.conf
+                 -rw------- 1 root root   1.4K May 19 11:31 HdblcmRemoveResidentInstaller.conf
+                 -rw------- 1 root root    570 May 19 11:31 HdblcmUnregisterComponentFromLSS_v3.conf
+                 -rw------- 1 root root    469 May 19 11:31 START_HDBLCM.conf
+                 -rw------- 1 root root    491 May 19 11:31 START_HDBLCM_v2.conf
+                 -rw------- 1 root root    241 May 19 11:31 START_UI_HDBLCM.conf
+                 -rw------- 1 root root   1.5K May 19 11:31 hdblcm_add_hosts_v12.conf
+                 -rw------- 1 root root   1.1K May 19 11:31 hdblcm_assign_roles_v8.conf
+                 -rw------- 1 root root    697 May 19 11:31 hdblcm_check_system_v1.conf
+                 -rw------- 1 root root    570 May 19 11:31 hdblcm_detect_system.conf
+                 -rw------- 1 root root   1.3K May 19 11:31 hdblcm_remove_hosts_v8.conf
+                 -rw------- 1 root root   1.1K May 19 11:31 hdblcm_remove_roles_v5.conf
+                 -rw------- 1 root root   1.1K May 19 11:31 hdblcm_update_host_v5.conf
+                 -rw------- 1 root root    625 May 19 11:31 update_resident_hdblcm_v4.conf
+                 -rw------- 1 root root    703 May 19 11:31 update_resident_hdblcm_v6.conf
+
+                 |--> ls -lah /usr/sap/hostctrl/exe/sec
+                 ------------------------------------------------------------
+                 total 12K
+                 drwx------ 1 sapadm sapsys   56 May 19 11:27 .
+                 drwxr-x--x 1 root   sapsys 1.3K Oct  8 07:31 ..
+                 -rw------- 1 sapadm sapsys 1.9K May 19 11:27 SAPSSLS.pse
+                 -rw-r----- 1 sapadm sapsys   93 May 19 11:27 cred_v2
+                 -rw-r----- 1 sapadm sapsys  888 May 19 11:27 host78.p10
+
+             |--> ls -lah /usr/sap/hostctrl/work
+             ------------------------------------------------------------
+             total 1.3M
+             drwxr-x--- 1 sapadm sapsys  382 Oct  8 07:42 .
+             drwxr-x--x 1 root   sapsys   14 May 19 11:27 ..
+             -rw-r--r-- 1 root   sapsys  114 Aug 12 12:43 .foundmobj
+             drwx------ 1 sapadm sapsys 1.7K Oct  8 07:31 .osmetrics
+             -rw------- 1 root   root    201 Oct  8 07:36 .osmonitor.context
+             -rw-r----- 1 sapadm sapsys  965 Oct  7 14:24 ALALERTS
+             -rw-r----- 1 sapadm sapsys 308K Oct  7 14:24 ALMTTREE
+             -rw-r----- 1 sapadm sapsys 260K Oct  7 14:24 ALPERFHI
+             -rw-rw-r-- 1 root   root   619K Oct  8 07:41 coll.put
+             -rw-rw-r-- 1 root   sapsys  13K Oct  8 07:41 dev_coll
+             -rw-rw-r-- 1 root   sapsys  13K Oct  7 14:24 dev_coll.old
+             -rw-r--r-- 1 root   root    14K Oct  8 07:36 dev_sapdbctrl
+             -rw-r--r-- 1 root   sapsys 7.3K Oct  8 07:31 dev_saphostexec
+             -rw-r--r-- 1 root   sapsys 7.6K Oct  7 14:24 dev_saphostexec.old
+             drwxr-x--- 1 sapadm sapsys    0 May 19 11:27 dsr
+             drwxr-x--- 1 sapadm sapsys    0 May 19 11:27 grmg
+             drwxr-x--- 1 root   root      0 May 19 11:31 lib
+             drwxr-x--- 1 sapadm sapsys    0 May 19 11:27 logmon
+             drwxr-x--- 1 sapadm sapsys  184 Oct  8 07:31 sapccmsr
+             -rw-r----- 1 sapadm sapsys 5.2K Oct  8 07:36 sapstartsrv.log
+             -rw-r----- 1 sapadm sapsys 5.8K Oct  7 14:24 sapstartsrv.old
+
+                 |--> ls -lah /usr/sap/hostctrl/work/.osmetrics
+                 ------------------------------------------------------------
+                 total 3.1M
+                 drwx------ 1 sapadm sapsys 1.7K Oct  8 07:31 .
+                 drwxr-x--- 1 sapadm sapsys  382 Oct  8 07:42 ..
+                 -rw------- 1 root   root      0 Oct  8 07:31 .metrics-300-1.dat.gz.tmp
+                 -rw------- 1 root   root      0 Oct  8 07:31 .metrics-3600-7.dat.gz.tmp
+                 -rw------- 1 root   root      0 Oct  8 07:31 .metrics-60-0.dat.gz.tmp
+                 -rw------- 1 root   root      0 Oct  8 07:31 .metrics-900-8.dat.gz.tmp
+                 -rw------- 1 root   root    75K Sep 28 14:42 metrics-300-0.dat.gz
+                 -rw------- 1 root   root   144K Oct  8 07:41 metrics-300-1.dat.gz
+                 -rw------- 1 root   root    38K Jun 30 14:22 metrics-300-2.dat.gz
+                 -rw------- 1 root   root   3.4K Jun 30 14:28 metrics-300-3.dat.gz
+                 -rw------- 1 root   root   126K Jul 21 12:54 metrics-300-4.dat.gz
+                 -rw------- 1 root   root   111K Jul 22 13:04 metrics-300-5.dat.gz
+                 -rw------- 1 root   root   210K Aug 12 12:41 metrics-300-6.dat.gz
+                 -rw------- 1 root   root    11K Aug 12 13:07 metrics-300-7.dat.gz
+                 -rw------- 1 root   root    20K Aug 14 14:23 metrics-300-8.dat.gz
+                 -rw------- 1 root   root   115K Sep 24 13:21 metrics-300-9.dat.gz
+                 -rw------- 1 root   root    21K May 21 11:49 metrics-3600-0.dat.gz
+                 -rw------- 1 root   root   3.3K Jun 30 14:22 metrics-3600-1.dat.gz
+                 -rw------- 1 root   root   1.2K Jun 30 14:28 metrics-3600-2.dat.gz
+                 -rw------- 1 root   root    24K Jul 22 13:04 metrics-3600-3.dat.gz
+                 -rw------- 1 root   root    23K Aug 14 14:23 metrics-3600-4.dat.gz
+                 -rw------- 1 root   root    12K Sep 24 13:21 metrics-3600-5.dat.gz
+                 -rw------- 1 root   root   6.6K Sep 28 14:42 metrics-3600-6.dat.gz
+                 -rw------- 1 root   root    14K Oct  8 07:31 metrics-3600-7.dat.gz
+                 -rw------- 1 root   root    22K Oct  8 07:43 metrics-60-0.dat.gz
+                 -rw------- 1 root   root    96K Aug 14 14:23 metrics-60-1.dat.gz
+                 -rw------- 1 root   root   250K Sep 24 10:00 metrics-60-2.dat.gz
+                 -rw------- 1 root   root   251K Sep 24 12:41 metrics-60-3.dat.gz
+                 -rw------- 1 root   root    65K Sep 24 13:21 metrics-60-4.dat.gz
+                 -rw------- 1 root   root   252K Sep 28 13:30 metrics-60-5.dat.gz
+                 -rw------- 1 root   root   114K Sep 28 14:42 metrics-60-6.dat.gz
+                 -rw------- 1 root   root   254K Oct  7 09:53 metrics-60-7.dat.gz
+                 -rw------- 1 root   root   254K Oct  7 12:34 metrics-60-8.dat.gz
+                 -rw------- 1 root   root   175K Oct  7 14:24 metrics-60-9.dat.gz
+                 -rw------- 1 root   root    79K May 21 11:49 metrics-900-0.dat.gz
+                 -rw------- 1 root   root    13K Jun 30 14:22 metrics-900-1.dat.gz
+                 -rw------- 1 root   root   1.2K Jun 30 14:28 metrics-900-2.dat.gz
+                 -rw------- 1 root   root    83K Jul 22 13:04 metrics-900-3.dat.gz
+                 -rw------- 1 root   root    75K Aug 12 13:07 metrics-900-4.dat.gz
+                 -rw------- 1 root   root   6.7K Aug 14 14:23 metrics-900-5.dat.gz
+                 -rw------- 1 root   root    39K Sep 24 13:21 metrics-900-6.dat.gz
+                 -rw------- 1 root   root    26K Sep 28 14:42 metrics-900-7.dat.gz
+                 -rw------- 1 root   root    48K Oct  8 07:31 metrics-900-8.dat.gz
+
+                 |--> ls -lah /usr/sap/hostctrl/work/dsr
+                 ------------------------------------------------------------
+                 total 0
+                 drwxr-x--- 1 sapadm sapsys   0 May 19 11:27 .
+                 drwxr-x--- 1 sapadm sapsys 382 Oct  8 07:42 ..
+
+                 |--> ls -lah /usr/sap/hostctrl/work/grmg
+                 ------------------------------------------------------------
+                 total 0
+                 drwxr-x--- 1 sapadm sapsys   0 May 19 11:27 .
+                 drwxr-x--- 1 sapadm sapsys 382 Oct  8 07:42 ..
+
+                 |--> ls -lah /usr/sap/hostctrl/work/lib
+                 ------------------------------------------------------------
+                 total 0
+                 drwxr-x--- 1 root   root     0 May 19 11:31 .
+                 drwxr-x--- 1 sapadm sapsys 382 Oct  8 07:42 ..
+
+                 |--> ls -lah /usr/sap/hostctrl/work/logmon
+                 ------------------------------------------------------------
+                 total 0
+                 drwxr-x--- 1 sapadm sapsys   0 May 19 11:27 .
+                 drwxr-x--- 1 sapadm sapsys 382 Oct  8 07:42 ..
+
+                 |--> ls -lah /usr/sap/hostctrl/work/sapccmsr
+                 ------------------------------------------------------------
+                 total 32K
+                 drwxr-x--- 1 sapadm sapsys  184 Oct  8 07:31 .
+                 drwxr-x--- 1 sapadm sapsys  382 Oct  8 07:42 ..
+                 -rw-r----- 1 sapadm sapsys   50 Oct  8 07:31 agent.lock
+                 -rw-r----- 1 sapadm sapsys    8 Oct  8 07:31 logsave.bin
+                 -rw-r----- 1 sapadm sapsys 3.9K May 19 11:27 oscolfilter.ini
+                 -rw-r----- 1 sapadm sapsys 1.5K May 19 11:27 sapccmsr.ini
+                 -rw-r----- 1 sapadm sapsys 4.8K Oct  8 07:32 sapstartsrv_ccms.log
+                 -rw-r----- 1 sapadm sapsys 5.9K Oct  7 14:24 sapstartsrv_ccms.log.old
+
+```

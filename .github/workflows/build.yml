@@ -17,7 +17,7 @@ jobs:
           - platform: windows-latest
             args: '--no-bundle'
           - platform: macos-14
-            args: '--target aarch64-apple-darwin'
+            args: '--target aarch64-apple-darwin --bundles app'
 
     runs-on: ${{ matrix.platform }}
 
@@ -62,9 +62,9 @@ jobs:
           if (Test-Path $exe) {
             New-Item -ItemType Directory -Path "pkg" -Force | Out-Null
             Copy-Item $exe "pkg\HANA-Lens.exe"
-            if (Test-Path "filter_pre-defined") { Copy-Item -Recurse "filter_pre-defined" "pkg\" }
-            if (Test-Path "filter_custom")     { Copy-Item -Recurse "filter_custom" "pkg\" }
-            if (Test-Path "SAP_HanaDumpAnalyzer") { Copy-Item -Recurse "SAP_HanaDumpAnalyzer" "pkg\" }
+            if (Test-Path "final-package-files") {
+              Get-ChildItem "final-package-files" | Copy-Item -Recurse -Destination "pkg\"
+            }
             Compress-Archive -Path "pkg\*" -DestinationPath "HANA-Lens_${ver}_x64-portable.zip"
             Remove-Item -Recurse -Force "pkg"
           }
@@ -79,10 +79,8 @@ jobs:
             tmp_dir=$(mktemp -d)
             cp -r "$app_path" "$tmp_dir/"
             tmp_app="$tmp_dir/$(basename "$app_path")"
-            mkdir -p "$tmp_app/Contents/Resources/filter_pre-defined"
-            cp filter_pre-defined/*.txt "$tmp_app/Contents/Resources/filter_pre-defined/" 2>/dev/null || true
-            if [ -d "SAP_HanaDumpAnalyzer" ]; then
-              cp -r SAP_HanaDumpAnalyzer "$tmp_app/Contents/Resources/"
+            if [ -d "final-package-files" ]; then
+              cp -r final-package-files/* "$tmp_app/Contents/Resources/"
             fi
             hdiutil create -srcfolder "$tmp_app" -volname "HANA-Lens" -format UDZO \
               -o "HANA-Lens_${ver}_aarch64.dmg"
