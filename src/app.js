@@ -5139,7 +5139,7 @@ async function activateHsiTab(sid, tabId, subTabFile){
       if(typeof BUNDLED_FS_REFERENCE!=='undefined'&&baseName.includes('permissions'))
         applyBundledFsRef(contentArea)
     }
-    if(baseName==='network_test'){
+    if(baseName.includes('network_test')){
       const btnWrap=document.createElement('div')
       btnWrap.style.cssText='padding:10px 14px 6px;flex-shrink:0;'
       const btn=document.createElement('button')
