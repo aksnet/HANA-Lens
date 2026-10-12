@@ -3070,7 +3070,7 @@ function traceCreateChunk(lines,startIdx,showNums,opts){
   const bookmarks=opts?.bookmarks||null
   const onBMToggle=opts?.onBookmarkToggle||null
   const cv=document.createElement('div')
-  cv.style.cssText=`content-visibility:auto;contain-intrinsic-block-size:${lines.length*_TRACE_LH}px;display:flex;`
+  cv.style.cssText=`content-visibility:auto;contain-intrinsic-block-size:${lines.length*_TRACE_LH}px;display:flex;min-width:100%;`
   if(showNums){
     const numsWrap=document.createElement('div')
     numsWrap.className='trace-nums'
@@ -3086,7 +3086,7 @@ function traceCreateChunk(lines,startIdx,showNums,opts){
     cv.appendChild(numsWrap)
   }
   const pre=document.createElement('pre')
-  pre.style.cssText=`flex:1;margin:0;padding:0 10px;font-family:Consolas,monospace;font-size:11px;line-height:${_TRACE_LH}px;white-space:pre;color:#000;`
+  pre.style.cssText=`flex:1;min-width:max-content;margin:0;padding:0 10px;font-family:Consolas,monospace;font-size:11px;line-height:${_TRACE_LH}px;white-space:pre;color:#000;`
   if(searchTerms.length){
     pre.innerHTML=lines.map(line=>{
       let s=escHtml(line)
@@ -3203,7 +3203,7 @@ function traceRenderFromLines(list,vf){
   const showNums=true
   const wrapper=document.createElement('div')
   wrapper.id='trace-file-wrap'
-  wrapper.style.cssText='display:flex;flex-direction:column;overflow-x:auto;margin:8px 14px;padding:8px 0;background:#F8F8F7;border:1px solid #EDEBE9;border-radius:2px;'
+  wrapper.style.cssText='display:flex;flex-direction:column;align-items:flex-start;overflow-x:auto;margin:8px 14px;padding:8px 0;background:#F8F8F7;border:1px solid #EDEBE9;border-radius:2px;'
   const opts={searchTerms:terms,bookmarks:vf._bookmarks||null,onBookmarkToggle:traceToggleBookmark}
   // Lazy rendering: chunks rendered only when they scroll into view (IntersectionObserver)
   // No-filter case: getLines() reads vf._lines at render-time so "Load More" appends work seamlessly
@@ -3221,7 +3221,7 @@ function traceRenderFromLines(list,vf){
     for(let i=0;i<linesArr.length;i+=_TRACE_CHUNK){
       const count=Math.min(_TRACE_CHUNK,linesArr.length-i)
       const ph=document.createElement('div');ph.dataset.start=offset+i;ph.dataset.count=count
-      ph.style.cssText=`height:${count*_TRACE_LH}px;display:flex;`;ph._rendered=false
+      ph.style.cssText=`height:${count*_TRACE_LH}px;display:flex;min-width:100%;`;ph._rendered=false
       observer.observe(ph);wrapper.appendChild(ph)
     }
   }
@@ -3611,6 +3611,9 @@ async function hsiPermUpload(btn){
 
     const refSections=parsePermSections(text)
     const refMap=new Map(refSections.map(s=>[s.path,s]))
+    const refVer=_extractPermVersionLine(text)
+    const badge=container.querySelector('.hsi-ref-version-badge')
+    if(badge) badge.innerHTML=refVer?`<div style="font-size:10px;color:#605E5C;font-weight:400;margin-top:3px;font-family:Consolas,monospace;">${escHtml(refVer)}</div>`:''
 
     // Fill existing captured sections
     const refCols=container.querySelectorAll('.hsi-ref-section[data-ref-path]')
@@ -5894,25 +5897,35 @@ ${extracted}
 // Permissions renderer for new .md format
 async function renderMdPermFile(contentArea, txt){
   // Extract ls -lah output from fenced code blocks under ## Captured Filesystemdetails
+  // Also capture the _HANA Version: ... | SID: ... | Host: ... | date_ metadata line
   const lines=txt.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n')
   let inSection=false,inCode=false
   const capturedLines=[]
+  let hanaVersionLine=''
   for(const line of lines){
     if(/^##\s+Captured Filesystemdetails/i.test(line)){inSection=true;continue}
     if(inSection){
       if(/^##?\s/.test(line)&&!/^###/.test(line)){break}
       if(/^```/.test(line.trim())){inCode=!inCode;continue}
-      if(inCode)capturedLines.push(line)
+      if(inCode) capturedLines.push(line)
+      else if(!hanaVersionLine){
+        const m=line.match(/^_HANA Version:\s*(.+?)_\s*$/)
+        if(m) hanaVersionLine=m[1].trim()
+      }
     }
   }
   const TOP_BTN=`<a href="#hsi-top" style="font-size:0.76em;text-decoration:none;color:#6c757d;padding:2px 8px;border:1px solid #dee2e6;border-radius:12px;white-space:nowrap;flex-shrink:0;" title="Top">▲ TOP</a>`
   const sections=parsePermSections(capturedLines.join('\n'))
   const tocEntries=[],parts=[]
+  const versionBadge=hanaVersionLine
+    ? `<div style="font-size:10px;color:#605E5C;font-weight:400;margin-top:3px;font-family:Consolas,monospace;">${escHtml(hanaVersionLine)}</div>`
+    : ''
   parts.push(`<a id="hsi-top" style="display:block;"></a>`)
   parts.push(`<div class="hsi-perm-split" style="margin-bottom:8px;">
-    <div class="hsi-perm-col"><div class="hsi-perm-col-header">Captured Filesystemdetails</div></div>
+    <div class="hsi-perm-col"><div class="hsi-perm-col-header">Captured Filesystemdetails${versionBadge}</div></div>
     <div class="hsi-perm-col"><div class="hsi-perm-col-header">Comparison of working Filesystemdetails
       <button class="hsi-upload-btn" onclick="hsiPermUpload(this)">&#128196; Load reference file</button>
+      <span class="hsi-ref-version-badge"></span>
     </div></div>
   </div>`)
   let idx=0
@@ -5926,10 +5939,17 @@ async function renderMdPermFile(contentArea, txt){
   contentArea.innerHTML=out+parts.join('\n')
   if(typeof BUNDLED_FS_REFERENCE!=='undefined')applyBundledFsRef(contentArea)
 }
+function _extractPermVersionLine(text){
+  const m=text.match(/_HANA Version:\s*(.+?)_/)
+  return m?m[1].trim():''
+}
 function applyBundledFsRef(container){
   if(typeof BUNDLED_FS_REFERENCE==='undefined'||!container) return
   const refSections=parsePermSections(BUNDLED_FS_REFERENCE)
   const refMap=new Map(refSections.map(s=>[s.path,s]))
+  const refVer=_extractPermVersionLine(BUNDLED_FS_REFERENCE)
+  const badge=container.querySelector('.hsi-ref-version-badge')
+  if(badge&&refVer) badge.innerHTML=`<div style="font-size:10px;color:#605E5C;font-weight:400;margin-top:3px;font-family:Consolas,monospace;">${escHtml(refVer)}</div>`
   const capturedPaths=new Set()
   container.querySelectorAll('.hsi-ref-section[data-ref-path]').forEach(col=>{
     const path=col.getAttribute('data-ref-path')
