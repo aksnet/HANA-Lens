@@ -5274,6 +5274,17 @@ async function _hsiRenderDynTab(contentArea, dynTab, s){
     const txt = await f.text()
     if(dynTab.type === 'dyn-perm') await renderMdPermFile(contentArea, txt)
     else contentArea.innerHTML = `<div class="hsi-md-content">${renderMarkdown(txt)}</div>`
+    const fname=(dynTab.file||handle.name||'').toLowerCase()
+    if(fname.includes('network_test')){
+      const btnWrap=document.createElement('div')
+      btnWrap.style.cssText='padding:10px 14px 6px;flex-shrink:0;'
+      const btn=document.createElement('button')
+      btn.textContent='🤖 Prepare SAP Joule Work Desktop'
+      btn.style.cssText='padding:6px 16px;background:#0070C3;color:#fff;border:none;border-radius:3px;font-family:inherit;font-size:12px;font-weight:500;cursor:pointer;'
+      btn.onclick=()=>showNetworkJoulePrompt(txt)
+      btnWrap.appendChild(btn)
+      contentArea.insertBefore(btnWrap,contentArea.firstChild)
+    }
   }catch(e){
     contentArea.innerHTML=`<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Error: ${escHtml(String(e))}</span></div>`
   }
