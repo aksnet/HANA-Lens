@@ -673,11 +673,11 @@ function parseRefIni(text){
     }
     // blank line resets full_desc accumulation but keeps meta until we hit a key=value
     if(!t){pendingMeta.inFull=false;continue}
-    // key = value line
+    // key = value line (or key with no default value)
     const eq=t.indexOf('=')
-    if(eq!==-1&&curSection){
-      const key=t.substring(0,eq).trim()
-      const defVal=t.substring(eq+1).trim()
+    const key=eq!==-1?t.substring(0,eq).trim():t.trim()
+    const defVal=eq!==-1?t.substring(eq+1).trim():''
+    if(curSection&&key){
       // clean trailing empty lines from fullDesc
       while(pendingMeta.fullDesc.length&&!pendingMeta.fullDesc[pendingMeta.fullDesc.length-1].trim())pendingMeta.fullDesc.pop()
       result[curSection][key]={
@@ -2928,6 +2928,10 @@ async function traceShowFileView(s){
   toolbar.appendChild(navUp)
   toolbar.appendChild(navDown)
   toolbar.appendChild(infoSpan)
+  const loadRestBtn=document.createElement('button')
+  loadRestBtn.id='trace-load-more-btn'
+  loadRestBtn.style.cssText=btnStyle+'background:#EFF6FC;color:#0078D4;border:1px solid #0078D4;margin-left:auto;display:none;white-space:nowrap;'
+  toolbar.appendChild(loadRestBtn)
   list.appendChild(toolbar)
   // Filter panel (hidden by default)
   const inpStyle='font-size:11px;padding:2px 5px;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;width:220px;'
@@ -3020,18 +3024,40 @@ async function traceShowFileView(s){
     const safeLines=rawLines.map(l=>l.length>MAX_LINE?l.slice(0,MAX_LINE)+' … [line truncated]':l)
     let truncatedCount=rawLines.filter((l,i)=>safeLines[i]!==l).length
     vf._lines=safeLines
-    // Auto-suggest date filter from first timestamp (only on fresh open, not on restore)
+    // Auto-suggest date filter from first/last timestamp (only on fresh open, not on restore)
     if(!vf._filterFrom&&!vf._filterTo){
+      let firstTs=null
       for(const line of vf._lines){
         const ts=traceExtractTimestamp(line)
-        if(ts){
-          const fi=document.getElementById('trace-filter-from')
-          const ti=document.getElementById('trace-filter-to')
-          const hint=document.getElementById('trace-filter-date-hint')
-          if(fi)fi.value=ts.replace('T',' ')
-          if(ti)ti.value=traceTimePlusMins(ts,30)
+        if(ts){firstTs=ts;break}
+      }
+      if(firstTs){
+        const fi=document.getElementById('trace-filter-from')
+        const ti=document.getElementById('trace-filter-to')
+        const hint=document.getElementById('trace-filter-date-hint')
+        if(fi)fi.value=firstTs.replace('T',' ')
+        let lastTs=null
+        if(end>=file.size){
+          for(let i=vf._lines.length-1;i>=0;i--){
+            const ts=traceExtractTimestamp(vf._lines[i])
+            if(ts){lastTs=ts;break}
+          }
+        }else{
+          try{
+            const tailText=await file.slice(Math.max(0,file.size-2048),file.size).text()
+            const tailLines=tailText.split('\n')
+            for(let i=tailLines.length-1;i>=0;i--){
+              const ts=traceExtractTimestamp(tailLines[i])
+              if(ts){lastTs=ts;break}
+            }
+          }catch(e){}
+        }
+        if(lastTs){
+          if(ti)ti.value=lastTs.replace('T',' ')
+          if(hint)hint.textContent='start · end of trace · both editable'
+        }else{
+          if(ti)ti.value=traceTimePlusMins(firstTs,30)
           if(hint)hint.textContent='start of trace · To = From + 30 min · both editable'
-          break
         }
       }
     }
@@ -3052,15 +3078,32 @@ async function traceShowFileView(s){
   }
 }
 
-function traceAddLoadMoreBtn(list,fileSize){
-  const vf=traceExplState.viewingFile
-  const remaining=fileSize-vf.offset
-  const btn=document.createElement('button')
-  btn.id='trace-load-more-btn'
-  btn.style.cssText='display:block;margin:8px 14px 16px;padding:5px 14px;background:#EFF6FC;border:1px solid #0078D4;border-radius:2px;font-family:inherit;font-size:11px;color:#0078D4;cursor:pointer;'
-  btn.textContent=`Load next 50 MB  (${formatBytes(remaining)} remaining)`
-  btn.onclick=async()=>{btn.disabled=true;btn.textContent='Loading…';await traceAppendChunk()}
-  list.appendChild(btn)
+async function traceLoadAllRemaining(){
+  const vf=traceExplState?.viewingFile;if(!vf)return
+  const btn=document.getElementById('trace-load-more-btn')
+  const MAX_LINE=5000
+  try{
+    const file=await vf.handle.getFile()
+    const MAX=50*1024*1024
+    while(vf.offset<file.size){
+      const end=Math.min(vf.offset+MAX,file.size)
+      if(btn)btn.textContent=`Loading… ${formatBytes(end)} / ${formatBytes(file.size)}`
+      const text=await file.slice(vf.offset,end).text()
+      vf.offset=end
+      const combined=(traceExplState._partialLine||'')+text
+      traceExplState._partialLine=''
+      let rawLines=combined.split('\n')
+      if(end<file.size){traceExplState._partialLine=rawLines.pop()||''}
+      const safeLines=rawLines.map(l=>l.length>MAX_LINE?l.slice(0,MAX_LINE)+' … [line truncated]':l)
+      vf._lines=vf._lines.concat(safeLines)
+    }
+    const list=document.getElementById('trace-list')
+    if(list)traceRenderFromLines(list,vf)
+  }catch(e){
+    if(btn){btn.disabled=false;btn.textContent='⚠️ Load failed — click to retry';btn.style.color='#CF1322';btn.style.borderColor='#CF1322';btn.onclick=async()=>{btn.disabled=true;await traceLoadAllRemaining()}}
+    const info=document.getElementById('trace-filter-info')
+    if(info)info.textContent='Load error: '+String(e?.message||e)
+  }
 }
 
 const _TRACE_CHUNK=500
@@ -3143,7 +3186,7 @@ function traceNormalizeFilterVal(val){
 
 function traceRenderFromLines(list,vf){
   document.getElementById('trace-file-wrap')?.remove()
-  document.getElementById('trace-load-more-btn')?.remove()
+  const _lmb=document.getElementById('trace-load-more-btn');if(_lmb){_lmb.style.display='none';_lmb.style.color='#0078D4';_lmb.style.borderColor='#0078D4'}
   if(vf._traceObserver){vf._traceObserver.disconnect();vf._traceObserver=null}
   vf._traceAddChunks=null
   const allLines=vf._lines||[]
@@ -3226,9 +3269,16 @@ function traceRenderFromLines(list,vf){
     }
   }
   _addPlaceholders(displayLines,0)
-  vf._traceAddChunks=(newLines,startIdx)=>{const wrp=document.getElementById('trace-file-wrap');if(wrp)_addPlaceholders(newLines,startIdx)}
+  vf._traceAddChunks=null
   list.appendChild(wrapper)
-  if(vf.offset<vf.fileSize)traceAddLoadMoreBtn(list,vf.fileSize)
+  if(vf.offset<vf.fileSize){
+    const btn=document.getElementById('trace-load-more-btn')
+    if(btn){
+      btn.textContent=`📥 ${formatBytes(vf.offset)} loaded · load rest (${formatBytes(vf.fileSize-vf.offset)})`
+      btn.disabled=false;btn.style.display=''
+      btn.onclick=async()=>{btn.disabled=true;await traceLoadAllRemaining()}
+    }
+  }
 }
 
 function traceSerializeTerms(terms){
@@ -3377,73 +3427,6 @@ function traceScrollToLine(absIdx){
   }
 }
 
-async function traceAppendChunk(){
-  const vf=traceExplState.viewingFile
-  if(!vf)return
-  const MAX_ATTEMPTS=3
-  for(let attempt=1;attempt<=MAX_ATTEMPTS;attempt++){
-    const savedOffset=vf.offset
-    const savedLineCount=vf._lines.length
-    const savedPartial=traceExplState._partialLine
-    try{
-      if(attempt>1){
-        const btn=document.getElementById('trace-load-more-btn')
-        if(btn)btn.textContent=`Loading… (retry ${attempt-1}/${MAX_ATTEMPTS-1})`
-        await new Promise(r=>setTimeout(r,800*(attempt-1)))
-      }
-      const file=await vf.handle.getFile()
-      const MAX=50*1024*1024
-      const end=Math.min(vf.offset+MAX,file.size)
-      const text=await file.slice(vf.offset,end).text()
-      vf.offset=end
-      const MAX_LINE=5000
-      const combined=(traceExplState._partialLine||'')+text
-      traceExplState._partialLine=''
-      let rawLines=combined.split('\n')
-      if(end<file.size){traceExplState._partialLine=rawLines.pop()||''}
-      const safeLines=rawLines.map(l=>l.length>MAX_LINE?l.slice(0,MAX_LINE)+' … [line truncated]':l)
-      const prevCount=vf._lines.length
-      vf._lines=vf._lines.concat(safeLines)
-      const list=document.getElementById('trace-list')
-      if(vf._filterFrom||vf._filterTo){
-        if(list)traceRenderFromLines(list,vf)
-      } else {
-        const wrap=document.getElementById('trace-file-wrap')
-        const showNums=true
-        const opts={searchTerms:vf._searchTerms||[],bookmarks:vf._bookmarks||null,onBookmarkToggle:traceToggleBookmark}
-        if(vf._traceAddChunks)vf._traceAddChunks(safeLines,prevCount)
-        else if(wrap){for(let s=0;s<safeLines.length;s+=_TRACE_CHUNK){wrap.appendChild(traceCreateChunk(safeLines.slice(s,s+_TRACE_CHUNK),prevCount+s,showNums,opts))}}
-        if(vf._searchTerms?.length&&vf._termMatchLines){
-          const terms=vf._searchTerms.map(t=>(typeof t==='string'?t:t.text).trim().toLowerCase()).filter(Boolean)
-          if(terms.length)safeLines.forEach((line,i)=>{if(terms.some(t=>line.toLowerCase().includes(t)))vf._termMatchLines.push(prevCount+i)})
-        }
-        const info=document.getElementById('trace-filter-info')
-        if(info)info.textContent=`${vf._lines.length.toLocaleString()} lines loaded`
-        const btn=document.getElementById('trace-load-more-btn')
-        if(btn){
-          if(end>=file.size){btn.remove()}
-          else{btn.disabled=false;btn.textContent=`Load next 50 MB  (${formatBytes(file.size-end)} remaining)`}
-        }
-      }
-      return
-    }catch(e){
-      vf.offset=savedOffset
-      vf._lines.splice(savedLineCount)
-      traceExplState._partialLine=savedPartial
-      const btn=document.getElementById('trace-load-more-btn')
-      if(attempt<MAX_ATTEMPTS){
-        if(btn)btn.textContent=`⏳ Retrying…`
-        console.warn('traceAppendChunk attempt',attempt,'failed:',e)
-      }else{
-        const msg=String(e?.message||e||'unknown error')
-        if(btn){btn.disabled=false;btn.textContent='⚠️ Load failed — click to retry';btn.title=msg;btn.style.borderColor='#CF1322';btn.style.color='#CF1322'}
-        console.error('traceAppendChunk error (all attempts failed):',e)
-        const info=document.getElementById('trace-filter-info')
-        if(info)info.textContent='Load error: '+msg
-      }
-    }
-  }
-}
 
 async function scanConfigDir(s){
   const configDir=s.configDirHandle
@@ -4373,7 +4356,8 @@ function renderMarkdown(md){
       const codeLines=[];i++
       while(i<lines.length&&!/^```/.test(lines[i].trim())){codeLines.push(lines[i]);i++}
       i++
-      html+=`<pre style="background:#F3F2F1;border:1px solid #EDEBE9;border-radius:3px;padding:10px 12px;white-space:pre-wrap;word-break:break-word;font-family:Consolas,monospace;font-size:11px;line-height:1.5;margin:8px 0;"><code>${escHtml(codeLines.join('\n'))}</code></pre>`
+      const codeHtml=codeLines.map(l=>{let s=escHtml(l);return s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" style="color:#0078D4;text-decoration:none;" target="_blank">$1</a>')}).join('\n')
+      html+=`<pre style="background:#F3F2F1;border:1px solid #EDEBE9;border-radius:3px;padding:10px 12px;white-space:pre-wrap;word-break:break-word;font-family:Consolas,monospace;font-size:11px;line-height:1.5;margin:8px 0;"><code>${codeHtml}</code></pre>`
       continue
     }
     // Heading
