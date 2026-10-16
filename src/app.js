@@ -1996,8 +1996,16 @@ async function loadFSIDFolder(existingHandle){
 document.addEventListener('DOMContentLoaded',()=>{
   // Try to load filesystem_reference.txt from disk (next to exe); overrides bundled version
   invoke('read_fs_reference').then(txt=>{if(txt)window.BUNDLED_FS_REFERENCE=txt}).catch(()=>{})
-  // close context menus on outside click
-  document.addEventListener('click',()=>{hideFsidCtxMenu();hideRteCtxMenu();hideCrashDumpCtxMenu();hideTraceLineCtxMenu()})
+  // close context menus on outside click (mousedown fires before stopPropagation on child click handlers)
+  document.addEventListener('mousedown',(e)=>{
+    if(!e.target.closest('#fsid-ctx-menu'))hideFsidCtxMenu()
+    if(!e.target.closest('#rte-ctx-menu'))hideRteCtxMenu()
+    if(!e.target.closest('#crash-ctx-menu'))hideCrashDumpCtxMenu()
+    if(!e.target.closest('#trace-line-ctx-menu'))hideTraceLineCtxMenu()
+  })
+  document.addEventListener('keydown',(e)=>{
+    if(e.key==='Escape'){hideFsidCtxMenu();hideRteCtxMenu();hideCrashDumpCtxMenu();hideTraceLineCtxMenu()}
+  })
 })
 
 // ── Nav Tree (Multi-FSID accordion) ──────────────────────────────────────
