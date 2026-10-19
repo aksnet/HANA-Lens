@@ -2181,10 +2181,16 @@ function traceJumpToOrigLine(){
   hideTraceLineCtxMenu()
   if(origIdx==null)return
   traceClearFilter()
-  requestAnimationFrame(()=>{
+  // double-rAF: first frame updates DOM, second frame has correct layout
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
     const list=document.getElementById('trace-list')
-    if(list)list.scrollTop=origIdx*_TRACE_LH-list.clientHeight/2+_TRACE_LH/2
-  })
+    const wrap=document.getElementById('trace-file-wrap')
+    if(!list||!wrap)return
+    list.scrollTop=wrap.offsetTop+origIdx*_TRACE_LH-list.clientHeight/2+_TRACE_LH/2
+    // force-render the target chunk immediately (don't wait for IntersectionObserver)
+    const vf=traceExplState?.viewingFile
+    if(vf?._traceForceRender)vf._traceForceRender(origIdx)
+  }))
 }
 function rteDumpOpenInAnalyzer(){
   const idx=_rteCtxIdx
@@ -3278,6 +3284,15 @@ function traceRenderFromLines(list,vf){
   }
   _addPlaceholders(displayLines,0)
   vf._traceAddChunks=null
+  vf._traceForceRender=(lineIdx)=>{
+    const ci=Math.floor(lineIdx/_TRACE_CHUNK)
+    const ph=wrapper.children[ci]
+    if(ph&&!ph._rendered){
+      ph._rendered=true;observer.unobserve(ph)
+      const start=parseInt(ph.dataset.start),count=parseInt(ph.dataset.count)
+      ph.replaceWith(traceCreateChunk(getLines().slice(start,start+count),start,showNums,opts))
+    }
+  }
   list.appendChild(wrapper)
   if(vf.offset<vf.fileSize){
     const btn=document.getElementById('trace-load-more-btn')
