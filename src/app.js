@@ -1761,6 +1761,7 @@ const HANA_INI_FILES=['global.ini','indexserver.ini','nameserver.ini','daemon.in
   'backint.ini','traceanalyzer.ini','hdbalert.ini','auditlog.ini','inifile_checker.ini']
 let activeFsidId = null     // id of the currently viewed session
 let activePanel  = null     // 'topology' | 'versionhistory' | ... for the active session
+window._hanaLensSettings = { navColorGroups: [] }
 let traceExplState = null   // {sid, serverIdx, stack:[{name,handle}], entries:[...]}
 let _lastPickedHandle = null  // last FileSystemHandle used in any picker — passed as startIn
 let _traceCopyPath = ''       // full path of the currently open trace file, for breadcrumb copy btn
@@ -1996,17 +1997,194 @@ async function loadFSIDFolder(existingHandle){
 document.addEventListener('DOMContentLoaded',()=>{
   // Try to load filesystem_reference.txt from disk (next to exe); overrides bundled version
   invoke('read_fs_reference').then(txt=>{if(txt)window.BUNDLED_FS_REFERENCE=txt}).catch(()=>{})
+  // Load nav color group settings, then initialise gear-icon UI
+  invoke('read_settings').then(txt=>{
+    if(txt){try{window._hanaLensSettings=JSON.parse(txt)}catch(e){}}
+    initNavSettingsUI()
+  }).catch(()=>{ initNavSettingsUI() })
   // close context menus on outside click (mousedown fires before stopPropagation on child click handlers)
   document.addEventListener('mousedown',(e)=>{
     if(!e.target.closest('#fsid-ctx-menu'))hideFsidCtxMenu()
     if(!e.target.closest('#rte-ctx-menu'))hideRteCtxMenu()
     if(!e.target.closest('#crash-ctx-menu'))hideCrashDumpCtxMenu()
     if(!e.target.closest('#trace-line-ctx-menu'))hideTraceLineCtxMenu()
+    if(!e.target.closest('#nav-settings-panel')&&!e.target.closest('#nav-gear-btn'))hideNavSettings()
   })
   document.addEventListener('keydown',(e)=>{
-    if(e.key==='Escape'){hideFsidCtxMenu();hideRteCtxMenu();hideCrashDumpCtxMenu();hideTraceLineCtxMenu()}
+    if(e.key==='Escape'){hideFsidCtxMenu();hideRteCtxMenu();hideCrashDumpCtxMenu();hideTraceLineCtxMenu();hideNavSettings()}
   })
 })
+
+// ── Nav Color Group Settings ──────────────────────────────────────────────
+
+function navItemColor(label){
+  for(const g of window._hanaLensSettings?.navColorGroups||[]){
+    if(g.items?.some(it=>it.toLowerCase()===label.toLowerCase())) return g.color
+  }
+  return null
+}
+
+function hideNavSettings(){
+  const p=document.getElementById('nav-settings-panel')
+  if(p) p.style.display='none'
+}
+
+function toggleNavSettings(){
+  const p=document.getElementById('nav-settings-panel')
+  if(!p) return
+  if(p.style.display==='none'||!p.style.display){
+    renderNavSettingsPanel()
+    p.style.display='block'
+  } else {
+    p.style.display='none'
+  }
+}
+
+function renderNavSettingsPanel(){
+  const panel=document.getElementById('nav-settings-panel')
+  if(!panel) return
+  const groups=window._hanaLensSettings.navColorGroups
+  panel.innerHTML=''
+
+  const title=document.createElement('div')
+  title.style.cssText='font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#605E5C;padding:8px 10px 6px;border-bottom:1px solid #EDEBE9;margin-bottom:6px;'
+  title.textContent='Color Groups'
+  panel.appendChild(title)
+
+  const list=document.createElement('div')
+  list.id='nav-settings-list'
+  list.style.cssText='max-height:320px;overflow-y:auto;'
+  panel.appendChild(list)
+
+  for(let gi=0; gi<groups.length; gi++){
+    list.appendChild(buildGroupRow(gi, groups[gi]))
+  }
+
+  const footer=document.createElement('div')
+  footer.style.cssText='display:flex;gap:6px;padding:8px 10px;border-top:1px solid #EDEBE9;margin-top:6px;'
+
+  const addBtn=document.createElement('button')
+  addBtn.textContent='+ Add Group'
+  addBtn.style.cssText='flex:1;height:26px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;cursor:pointer;'
+  addBtn.onclick=()=>{
+    window._hanaLensSettings.navColorGroups.push({name:'New Group',color:'#EFF6FC',items:[]})
+    renderNavSettingsPanel()
+  }
+
+  const saveBtn=document.createElement('button')
+  saveBtn.textContent='💾 Save'
+  saveBtn.style.cssText='height:26px;padding:0 12px;background:#107C10;color:#fff;border:none;border-radius:2px;font-size:11px;cursor:pointer;font-weight:600;'
+  saveBtn.onclick=saveNavSettings
+
+  footer.appendChild(addBtn)
+  footer.appendChild(saveBtn)
+  panel.appendChild(footer)
+}
+
+function buildGroupRow(gi, g){
+  const row=document.createElement('div')
+  row.style.cssText='background:#FAFAFA;border:1px solid #EDEBE9;border-radius:3px;padding:6px 8px;margin:0 8px 6px;'
+
+  // Header row: color + name + delete
+  const hdr=document.createElement('div')
+  hdr.style.cssText='display:flex;align-items:center;gap:6px;margin-bottom:4px;'
+
+  const colorPicker=document.createElement('input')
+  colorPicker.type='color'
+  colorPicker.value=g.color||'#EFF6FC'
+  colorPicker.style.cssText='width:26px;height:22px;padding:0;border:1px solid #C8C6C4;border-radius:2px;cursor:pointer;'
+  colorPicker.oninput=(e)=>{ g.color=e.target.value }
+
+  const nameInput=document.createElement('input')
+  nameInput.type='text'
+  nameInput.value=g.name||''
+  nameInput.placeholder='Group name'
+  nameInput.style.cssText='flex:1;height:22px;padding:0 4px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;'
+  nameInput.oninput=(e)=>{ g.name=e.target.value }
+
+  const delBtn=document.createElement('button')
+  delBtn.textContent='✕'
+  delBtn.title='Remove group'
+  delBtn.style.cssText='background:none;border:none;cursor:pointer;font-size:12px;color:#A19F9D;padding:0 2px;'
+  delBtn.onclick=()=>{
+    window._hanaLensSettings.navColorGroups.splice(gi,1)
+    renderNavSettingsPanel()
+  }
+
+  hdr.appendChild(colorPicker)
+  hdr.appendChild(nameInput)
+  hdr.appendChild(delBtn)
+  row.appendChild(hdr)
+
+  // Items list
+  const itemsList=document.createElement('div')
+  itemsList.style.cssText='display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px;min-height:6px;'
+  ;(g.items||[]).forEach((item,ii)=>{
+    const chip=document.createElement('span')
+    chip.style.cssText=`background:${g.color||'#EFF6FC'};border:1px solid #C8C6C4;border-radius:10px;font-size:10px;padding:1px 6px;display:inline-flex;align-items:center;gap:3px;`
+    chip.innerHTML=`${escHtml(item)} <button style="background:none;border:none;cursor:pointer;font-size:9px;color:#605E5C;padding:0;" title="Remove item">✕</button>`
+    chip.querySelector('button').onclick=()=>{ g.items.splice(ii,1); renderNavSettingsPanel() }
+    itemsList.appendChild(chip)
+  })
+  row.appendChild(itemsList)
+
+  // Add item input
+  const addRow=document.createElement('div')
+  addRow.style.cssText='display:flex;gap:4px;'
+  const itemInput=document.createElement('input')
+  itemInput.type='text'
+  itemInput.placeholder='Add nav item name…'
+  itemInput.style.cssText='flex:1;height:22px;padding:0 4px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;'
+  const addItemBtn=document.createElement('button')
+  addItemBtn.textContent='+'
+  addItemBtn.style.cssText='width:24px;height:22px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:14px;cursor:pointer;line-height:1;'
+  const doAdd=()=>{
+    const v=itemInput.value.trim()
+    if(!v) return
+    if(!g.items) g.items=[]
+    g.items.push(v)
+    renderNavSettingsPanel()
+  }
+  addItemBtn.onclick=doAdd
+  itemInput.addEventListener('keydown',(e)=>{ if(e.key==='Enter'){e.preventDefault();doAdd()} })
+  addRow.appendChild(itemInput)
+  addRow.appendChild(addItemBtn)
+  row.appendChild(addRow)
+
+  return row
+}
+
+async function saveNavSettings(){
+  try{
+    await invoke('write_settings',{content:JSON.stringify(window._hanaLensSettings)})
+  }catch(e){
+    console.error('saveNavSettings failed',e)
+  }
+  hideNavSettings()
+  renderNavTree()
+}
+
+function initNavSettingsUI(){
+  const hdr=document.getElementById('navTreeHeader')
+  if(!hdr||document.getElementById('nav-gear-btn')) return
+
+  hdr.style.display='flex'
+  hdr.style.alignItems='center'
+  hdr.style.justifyContent='space-between'
+
+  const gear=document.createElement('button')
+  gear.id='nav-gear-btn'
+  gear.textContent='⚙'
+  gear.title='Color Group Settings'
+  gear.style.cssText='background:none;border:none;cursor:pointer;font-size:14px;color:#605E5C;padding:0 2px;line-height:1;flex-shrink:0;'
+  gear.onclick=(e)=>{ e.stopPropagation(); toggleNavSettings() }
+  hdr.appendChild(gear)
+
+  const panel=document.createElement('div')
+  panel.id='nav-settings-panel'
+  panel.style.cssText='display:none;position:absolute;top:30px;left:0;right:0;z-index:50;background:#fff;border:1px solid #C8C6C4;border-top:none;box-shadow:0 4px 12px rgba(0,0,0,0.12);max-height:480px;overflow:hidden;'
+  document.getElementById('navTree').appendChild(panel)
+}
 
 // ── Nav Tree (Multi-FSID accordion) ──────────────────────────────────────
 function renderNavTree(){
@@ -2067,6 +2245,7 @@ function buildFsidGroup(s){
     sub.className='fsid-sub-item'+(it.disabled?' disabled':'')
     sub.dataset.panel=it.panel
     sub.innerHTML=`<span style="font-size:13px;">${it.icon}</span>${it.label}`
+    const col=navItemColor(it.label);if(col)sub.style.background=col
     if(!it.disabled) sub.onclick=()=>activateNavItem(s.id,it.panel)
     children.appendChild(sub)
   }
@@ -4888,13 +5067,37 @@ function buildHsiNavGroup(s){
 
   const children = document.createElement('div')
   children.className = 'fsid-group-children'
+  // Find the primary child FSID (SYSTEMDB) for injecting nav shortcuts
+  const _hsiChildFsids = fsidSessions.filter(cs => cs.hsiParentId === s.id)
+  const _primaryFsid = _hsiChildFsids.find(cs =>
+    cs.topoData!=null || 'topology.txt' in (cs.loadedFiles||{})
+  ) || _hsiChildFsids[0] || null
   for(const tab of tabs){
     const sub = document.createElement('div')
     sub.className = 'fsid-sub-item'
     sub.dataset.hsiTab = tab.id
     sub.innerHTML = `<span style="font-size:11px;">📄</span>${escHtml(tab.label)}`
+    const _tabCol=navItemColor(tab.label);if(_tabCol)sub.style.background=_tabCol
     sub.onclick = () => activateHsiTab(s.id, tab.id, null)
     children.appendChild(sub)
+    // After HANA DB tab, inject Topology / Version History / Availability shortcuts
+    if(_primaryFsid && tab.label.toLowerCase().replace(/_/g,' ')==='hana db'){
+      const _makeHsiLink=(icon,label,panel)=>{
+        const d=document.createElement('div')
+        d.className='fsid-sub-item'
+        d.style.paddingLeft='32px'
+        d.innerHTML=`<span style="font-size:11px;">${icon}</span>${escHtml(label)}`
+        const c=navItemColor(label);if(c)d.style.background=c
+        d.onclick=()=>activateNavItem(_primaryFsid.id,panel)
+        return d
+      }
+      if(_primaryFsid.topoData!=null||'topology.txt' in (_primaryFsid.loadedFiles||{}))
+        children.appendChild(_makeHsiLink('🗺️','Topology','topology'))
+      if(_primaryFsid.versionHistoryHandle)
+        children.appendChild(_makeHsiLink('📋','Version History','versionhistory'))
+      if(_primaryFsid.availabilityHandles?.length)
+        children.appendChild(_makeHsiLink('🟢','Availability','availability'))
+    }
   }
 
   // ── Child FSID sessions (from FSIDs/ subfolder) ──────────────────────────
@@ -4922,15 +5125,11 @@ function buildHsiNavGroup(s){
 
       const childChildren = document.createElement('div')
       childChildren.className = 'fsid-group-children'
-      const hasTopology = cs.topoData!=null||'topology.txt' in cs.loadedFiles
+      // In HSI context: Topology/VersionHistory/Availability shown above in HSI nav;
+      // Configuration hidden (HANA Configuration tab in HSI); HOSTS hidden per design.
       const fsidItems = [
-        ...(hasTopology?[{icon:'🗺️', label:'Topology', panel:'topology', disabled:false}]:[]),
-        ...(cs.versionHistoryHandle ? [{icon:'📋', label:'Version History', panel:'versionhistory', disabled:false}] : []),
-        {icon:'⚙️', label:'Configuration', panel:'configuration', disabled:false},
-        ...(cs.hostsFileHandle ? [{icon:'🌐', label:'HOSTS', panel:'hosts', disabled:false}] : []),
         ...(cs.telemetryHandle ? [{icon:'📡', label:'Telemetry Data', panel:'telemetry', disabled:false}] : []),
         ...(cs.nsHistoryHandles?.length ? [{icon:'📈', label:'Nameserver History', panel:'nshistory', disabled:false}] : []),
-        ...(cs.availabilityHandles?.length ? [{icon:'🟢', label:'Availability', panel:'availability', disabled:false}] : []),
         {icon:'💥', label:`Runtime Dumps (${cs.rteDumpHandles?.length||0})`, panel:'rtedumps', disabled:false},
         ...(cs.crashDumpHandles?.length?[{icon:'🛑', label:`Crash Dumps (${cs.crashDumpHandles.length})`, panel:'crashdumps', disabled:false}]:[]),
         {icon:'📂', label:'Trace Explorer', panel:'traceexplorer', disabled:false},
@@ -4941,6 +5140,7 @@ function buildHsiNavGroup(s){
         sub.dataset.panel = it.panel
         sub.style.paddingLeft = '36px'
         sub.innerHTML = `<span style="font-size:12px;">${it.icon}</span>${it.label}`
+        const col=navItemColor(it.label);if(col)sub.style.background=col
         if(!it.disabled) sub.onclick = () => activateNavItem(cs.id, it.panel)
         childChildren.appendChild(sub)
       }

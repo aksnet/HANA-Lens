@@ -192,6 +192,28 @@ fn read_fs_reference(app: tauri::AppHandle) -> Option<String> {
     None
 }
 
+// Read settings.json from executable_dir / resource_dir / app_data_dir
+#[tauri::command]
+fn read_settings(app: tauri::AppHandle) -> Option<String> {
+    let mut bases: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(p) = app.path().executable_dir() { bases.push(p); }
+    if let Ok(p) = app.path().resource_dir()   { bases.push(p); }
+    if let Ok(p) = app.path().app_data_dir()   { bases.push(p); }
+    for base in &bases {
+        let path = base.join("settings.json");
+        if let Ok(content) = fs::read_to_string(&path) { return Some(content); }
+    }
+    None
+}
+
+// Write settings.json to app_data_dir (user-writable)
+#[tauri::command]
+fn write_settings(app: tauri::AppHandle, content: String) -> Result<(), String> {
+    let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    fs::create_dir_all(&base).map_err(|e| e.to_string())?;
+    fs::write(base.join("settings.json"), content).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn open_in_dump_analyzer(app: tauri::AppHandle, dump_path: String) -> Result<(), String> {
     let mut bases: Vec<std::path::PathBuf> = Vec::new();
@@ -224,6 +246,8 @@ fn main() {
             open_folder,
             read_filter_files,
             read_fs_reference,
+            read_settings,
+            write_settings,
             open_in_dump_analyzer,
         ])
         .run(tauri::generate_context!())
