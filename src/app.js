@@ -1816,7 +1816,6 @@ async function loadSmartFolder(){
     dirHandle=await window.showDirectoryPicker({mode:'read',id:'load-smart',...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})})
   }catch(e){if(e.name!=='AbortError')alert('Error: '+e.message);return}
   _lastPickedHandle=dirHandle
-  _trackRecentPath(dirHandle._path)
   const n=dirHandle.name.toLowerCase()
   if(n.startsWith('hsi_nettest')){await loadHSIFolder(dirHandle);return}
   if(n.startsWith('hsi_')){await loadHSIFolder(dirHandle);return}
@@ -1872,6 +1871,8 @@ async function loadFSIDFolder(existingHandle){
       topoData:null, traceExplorerData:null
     }
     activeFsidId=sid
+    fsidSessions.push(s)
+    renderNavTree() // early render — gives immediate visual feedback before deep scanning
     // switch proxy to new session before any reads
     for await(const[name,handle]of dirHandle.entries()){if(handle.kind==='file')s.loadedFiles[name.toLowerCase()]=handle}
     try{
@@ -1987,7 +1988,6 @@ async function loadFSIDFolder(existingHandle){
         if(servers.length){s.traceExplorerData={instanceDir:n1,servers};break}
       }
     }catch(e){}
-    fsidSessions.push(s)
     // reset rtedumps panel so it rebuilds with new FSID data
     document.getElementById('panel-rtedumps').innerHTML=''
     document.getElementById('panel-crashdumps').innerHTML=''
@@ -4977,6 +4977,7 @@ async function loadHSIFolder(existingHandle){
 
     fsidSessions.push(s)
     activeFsidId = sid
+    renderNavTree() // early render — gives immediate visual feedback before FSID scanning
 
     // ── Scan FSIDs/ subfolder and load each as a child FSID session ──────────
     try{
