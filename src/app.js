@@ -1860,7 +1860,7 @@ async function loadFSIDFolder(existingHandle){
   try{
     const dirHandle=existingHandle||await window.showDirectoryPicker({mode:'read',id:'load-fsid',...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})})
     _lastPickedHandle=dirHandle
-    _trackRecentPath(dirHandle._path)
+    try{_trackRecentPath(dirHandle._path)}catch(e){}
     const sid=newSessionId()
     const color=FSID_COLORS[fsidSessions.length%FSID_COLORS.length]
     const s={
@@ -2237,7 +2237,8 @@ function initNavSettingsUI(){
 function _trackRecentPath(path){
   if(!path) return
   const s=window._hanaLensSettings
-  if(!s.recentPaths) s.recentPaths=[]
+  if(!s||typeof s!=='object') return
+  if(!Array.isArray(s.recentPaths)) s.recentPaths=[]
   const idx=s.recentPaths.indexOf(path);if(idx!==-1)s.recentPaths.splice(idx,1)
   s.recentPaths.unshift(path);if(s.recentPaths.length>5)s.recentPaths.length=5
   invoke('write_settings',{content:JSON.stringify(s)}).catch(()=>{})
@@ -4898,7 +4899,7 @@ async function loadHSIFolder(existingHandle){
   try{
     const dirHandle = existingHandle || await window.showDirectoryPicker({mode:'read',id:'load-hsi',...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})})
     _lastPickedHandle = dirHandle
-    _trackRecentPath(dirHandle._path)
+    try{_trackRecentPath(dirHandle._path)}catch(e){}
     const sid = newSessionId()
     const color = FSID_COLORS[fsidSessions.length % FSID_COLORS.length]
     const s = {
