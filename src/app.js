@@ -1860,6 +1860,7 @@ async function loadFSIDFolder(existingHandle){
   try{
     const dirHandle=existingHandle||await window.showDirectoryPicker({mode:'read',id:'load-fsid',...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})})
     _lastPickedHandle=dirHandle
+    _trackRecentPath(dirHandle._path)
     const sid=newSessionId()
     const color=FSID_COLORS[fsidSessions.length%FSID_COLORS.length]
     const s={
@@ -2034,8 +2035,12 @@ function hideNavSettings(){
 
 function toggleNavSettings(){
   const p=document.getElementById('nav-settings-panel')
-  if(!p) return
+  const btn=document.getElementById('nav-gear-btn')
+  if(!p||!btn) return
   if(p.style.display==='none'||!p.style.display){
+    const rect=btn.getBoundingClientRect()
+    p.style.top=(rect.bottom+2)+'px'
+    p.style.left=rect.left+'px'
     renderNavSettingsPanel()
     p.style.display='block'
   } else {
@@ -2217,14 +2222,14 @@ function initNavSettingsUI(){
   gear.id='nav-gear-btn'
   gear.textContent='⚙'
   gear.title='Color Group Settings'
-  gear.style.cssText='background:none;border:none;cursor:pointer;font-size:14px;color:#605E5C;padding:0 2px;line-height:1;flex-shrink:0;'
+  gear.style.cssText='background:none;border:none;cursor:pointer;font-size:16px;color:#323130;padding:0 4px;line-height:1;flex-shrink:0;'
   gear.onclick=(e)=>{ e.stopPropagation(); toggleNavSettings() }
   hdr.appendChild(gear)
 
   const panel=document.createElement('div')
   panel.id='nav-settings-panel'
-  panel.style.cssText='display:none;position:absolute;top:30px;left:0;right:0;z-index:50;background:#fff;border:1px solid #C8C6C4;border-top:none;box-shadow:0 4px 12px rgba(0,0,0,0.12);max-height:480px;overflow:hidden;'
-  document.getElementById('navTree').appendChild(panel)
+  panel.style.cssText='display:none;position:fixed;z-index:9000;background:#fff;border:1px solid #C8C6C4;box-shadow:0 4px 12px rgba(0,0,0,0.12);min-width:280px;max-height:480px;overflow:hidden;'
+  document.body.appendChild(panel)
 }
 
 // ── Load Dropdown (Recent paths + Bookmarks for load buttons) ────────────
@@ -2246,9 +2251,14 @@ function hideLoadDropdown(){
 }
 
 function showLoadDropdown(evt, mode){
-  _loadDropdownMode=mode
   const dd=document.getElementById('load-dropdown')
   if(!dd) return
+  // Toggle: close if already open
+  if(dd.style.display==='block'){
+    hideLoadDropdown()
+    return
+  }
+  _loadDropdownMode=mode
   dd.innerHTML=''
 
   const s=window._hanaLensSettings
@@ -2278,8 +2288,19 @@ function showLoadDropdown(evt, mode){
     for(const p of recent){
       const name=p.replace(/.*[/\\]/,'')
       dd.appendChild(mkItem('📁',name,p,()=>{
-        _lastPickedHandle={_path:p}
-        isFolderMode ? loadSmartFolder() : rteDumpLoadSingle()
+        if(isFolderMode){
+          // Direct load — no native picker dialog
+          const handle=new window.TauriDirHandle(p)
+          _lastPickedHandle=handle
+          const n=handle.name.toLowerCase()
+          if(n.startsWith('hsi_nettest')||n.startsWith('hsi_')) loadHSIFolder(handle)
+          else if(n.startsWith('fullsysteminfodump_')) loadFSIDFolder(handle)
+          else showLoadTypeDialog(handle)
+        } else {
+          // rte mode: open file picker starting in this directory
+          _lastPickedHandle=new window.TauriDirHandle(p)
+          rteDumpLoadSingle()
+        }
       }))
     }
   }
@@ -2291,7 +2312,8 @@ function showLoadDropdown(evt, mode){
     dd.appendChild(sep)
     for(const bk of bookmarks){
       dd.appendChild(mkItem('📌',bk.name||bk.path,bk.path,()=>{
-        _lastPickedHandle={_path:bk.path}
+        // Bookmarks open native picker starting at the bookmark path
+        _lastPickedHandle=new window.TauriDirHandle(bk.path)
         isFolderMode ? loadSmartFolder() : rteDumpLoadSingle()
       }))
     }
@@ -4876,6 +4898,7 @@ async function loadHSIFolder(existingHandle){
   try{
     const dirHandle = existingHandle || await window.showDirectoryPicker({mode:'read',id:'load-hsi',...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})})
     _lastPickedHandle = dirHandle
+    _trackRecentPath(dirHandle._path)
     const sid = newSessionId()
     const color = FSID_COLORS[fsidSessions.length % FSID_COLORS.length]
     const s = {
