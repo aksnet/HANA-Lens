@@ -1134,6 +1134,7 @@ async function rteDumpLoadSingle(){
     })
   }catch(e){if(e.name!=='AbortError')alert('Error: '+e.message);return}
   _lastPickedHandle=fileHandle
+  _trackRecentPath(fileHandle._path ? fileHandle._path.replace(/[/\\][^/\\]+$/,'') : null)
   const fname=fileHandle.name
   // Parse filename — fall back to a minimal stub for non-standard names
   const parsed=parseRteDumpFilename(fname)||{
@@ -1761,7 +1762,7 @@ const HANA_INI_FILES=['global.ini','indexserver.ini','nameserver.ini','daemon.in
   'backint.ini','traceanalyzer.ini','hdbalert.ini','auditlog.ini','inifile_checker.ini']
 let activeFsidId = null     // id of the currently viewed session
 let activePanel  = null     // 'topology' | 'versionhistory' | ... for the active session
-window._hanaLensSettings = { navColorGroups: [] }
+window._hanaLensSettings = { navColorGroups: [], recentPaths: [], bookmarkPaths: [] }
 let traceExplState = null   // {sid, serverIdx, stack:[{name,handle}], entries:[...]}
 let _lastPickedHandle = null  // last FileSystemHandle used in any picker — passed as startIn
 let _traceCopyPath = ''       // full path of the currently open trace file, for breadcrumb copy btn
@@ -1815,6 +1816,7 @@ async function loadSmartFolder(){
     dirHandle=await window.showDirectoryPicker({mode:'read',id:'load-smart',...(_lastPickedHandle?{startIn:_lastPickedHandle}:{})})
   }catch(e){if(e.name!=='AbortError')alert('Error: '+e.message);return}
   _lastPickedHandle=dirHandle
+  _trackRecentPath(dirHandle._path)
   const n=dirHandle.name.toLowerCase()
   if(n.startsWith('hsi_nettest')){await loadHSIFolder(dirHandle);return}
   if(n.startsWith('hsi_')){await loadHSIFolder(dirHandle);return}
@@ -2009,9 +2011,10 @@ document.addEventListener('DOMContentLoaded',()=>{
     if(!e.target.closest('#crash-ctx-menu'))hideCrashDumpCtxMenu()
     if(!e.target.closest('#trace-line-ctx-menu'))hideTraceLineCtxMenu()
     if(!e.target.closest('#nav-settings-panel')&&!e.target.closest('#nav-gear-btn'))hideNavSettings()
+    if(!e.target.closest('#load-dropdown')&&!e.target.closest('.split-chevron'))hideLoadDropdown()
   })
   document.addEventListener('keydown',(e)=>{
-    if(e.key==='Escape'){hideFsidCtxMenu();hideRteCtxMenu();hideCrashDumpCtxMenu();hideTraceLineCtxMenu();hideNavSettings()}
+    if(e.key==='Escape'){hideFsidCtxMenu();hideRteCtxMenu();hideCrashDumpCtxMenu();hideTraceLineCtxMenu();hideNavSettings();hideLoadDropdown()}
   })
 })
 
@@ -2043,9 +2046,11 @@ function toggleNavSettings(){
 function renderNavSettingsPanel(){
   const panel=document.getElementById('nav-settings-panel')
   if(!panel) return
-  const groups=window._hanaLensSettings.navColorGroups
+  const groups=window._hanaLensSettings.navColorGroups||[]
+  const bookmarks=window._hanaLensSettings.bookmarkPaths||[]
   panel.innerHTML=''
 
+  // ── Color Groups section ──
   const title=document.createElement('div')
   title.style.cssText='font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#605E5C;padding:8px 10px 6px;border-bottom:1px solid #EDEBE9;margin-bottom:6px;'
   title.textContent='Color Groups'
@@ -2053,30 +2058,66 @@ function renderNavSettingsPanel(){
 
   const list=document.createElement('div')
   list.id='nav-settings-list'
-  list.style.cssText='max-height:320px;overflow-y:auto;'
+  list.style.cssText='max-height:240px;overflow-y:auto;'
   panel.appendChild(list)
 
   for(let gi=0; gi<groups.length; gi++){
     list.appendChild(buildGroupRow(gi, groups[gi]))
   }
 
-  const footer=document.createElement('div')
-  footer.style.cssText='display:flex;gap:6px;padding:8px 10px;border-top:1px solid #EDEBE9;margin-top:6px;'
-
-  const addBtn=document.createElement('button')
-  addBtn.textContent='+ Add Group'
-  addBtn.style.cssText='flex:1;height:26px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;cursor:pointer;'
-  addBtn.onclick=()=>{
+  const addGroupBtn=document.createElement('button')
+  addGroupBtn.textContent='+ Add Color Group'
+  addGroupBtn.style.cssText='display:block;width:calc(100% - 20px);margin:4px 10px 6px;height:26px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;cursor:pointer;'
+  addGroupBtn.onclick=()=>{
     window._hanaLensSettings.navColorGroups.push({name:'New Group',color:'#EFF6FC',items:[]})
     renderNavSettingsPanel()
   }
+  panel.appendChild(addGroupBtn)
 
+  // ── Bookmark Paths section ──
+  const bkTitle=document.createElement('div')
+  bkTitle.style.cssText='font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#605E5C;padding:6px 10px 6px;border-top:1px solid #EDEBE9;border-bottom:1px solid #EDEBE9;margin-bottom:6px;'
+  bkTitle.textContent='Bookmark Paths'
+  panel.appendChild(bkTitle)
+
+  const bkList=document.createElement('div')
+  bkList.style.cssText='max-height:150px;overflow-y:auto;padding:0 8px;'
+  panel.appendChild(bkList)
+
+  bookmarks.forEach((bk,bi)=>{
+    const row=document.createElement('div')
+    row.style.cssText='display:flex;gap:4px;align-items:center;margin-bottom:4px;'
+    const nameIn=document.createElement('input')
+    nameIn.type='text';nameIn.value=bk.name||'';nameIn.placeholder='Name'
+    nameIn.style.cssText='width:80px;height:22px;padding:0 4px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;'
+    nameIn.oninput=e=>bk.name=e.target.value
+    const pathIn=document.createElement('input')
+    pathIn.type='text';pathIn.value=bk.path||'';pathIn.placeholder='Path (C:\\...)'
+    pathIn.style.cssText='flex:1;height:22px;padding:0 4px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;'
+    pathIn.oninput=e=>bk.path=e.target.value
+    const delBtn=document.createElement('button')
+    delBtn.textContent='✕';delBtn.style.cssText='background:none;border:none;cursor:pointer;font-size:12px;color:#A19F9D;padding:0 2px;'
+    delBtn.onclick=()=>{ window._hanaLensSettings.bookmarkPaths.splice(bi,1); renderNavSettingsPanel() }
+    row.appendChild(nameIn);row.appendChild(pathIn);row.appendChild(delBtn)
+    bkList.appendChild(row)
+  })
+
+  const addBkBtn=document.createElement('button')
+  addBkBtn.textContent='+ Add Bookmark'
+  addBkBtn.style.cssText='display:block;width:calc(100% - 16px);margin:4px 8px 6px;height:26px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;cursor:pointer;'
+  addBkBtn.onclick=()=>{
+    window._hanaLensSettings.bookmarkPaths.push({name:'',path:''})
+    renderNavSettingsPanel()
+  }
+  panel.appendChild(addBkBtn)
+
+  // ── Save button ──
+  const footer=document.createElement('div')
+  footer.style.cssText='display:flex;gap:6px;padding:6px 10px;border-top:1px solid #EDEBE9;'
   const saveBtn=document.createElement('button')
   saveBtn.textContent='💾 Save'
-  saveBtn.style.cssText='height:26px;padding:0 12px;background:#107C10;color:#fff;border:none;border-radius:2px;font-size:11px;cursor:pointer;font-weight:600;'
+  saveBtn.style.cssText='flex:1;height:26px;background:#107C10;color:#fff;border:none;border-radius:2px;font-size:11px;cursor:pointer;font-weight:600;'
   saveBtn.onclick=saveNavSettings
-
-  footer.appendChild(addBtn)
   footer.appendChild(saveBtn)
   panel.appendChild(footer)
 }
@@ -2184,6 +2225,84 @@ function initNavSettingsUI(){
   panel.id='nav-settings-panel'
   panel.style.cssText='display:none;position:absolute;top:30px;left:0;right:0;z-index:50;background:#fff;border:1px solid #C8C6C4;border-top:none;box-shadow:0 4px 12px rgba(0,0,0,0.12);max-height:480px;overflow:hidden;'
   document.getElementById('navTree').appendChild(panel)
+}
+
+// ── Load Dropdown (Recent paths + Bookmarks for load buttons) ────────────
+
+function _trackRecentPath(path){
+  if(!path) return
+  const s=window._hanaLensSettings
+  if(!s.recentPaths) s.recentPaths=[]
+  const idx=s.recentPaths.indexOf(path);if(idx!==-1)s.recentPaths.splice(idx,1)
+  s.recentPaths.unshift(path);if(s.recentPaths.length>5)s.recentPaths.length=5
+  invoke('write_settings',{content:JSON.stringify(s)}).catch(()=>{})
+}
+
+let _loadDropdownMode=null
+function hideLoadDropdown(){
+  const d=document.getElementById('load-dropdown')
+  if(d)d.style.display='none'
+  _loadDropdownMode=null
+}
+
+function showLoadDropdown(evt, mode){
+  _loadDropdownMode=mode
+  const dd=document.getElementById('load-dropdown')
+  if(!dd) return
+  dd.innerHTML=''
+
+  const s=window._hanaLensSettings
+  const recent=s.recentPaths||[]
+  const bookmarks=s.bookmarkPaths||[]
+  const isFolderMode=mode==='folder'
+
+  const mkItem=(icon,text,tooltip,onclick)=>{
+    const d=document.createElement('div')
+    d.className='ctx-item'
+    d.style.fontSize='11px'
+    d.title=tooltip||''
+    d.innerHTML=`<span style="margin-right:4px;">${icon}</span>${escHtml(text)}`
+    d.onclick=()=>{ hideLoadDropdown(); onclick() }
+    return d
+  }
+
+  // Browse action
+  dd.appendChild(mkItem('📂',isFolderMode?'Browse for folder…':'Browse for .trc file…','',
+    ()=>isFolderMode ? loadSmartFolder() : rteDumpLoadSingle()))
+
+  if(recent.length){
+    const sep=document.createElement('div')
+    sep.style.cssText='border-top:1px solid #EDEBE9;margin:4px 0;padding:2px 10px;font-size:10px;font-weight:600;color:#A19F9D;text-transform:uppercase;'
+    sep.textContent='Recent'
+    dd.appendChild(sep)
+    for(const p of recent){
+      const name=p.replace(/.*[/\\]/,'')
+      dd.appendChild(mkItem('📁',name,p,()=>{
+        _lastPickedHandle={_path:p}
+        isFolderMode ? loadSmartFolder() : rteDumpLoadSingle()
+      }))
+    }
+  }
+
+  if(bookmarks.length){
+    const sep=document.createElement('div')
+    sep.style.cssText='border-top:1px solid #EDEBE9;margin:4px 0;padding:2px 10px;font-size:10px;font-weight:600;color:#A19F9D;text-transform:uppercase;'
+    sep.textContent='Bookmarks'
+    dd.appendChild(sep)
+    for(const bk of bookmarks){
+      dd.appendChild(mkItem('📌',bk.name||bk.path,bk.path,()=>{
+        _lastPickedHandle={_path:bk.path}
+        isFolderMode ? loadSmartFolder() : rteDumpLoadSingle()
+      }))
+    }
+  }
+
+  // Position below the clicked button
+  const rect=evt.currentTarget.getBoundingClientRect()
+  dd.style.display='block'
+  dd.style.top=(rect.bottom+2)+'px'
+  dd.style.left=rect.left+'px'
+  dd.style.minWidth=Math.max(rect.width,220)+'px'
 }
 
 // ── Nav Tree (Multi-FSID accordion) ──────────────────────────────────────
@@ -5080,7 +5199,7 @@ function buildHsiNavGroup(s){
     const _tabCol=navItemColor(tab.label);if(_tabCol)sub.style.background=_tabCol
     sub.onclick = () => activateHsiTab(s.id, tab.id, null)
     children.appendChild(sub)
-    // After HANA DB tab, inject Topology / Version History / Availability shortcuts
+    // After HANA DB tab, inject Topology shortcut (VH + Avail appear as HANA DB sub-tabs instead)
     if(_primaryFsid && tab.label.toLowerCase().replace(/_/g,' ')==='hana db'){
       const _makeHsiLink=(icon,label,panel)=>{
         const d=document.createElement('div')
@@ -5093,10 +5212,6 @@ function buildHsiNavGroup(s){
       }
       if(_primaryFsid.topoData!=null||'topology.txt' in (_primaryFsid.loadedFiles||{}))
         children.appendChild(_makeHsiLink('🗺️','Topology','topology'))
-      if(_primaryFsid.versionHistoryHandle)
-        children.appendChild(_makeHsiLink('📋','Version History','versionhistory'))
-      if(_primaryFsid.availabilityHandles?.length)
-        children.appendChild(_makeHsiLink('🟢','Availability','availability'))
     }
   }
 
@@ -5162,6 +5277,40 @@ function buildHsiNavGroup(s){
   return grp
 }
 
+// Render availability content inside the HANA DB sub-tab panel
+async function _renderHanaDbAvailability(contentArea, pFsid, subTabId, sid, tabId){
+  const avail=pFsid.availabilityHandles||[]
+  if(!avail.length){ contentArea.innerHTML='<div class="not-found-msg">⚠️ No availability data found.</div>'; return }
+  const hostIdx=Math.max(0,parseInt(subTabId?.split('-')[2]||'0')||0)
+  // Multi-host tab bar
+  if(avail.length>1){
+    const hBar=document.createElement('div')
+    hBar.style.cssText='display:flex;gap:2px;padding:4px 8px;border-bottom:1px solid #EDEBE9;background:#F8F8F7;flex-wrap:wrap;'
+    avail.forEach(({hostName},i)=>{
+      const b=document.createElement('button')
+      b.className='hsi-subtab-btn'+(i===hostIdx?' active':'')
+      b.style.fontSize='11px'
+      b.textContent=hostName
+      b.onclick=()=>activateHsiTab(sid,tabId,`__availability-${i}`)
+      hBar.appendChild(b)
+    })
+    contentArea.appendChild(hBar)
+  }
+  const {hostName,handle}=avail[hostIdx]||avail[0]
+  contentArea.insertAdjacentHTML('beforeend','<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>')
+  try{
+    const f=await handle.getFile()
+    const inner=document.createElement('div')
+    inner.innerHTML=renderAvailability(await f.text(),hostName,handle.name)
+    // remove loading indicator then append content
+    const loading=contentArea.querySelector(':scope>div:last-child')
+    if(loading&&loading.style.color==='rgb(161, 159, 157)')loading.remove()
+    contentArea.appendChild(inner)
+  }catch(e){
+    contentArea.innerHTML+='<div class="not-found-msg">⚠️ '+escHtml(String(e?.message||e))+'</div>'
+  }
+}
+
 // Activate an HSI tab (and optional subtab)
 async function activateHsiTab(sid, tabId, subTabFile){
   activeFsidId = sid
@@ -5210,22 +5359,83 @@ async function activateHsiTab(sid, tabId, subTabFile){
 
   // ── Dynamic group (NN-Group--MM-Tab format) ───────────────────────────────
   if(tab.type==='dyn-group'){
-    const activeTab = tab.tabs.find(t => t.id === subTabFile) || tab.tabs[0]
+    const isHanaDb = tab.label.toLowerCase().replace(/_/g,' ')==='hana db'
+    const _pFsid = isHanaDb ? fsidSessions.find(cs=>cs.hsiParentId===sid) : null
+    // Resolve active regular sub-tab (ignore special __ ids for tab.tabs lookup)
+    const isSpecial = typeof subTabFile==='string' && subTabFile.startsWith('__')
+    const activeTab = (!isSpecial && tab.tabs.find(t=>t.id===subTabFile)) || tab.tabs[0]
     const stBar = document.createElement('div')
     stBar.className = 'hsi-subtab-bar'
     tab.tabs.forEach(dt => {
       const btn = document.createElement('button')
-      btn.className = 'hsi-subtab-btn' + (dt.id === activeTab.id ? ' active' : '')
+      btn.className = 'hsi-subtab-btn' + (!isSpecial && dt.id===activeTab?.id ? ' active' : '')
       btn.textContent = dt.label
       btn.onclick = () => activateHsiTab(sid, tabId, dt.id)
       stBar.appendChild(btn)
     })
+    // HANA DB group: inject Version History + Availability as extra sub-tabs
+    if(isHanaDb && _pFsid){
+      if(_pFsid.versionHistoryHandle){
+        const btn=document.createElement('button')
+        btn.className='hsi-subtab-btn'+(subTabFile==='__versionhistory'?' active':'')
+        btn.textContent='📋 Version History'
+        btn.onclick=()=>activateHsiTab(sid,tabId,'__versionhistory')
+        stBar.appendChild(btn)
+      }
+      if(_pFsid.availabilityHandles?.length){
+        const btn=document.createElement('button')
+        btn.className='hsi-subtab-btn'+(subTabFile?.startsWith('__availability')?' active':'')
+        btn.textContent='🟢 Availability'
+        btn.onclick=()=>activateHsiTab(sid,tabId,'__availability-0')
+        stBar.appendChild(btn)
+      }
+    }
     panel.appendChild(stBar)
     const contentArea = document.createElement('div')
     contentArea.className = 'hsi-content-area'
     panel.appendChild(contentArea)
-    await _hsiRenderDynTab(contentArea, activeTab, s)
+    // Special HANA DB sub-tabs
+    if(isHanaDb && subTabFile==='__versionhistory' && _pFsid?.versionHistoryHandle){
+      try{
+        const file=await _pFsid.versionHistoryHandle.getFile()
+        contentArea.innerHTML=renderVersionHistory(await file.text())
+      }catch(e){ contentArea.innerHTML=`<div class="not-found-msg">⚠️ Error loading version history: ${escHtml(String(e?.message||e))}</div>` }
+    } else if(isHanaDb && subTabFile?.startsWith('__availability') && _pFsid?.availabilityHandles?.length){
+      await _renderHanaDbAvailability(contentArea,_pFsid,subTabFile,sid,tabId)
+    } else {
+      await _hsiRenderDynTab(contentArea, activeTab, s)
+    }
     return
+  }
+
+  // ── File type: HANA_DB.log — add VH + Availability as extra sub-tabs ───────
+  if(tab.type==='file' && tab.file==='HANA_DB.log'){
+    const _pFsid2=fsidSessions.find(cs=>cs.hsiParentId===sid)
+    if(_pFsid2 && (_pFsid2.versionHistoryHandle || _pFsid2.availabilityHandles?.length)){
+      const stBar2=document.createElement('div'); stBar2.className='hsi-subtab-bar'
+      const mkTabBtn=(label,subId)=>{
+        const b=document.createElement('button')
+        const active=subId==='__hanadb' ? (!subTabFile||subTabFile==='__hanadb') : subTabFile===subId||subTabFile?.startsWith(subId.replace(/-0$/,''))
+        b.className='hsi-subtab-btn'+(active?' active':'')
+        b.textContent=label; b.onclick=()=>activateHsiTab(sid,tabId,subId); return b
+      }
+      stBar2.appendChild(mkTabBtn('HANA DB','__hanadb'))
+      if(_pFsid2.versionHistoryHandle) stBar2.appendChild(mkTabBtn('📋 Version History','__versionhistory'))
+      if(_pFsid2.availabilityHandles?.length) stBar2.appendChild(mkTabBtn('🟢 Availability','__availability-0'))
+      panel.appendChild(stBar2)
+      const ca2=document.createElement('div'); ca2.className='hsi-content-area'; panel.appendChild(ca2)
+      if(subTabFile==='__versionhistory'&&_pFsid2.versionHistoryHandle){
+        try{ const f=await _pFsid2.versionHistoryHandle.getFile(); ca2.innerHTML=renderVersionHistory(await f.text()) }
+        catch(e){ ca2.innerHTML=`<div class="not-found-msg">⚠️ ${escHtml(String(e?.message||e))}</div>` }
+      } else if(subTabFile?.startsWith('__availability')&&_pFsid2.availabilityHandles?.length){
+        await _renderHanaDbAvailability(ca2,_pFsid2,subTabFile,sid,tabId)
+      } else {
+        const res=hsiResolveFile(s,'HANA_DB.log')
+        if(res){ ca2.innerHTML='<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'; const f=await res.handle.getFile(); ca2.innerHTML=renderHsiFile(await f.text(),res.resolvedName) }
+        else ca2.innerHTML='<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>HANA_DB.log not found.</span></div>'
+      }
+      return
+    }
   }
 
   // ── Subtab bar (for groups and hsi-config) ───────────────────────────────
