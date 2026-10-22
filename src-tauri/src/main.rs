@@ -200,18 +200,25 @@ fn read_settings(app: tauri::AppHandle) -> Option<String> {
     if let Ok(p) = app.path().resource_dir()   { bases.push(p); }
     if let Ok(p) = app.path().app_data_dir()   { bases.push(p); }
     for base in &bases {
-        let path = base.join("settings.json");
+        let path = base.join("hana-lens-settings.json");
         if let Ok(content) = fs::read_to_string(&path) { return Some(content); }
     }
     None
 }
 
-// Write settings.json to app_data_dir (user-writable)
+// Write hana-lens-settings.json next to the exe; fall back to app_data_dir if not writable
 #[tauri::command]
 fn write_settings(app: tauri::AppHandle, content: String) -> Result<(), String> {
+    // Prefer exe directory (portable, visible to user)
+    if let Ok(exe_dir) = app.path().executable_dir() {
+        if fs::write(exe_dir.join("hana-lens-settings.json"), &content).is_ok() {
+            return Ok(());
+        }
+    }
+    // Fallback: user app-data dir (always writable)
     let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&base).map_err(|e| e.to_string())?;
-    fs::write(base.join("settings.json"), content).map_err(|e| e.to_string())
+    fs::write(base.join("hana-lens-settings.json"), content).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
