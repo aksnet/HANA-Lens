@@ -2281,7 +2281,7 @@ function toggleAppMenu(btn){
     `<div class="ctx-item" onclick="hideAppMenu();toggleNavSettings(document.getElementById('app-menu-btn'))">&#9881; Settings</div>`+
     `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
     `<div class="ctx-item" onclick="hideAppMenu();window.__TAURI__?.core.invoke('open_external_url',{url:'https://me.sap.com/notes/3771222'}).catch(()=>{})">&#128203; KBA 3771222</div>`+
-    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_22_09</div>`
+    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_22_10</div>`
   d.style.right=(window.innerWidth-rect.right)+'px'
   d.style.left='auto'
   d.style.top=(rect.bottom+2)+'px'
@@ -5266,7 +5266,6 @@ function buildHsiNavGroup(s){
       const _makeHsiLink=(icon,label,panel)=>{
         const d=document.createElement('div')
         d.className='fsid-sub-item'
-        d.style.paddingLeft='32px'
         d.innerHTML=`<span style="font-size:11px;">${icon}</span>${escHtml(label)}`
         const c=navItemColor(label);if(c)d.style.background=c
         d.onclick=()=>activateNavItem(_primaryFsid.id,panel)
