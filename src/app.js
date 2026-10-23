@@ -2033,11 +2033,12 @@ function hideNavSettings(){
   if(p) p.style.display='none'
 }
 
-function toggleNavSettings(){
+function toggleNavSettings(anchor){
   const p=document.getElementById('nav-settings-panel')
-  const btn=document.getElementById('nav-gear-btn')
-  if(!p||!btn) return
+  if(!p) return
   if(p.style.display==='none'||!p.style.display){
+    const btn=anchor||document.getElementById('nav-gear-btn')
+    if(!btn) return
     const rect=btn.getBoundingClientRect()
     p.style.top=(rect.bottom+2)+'px'
     p.style.left=rect.left+'px'
@@ -2223,7 +2224,7 @@ function initNavSettingsUI(){
   gear.textContent='⚙'
   gear.title='Color Group Settings'
   gear.style.cssText='background:none;border:none;cursor:pointer;font-size:16px;color:#323130;padding:0 4px;line-height:1;flex-shrink:0;'
-  gear.onclick=(e)=>{ e.stopPropagation(); toggleNavSettings() }
+  gear.onclick=(e)=>{ e.stopPropagation(); toggleNavSettings(gear) }
   hdr.appendChild(gear)
 
   const panel=document.createElement('div')
