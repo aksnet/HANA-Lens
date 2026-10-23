@@ -2013,9 +2013,10 @@ document.addEventListener('DOMContentLoaded',()=>{
     if(!e.target.closest('#trace-line-ctx-menu'))hideTraceLineCtxMenu()
     if(!e.target.closest('#nav-settings-panel')&&!e.target.closest('#nav-gear-btn'))hideNavSettings()
     if(!e.target.closest('#load-dropdown')&&!e.target.closest('.split-chevron'))hideLoadDropdown()
+    if(!e.target.closest('#app-menu-dropdown')&&!e.target.closest('#app-menu-btn'))hideAppMenu()
   })
   document.addEventListener('keydown',(e)=>{
-    if(e.key==='Escape'){hideFsidCtxMenu();hideRteCtxMenu();hideCrashDumpCtxMenu();hideTraceLineCtxMenu();hideNavSettings();hideLoadDropdown()}
+    if(e.key==='Escape'){hideFsidCtxMenu();hideRteCtxMenu();hideCrashDumpCtxMenu();hideTraceLineCtxMenu();hideNavSettings();hideLoadDropdown();hideAppMenu()}
   })
 })
 
@@ -2041,7 +2042,13 @@ function toggleNavSettings(anchor){
     if(!btn) return
     const rect=btn.getBoundingClientRect()
     p.style.top=(rect.bottom+2)+'px'
-    p.style.left=rect.left+'px'
+    if(btn.id==='app-menu-btn'){
+      p.style.left='auto'
+      p.style.right=(window.innerWidth-rect.right)+'px'
+    } else {
+      p.style.right=''
+      p.style.left=rect.left+'px'
+    }
     renderNavSettingsPanel()
     p.style.display='block'
   } else {
@@ -2116,6 +2123,13 @@ function renderNavSettingsPanel(){
     renderNavSettingsPanel()
   }
   panel.appendChild(addBkBtn)
+
+  // ── Settings file path info ──
+  const pathInfo=document.createElement('div')
+  pathInfo.style.cssText='padding:4px 10px;font-size:10px;color:#A19F9D;border-top:1px solid #EDEBE9;word-break:break-all;'
+  pathInfo.textContent='Settings: …'
+  panel.appendChild(pathInfo)
+  invoke('get_settings_path').then(p=>{ pathInfo.textContent='Settings: '+p }).catch(()=>{})
 
   // ── Save button ──
   const footer=document.createElement('div')
@@ -2242,7 +2256,7 @@ function _trackRecentPath(path){
   if(!Array.isArray(s.recentPaths)) s.recentPaths=[]
   const idx=s.recentPaths.indexOf(path);if(idx!==-1)s.recentPaths.splice(idx,1)
   s.recentPaths.unshift(path);if(s.recentPaths.length>5)s.recentPaths.length=5
-  invoke('write_settings',{content:JSON.stringify(s)}).catch(()=>{})
+  invoke('write_settings',{content:JSON.stringify(s)}).catch(e=>console.warn('[HANA-Lens] write_settings failed:',e))
 }
 
 let _loadDropdownMode=null
@@ -2250,6 +2264,28 @@ function hideLoadDropdown(){
   const d=document.getElementById('load-dropdown')
   if(d)d.style.display='none'
   _loadDropdownMode=null
+}
+
+function hideAppMenu(){
+  const d=document.getElementById('app-menu-dropdown')
+  if(d)d.style.display='none'
+}
+function toggleAppMenu(btn){
+  const d=document.getElementById('app-menu-dropdown')
+  if(!d)return
+  if(d.style.display==='block'){hideAppMenu();return}
+  hideLoadDropdown();hideNavSettings()
+  const rect=btn.getBoundingClientRect()
+  const ver=(document.querySelector('#topbar h1')?.textContent||'').trim()
+  d.innerHTML=
+    `<div class="ctx-item" onclick="hideAppMenu();toggleNavSettings(document.getElementById('app-menu-btn'))">&#9881; Settings</div>`+
+    `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
+    `<div class="ctx-item" onclick="hideAppMenu();window.__TAURI__?.core.invoke('open_external_url',{url:'https://me.sap.com/notes/3771222'}).catch(()=>{})">&#128203; KBA 3771222</div>`+
+    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_22_09</div>`
+  d.style.right=(window.innerWidth-rect.right)+'px'
+  d.style.left='auto'
+  d.style.top=(rect.bottom+2)+'px'
+  d.style.display='block'
 }
 
 function showLoadDropdown(evt, mode){

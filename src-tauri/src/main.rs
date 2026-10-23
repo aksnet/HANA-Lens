@@ -192,33 +192,55 @@ fn read_fs_reference(app: tauri::AppHandle) -> Option<String> {
     None
 }
 
-// Read settings.json from executable_dir / resource_dir / app_data_dir
+fn settings_candidate_dirs(app: &tauri::AppHandle) -> Vec<std::path::PathBuf> {
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    // 1. Directory of the running executable (works in dev AND production)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() { dirs.push(dir.to_path_buf()); }
+    }
+    // 2. Tauri app_data_dir (always writable; auto-created on write)
+    if let Ok(p) = app.path().app_data_dir() { dirs.push(p); }
+    dirs
+}
+
+// Read hana-lens-settings.json — checks exe dir then app_data_dir
 #[tauri::command]
 fn read_settings(app: tauri::AppHandle) -> Option<String> {
-    let mut bases: Vec<std::path::PathBuf> = Vec::new();
-    if let Ok(p) = app.path().executable_dir() { bases.push(p); }
-    if let Ok(p) = app.path().resource_dir()   { bases.push(p); }
-    if let Ok(p) = app.path().app_data_dir()   { bases.push(p); }
-    for base in &bases {
-        let path = base.join("hana-lens-settings.json");
-        if let Ok(content) = fs::read_to_string(&path) { return Some(content); }
+    for dir in settings_candidate_dirs(&app) {
+        if let Ok(content) = fs::read_to_string(dir.join("hana-lens-settings.json")) {
+            return Some(content);
+        }
     }
     None
 }
 
-// Write hana-lens-settings.json next to the exe; fall back to app_data_dir if not writable
+// Write hana-lens-settings.json — tries exe dir first, falls back to app_data_dir
 #[tauri::command]
 fn write_settings(app: tauri::AppHandle, content: String) -> Result<(), String> {
-    // Prefer exe directory (portable, visible to user)
-    if let Ok(exe_dir) = app.path().executable_dir() {
-        if fs::write(exe_dir.join("hana-lens-settings.json"), &content).is_ok() {
-            return Ok(());
+    let dirs = settings_candidate_dirs(&app);
+    let mut last_err = String::from("no writable directory found");
+    for dir in &dirs {
+        let _ = fs::create_dir_all(dir);
+        match fs::write(dir.join("hana-lens-settings.json"), &content) {
+            Ok(_) => return Ok(()),
+            Err(e) => last_err = format!("{}: {}", dir.display(), e),
         }
     }
-    // Fallback: user app-data dir (always writable)
-    let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    fs::create_dir_all(&base).map_err(|e| e.to_string())?;
-    fs::write(base.join("hana-lens-settings.json"), content).map_err(|e| e.to_string())
+    Err(last_err)
+}
+
+// Return the path where settings are (or would be) stored
+#[tauri::command]
+fn get_settings_path(app: tauri::AppHandle) -> String {
+    for dir in settings_candidate_dirs(&app) {
+        let p = dir.join("hana-lens-settings.json");
+        if p.exists() { return p.display().to_string(); }
+    }
+    // Return where it would be written
+    settings_candidate_dirs(&app)
+        .into_iter().next()
+        .map(|d| d.join("hana-lens-settings.json").display().to_string())
+        .unwrap_or_else(|| "(unknown)".to_string())
 }
 
 #[tauri::command]
@@ -255,6 +277,7 @@ fn main() {
             read_fs_reference,
             read_settings,
             write_settings,
+            get_settings_path,
             open_in_dump_analyzer,
         ])
         .run(tauri::generate_context!())
