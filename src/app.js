@@ -2276,12 +2276,21 @@ function toggleAppMenu(btn){
   if(d.style.display==='block'){hideAppMenu();return}
   hideLoadDropdown();hideNavSettings()
   const rect=btn.getBoundingClientRect()
-  const ver=(document.querySelector('#topbar h1')?.textContent||'').trim()
   d.innerHTML=
-    `<div class="ctx-item" onclick="hideAppMenu();toggleNavSettings(document.getElementById('app-menu-btn'))">&#9881; Settings</div>`+
+    `<div class="ctx-item" id="_amSettings">&#9881; Settings</div>`+
     `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
-    `<div class="ctx-item" onclick="hideAppMenu();window.__TAURI__?.core.invoke('open_external_url',{url:'https://me.sap.com/notes/3771222'}).catch(()=>{})">&#128203; KBA 3771222</div>`+
-    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_22_10</div>`
+    `<div class="ctx-item" id="_amKba">&#128203; KBA 3771222</div>`+
+    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_22_12</div>`
+  document.getElementById('_amSettings').onclick=(e)=>{
+    e.stopPropagation()
+    hideAppMenu()
+    try{ toggleNavSettings(btn) }catch(ex){ console.error('toggleNavSettings error:',ex) }
+  }
+  document.getElementById('_amKba').onclick=(e)=>{
+    e.stopPropagation()
+    hideAppMenu()
+    window.__TAURI__?.core.invoke('open_external_url',{url:'https://me.sap.com/notes/3771222'}).catch(()=>{})
+  }
   d.style.right=(window.innerWidth-rect.right)+'px'
   d.style.left='auto'
   d.style.top=(rect.bottom+2)+'px'
