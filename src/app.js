@@ -5478,6 +5478,26 @@ async function activateHsiTab(sid, tabId, subTabFile){
       btn.onclick = () => activateHsiTab(sid, tabId, sf)
       stBar.appendChild(btn)
     })
+    // HANA_DB group (static format): inject Version History + Availability
+    if(tab.type==='group' && tab.label==='HANA_DB'){
+      const _pFsid3 = fsidSessions.find(cs=>cs.hsiParentId===sid)
+      if(_pFsid3){
+        if(_pFsid3.versionHistoryHandle){
+          const btn=document.createElement('button')
+          btn.className='hsi-subtab-btn'+(activeSubFile==='__versionhistory'?' active':'')
+          btn.textContent='📋 Version History'
+          btn.onclick=()=>activateHsiTab(sid,tabId,'__versionhistory')
+          stBar.appendChild(btn)
+        }
+        if(_pFsid3.availabilityHandles?.length){
+          const btn=document.createElement('button')
+          btn.className='hsi-subtab-btn'+(activeSubFile?.startsWith('__availability')?' active':'')
+          btn.textContent='🟢 Availability'
+          btn.onclick=()=>activateHsiTab(sid,tabId,'__availability-0')
+          stBar.appendChild(btn)
+        }
+      }
+    }
     panel.appendChild(stBar)
   }
 
@@ -5555,6 +5575,22 @@ async function activateHsiTab(sid, tabId, subTabFile){
       contentArea.innerHTML = `<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Could not read file: ${escHtml(String(e))}</span></div>`
     }
     return
+  }
+
+  // ── Intercept special HANA_DB sub-tabs in static group format ───────────────
+  if(tab.type==='group' && tab.label==='HANA_DB' && typeof activeSubFile==='string' && activeSubFile.startsWith('__')){
+    const _pFsid3 = fsidSessions.find(cs=>cs.hsiParentId===sid)
+    if(_pFsid3){
+      if(activeSubFile==='__versionhistory' && _pFsid3.versionHistoryHandle){
+        try{ const f=await _pFsid3.versionHistoryHandle.getFile(); contentArea.innerHTML=renderVersionHistory(await f.text()) }
+        catch(e){ contentArea.innerHTML=`<div class="not-found-msg">⚠️ Error loading version history: ${escHtml(String(e?.message||e))}</div>` }
+        return
+      }
+      if(activeSubFile.startsWith('__availability') && _pFsid3.availabilityHandles?.length){
+        await _renderHanaDbAvailability(contentArea,_pFsid3,activeSubFile,sid,tabId)
+        return
+      }
+    }
   }
 
   // ── .log / .md file rendering ─────────────────────────────────────────────
