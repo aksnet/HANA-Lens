@@ -5386,7 +5386,11 @@ async function activateHsiTab(sid, tabId, subTabFile){
   // ── Dynamic group (NN-Group--MM-Tab format) ───────────────────────────────
   if(tab.type==='dyn-group'){
     const isHanaDb = tab.label.toLowerCase().replace(/_/g,' ')==='hana db'
-    const _pFsid = isHanaDb ? fsidSessions.find(cs=>cs.hsiParentId===sid) : null
+    const _childFsids = isHanaDb ? fsidSessions.filter(cs=>cs.hsiParentId===sid) : []
+    const _pFsid = isHanaDb ? {
+      versionHistoryHandle: (_childFsids.find(cs=>cs.versionHistoryHandle)||{}).versionHistoryHandle||null,
+      availabilityHandles: _childFsids.flatMap(cs=>cs.availabilityHandles||[])
+    } : null
     // Resolve active regular sub-tab (ignore special __ ids for tab.tabs lookup)
     const isSpecial = typeof subTabFile==='string' && subTabFile.startsWith('__')
     const activeTab = (!isSpecial && tab.tabs.find(t=>t.id===subTabFile)) || tab.tabs[0]
@@ -5436,7 +5440,11 @@ async function activateHsiTab(sid, tabId, subTabFile){
 
   // ── File type: HANA_DB.log — add VH + Availability as extra sub-tabs ───────
   if(tab.type==='file' && tab.file==='HANA_DB.log'){
-    const _pFsid2=fsidSessions.find(cs=>cs.hsiParentId===sid)
+    const _childFsids2=fsidSessions.filter(cs=>cs.hsiParentId===sid)
+    const _pFsid2=_childFsids2.length ? {
+      versionHistoryHandle: (_childFsids2.find(cs=>cs.versionHistoryHandle)||{}).versionHistoryHandle||null,
+      availabilityHandles: _childFsids2.flatMap(cs=>cs.availabilityHandles||[])
+    } : null
     if(_pFsid2 && (_pFsid2.versionHistoryHandle || _pFsid2.availabilityHandles?.length)){
       const stBar2=document.createElement('div'); stBar2.className='hsi-subtab-bar'
       const mkTabBtn=(label,subId)=>{
@@ -5480,7 +5488,11 @@ async function activateHsiTab(sid, tabId, subTabFile){
     })
     // HANA_DB group (static format): inject Version History + Availability
     if(tab.type==='group' && tab.label==='HANA_DB'){
-      const _pFsid3 = fsidSessions.find(cs=>cs.hsiParentId===sid)
+      const _childFsids3=fsidSessions.filter(cs=>cs.hsiParentId===sid)
+      const _pFsid3=_childFsids3.length ? {
+        versionHistoryHandle: (_childFsids3.find(cs=>cs.versionHistoryHandle)||{}).versionHistoryHandle||null,
+        availabilityHandles: _childFsids3.flatMap(cs=>cs.availabilityHandles||[])
+      } : null
       if(_pFsid3){
         if(_pFsid3.versionHistoryHandle){
           const btn=document.createElement('button')
@@ -5579,7 +5591,11 @@ async function activateHsiTab(sid, tabId, subTabFile){
 
   // ── Intercept special HANA_DB sub-tabs in static group format ───────────────
   if(tab.type==='group' && tab.label==='HANA_DB' && typeof activeSubFile==='string' && activeSubFile.startsWith('__')){
-    const _pFsid3 = fsidSessions.find(cs=>cs.hsiParentId===sid)
+    const _childFsids3b=fsidSessions.filter(cs=>cs.hsiParentId===sid)
+    const _pFsid3=_childFsids3b.length ? {
+      versionHistoryHandle: (_childFsids3b.find(cs=>cs.versionHistoryHandle)||{}).versionHistoryHandle||null,
+      availabilityHandles: _childFsids3b.flatMap(cs=>cs.availabilityHandles||[])
+    } : null
     if(_pFsid3){
       if(activeSubFile==='__versionhistory' && _pFsid3.versionHistoryHandle){
         try{ const f=await _pFsid3.versionHistoryHandle.getFile(); contentArea.innerHTML=renderVersionHistory(await f.text()) }
