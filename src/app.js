@@ -2280,11 +2280,11 @@ function toggleAppMenu(btn){
     `<div class="ctx-item" id="_amSettings">&#9881; Settings</div>`+
     `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
     `<div class="ctx-item" id="_amKba">&#128203; KBA 3771222</div>`+
-    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_22_12</div>`
+    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_22_13</div>`
   document.getElementById('_amSettings').onclick=(e)=>{
     e.stopPropagation()
     hideAppMenu()
-    try{ toggleNavSettings(btn) }catch(ex){ console.error('toggleNavSettings error:',ex) }
+    showSettingsPanel()
   }
   document.getElementById('_amKba').onclick=(e)=>{
     e.stopPropagation()
@@ -2295,6 +2295,103 @@ function toggleAppMenu(btn){
   d.style.left='auto'
   d.style.top=(rect.bottom+2)+'px'
   d.style.display='block'
+}
+
+async function saveSettingsFull(statusEl){
+  try{
+    await invoke('write_settings',{content:JSON.stringify(window._hanaLensSettings)})
+    if(statusEl){ statusEl.textContent='✓ Saved'; statusEl.style.color='#107C10'; setTimeout(()=>{statusEl.textContent=''},2000) }
+    renderNavTree()
+  }catch(e){
+    if(statusEl){ statusEl.textContent='✗ Error: '+e; statusEl.style.color='#C50F1F' }
+    console.error('saveSettingsFull failed',e)
+  }
+}
+
+function showSettingsPanel(){
+  document.getElementById('empty').style.display='none'
+  document.querySelectorAll('.content-panel').forEach(p=>{p.classList.remove('active');p.style.display=''})
+  const panel=document.getElementById('panel-settings')
+  panel.classList.add('active')
+  panel.style.display='block'
+  panel.style.overflowY='auto'
+  panel.style.padding='24px 32px'
+
+  const s=window._hanaLensSettings
+  const groups=s.navColorGroups||[]
+  const bookmarks=s.bookmarkPaths||[]
+
+  panel.innerHTML=`<h2 style="font-size:16px;font-weight:600;color:#323130;margin-bottom:20px;padding-bottom:10px;border-bottom:1px solid #EDEBE9;">⚙ Settings</h2>`
+
+  // ── Color Groups ──────────────────────────────────────────────────────────
+  const cgSec=document.createElement('div')
+  cgSec.style.cssText='max-width:700px;margin-bottom:28px;'
+  cgSec.innerHTML='<div style="font-size:13px;font-weight:600;color:#323130;margin-bottom:10px;">Nav Color Groups</div>'
+  const cgList=document.createElement('div')
+  cgList.id='settings-panel-cg-list'
+  const rebuildCg=()=>{
+    cgList.innerHTML=''
+    ;(s.navColorGroups||[]).forEach((g,gi)=>cgList.appendChild(buildGroupRow(gi,g)))
+  }
+  rebuildCg()
+  cgSec.appendChild(cgList)
+  const addCgBtn=document.createElement('button')
+  addCgBtn.textContent='+ Add Color Group'
+  addCgBtn.style.cssText='margin-top:6px;height:28px;padding:0 14px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;'
+  addCgBtn.onclick=()=>{ if(!s.navColorGroups)s.navColorGroups=[]; s.navColorGroups.push({name:'New Group',color:'#EFF6FC',items:[]}); rebuildCg() }
+  cgSec.appendChild(addCgBtn)
+  panel.appendChild(cgSec)
+
+  // ── Bookmark Paths ────────────────────────────────────────────────────────
+  const bkSec=document.createElement('div')
+  bkSec.style.cssText='max-width:700px;margin-bottom:28px;'
+  bkSec.innerHTML='<div style="font-size:13px;font-weight:600;color:#323130;margin-bottom:10px;">Bookmark Paths</div>'
+  const bkList=document.createElement('div')
+  bkList.id='settings-panel-bk-list'
+  const rebuildBk=()=>{
+    bkList.innerHTML=''
+    ;(s.bookmarkPaths||[]).forEach((bk,bi)=>{
+      const row=document.createElement('div')
+      row.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:6px;'
+      const nameIn=document.createElement('input')
+      nameIn.type='text';nameIn.value=bk.name||'';nameIn.placeholder='Name (displayed in dropdown)'
+      nameIn.style.cssText='width:160px;height:26px;padding:0 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:inherit;'
+      nameIn.oninput=e=>bk.name=e.target.value
+      const pathIn=document.createElement('input')
+      pathIn.type='text';pathIn.value=bk.path||'';pathIn.placeholder='Full path (C:\\...)'
+      pathIn.style.cssText='flex:1;height:26px;padding:0 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:inherit;'
+      pathIn.oninput=e=>bk.path=e.target.value
+      const delBtn=document.createElement('button')
+      delBtn.textContent='✕';delBtn.style.cssText='background:none;border:none;cursor:pointer;font-size:13px;color:#A19F9D;padding:0 4px;'
+      delBtn.onclick=()=>{ s.bookmarkPaths.splice(bi,1); rebuildBk() }
+      row.appendChild(nameIn);row.appendChild(pathIn);row.appendChild(delBtn)
+      bkList.appendChild(row)
+    })
+  }
+  rebuildBk()
+  bkSec.appendChild(bkList)
+  const addBkBtn=document.createElement('button')
+  addBkBtn.textContent='+ Add Bookmark'
+  addBkBtn.style.cssText='margin-top:6px;height:28px;padding:0 14px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;'
+  addBkBtn.onclick=()=>{ if(!s.bookmarkPaths)s.bookmarkPaths=[]; s.bookmarkPaths.push({name:'',path:''}); rebuildBk() }
+  bkSec.appendChild(addBkBtn)
+  panel.appendChild(bkSec)
+
+  // ── Save + status ─────────────────────────────────────────────────────────
+  const footer=document.createElement('div')
+  footer.style.cssText='max-width:700px;display:flex;align-items:center;gap:12px;padding-top:16px;border-top:1px solid #EDEBE9;'
+  const saveBtn=document.createElement('button')
+  saveBtn.textContent='💾 Save Settings'
+  saveBtn.style.cssText='height:32px;padding:0 20px;background:#107C10;color:#fff;border:none;border-radius:2px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;'
+  const statusEl=document.createElement('span')
+  statusEl.style.cssText='font-size:12px;'
+  saveBtn.onclick=()=>saveSettingsFull(statusEl)
+  const pathEl=document.createElement('span')
+  pathEl.style.cssText='font-size:11px;color:#A19F9D;margin-left:auto;'
+  pathEl.textContent='Settings file: …'
+  invoke('get_settings_path').then(p=>{ pathEl.textContent='Settings file: '+p }).catch(()=>{})
+  footer.appendChild(saveBtn);footer.appendChild(statusEl);footer.appendChild(pathEl)
+  panel.appendChild(footer)
 }
 
 function showLoadDropdown(evt, mode){
@@ -2590,7 +2687,7 @@ function fsidCtxRemove(){
   if(toRemove.has(activeFsidId)){
     activeFsidId=fsidSessions.length?fsidSessions[fsidSessions.length-1].id:null
     Object.values(_nsChartState).forEach(st=>{if(st?.chart){st.chart.destroy();st.chart=null}})
-    ;['panel-topology','panel-versionhistory','panel-configuration','panel-telemetry','panel-nshistory','panel-availability','panel-rtedumps','panel-crashdumps','panel-hosts','panel-traceexplorer','panel-hsi'].forEach(id=>{const el=document.getElementById(id);if(el){el.innerHTML='';el.style.display='';el.classList.remove('active')}})
+    ;['panel-topology','panel-versionhistory','panel-configuration','panel-telemetry','panel-nshistory','panel-availability','panel-rtedumps','panel-crashdumps','panel-hosts','panel-traceexplorer','panel-hsi','panel-settings'].forEach(id=>{const el=document.getElementById(id);if(el){el.innerHTML='';el.style.display='';el.classList.remove('active')}})
     document.getElementById('empty').style.display=fsidSessions.length?'none':'flex'
   }
   hideFsidCtxMenu()
