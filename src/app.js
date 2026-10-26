@@ -138,6 +138,7 @@ function checkKernelParameters(mach){
 // HTML RENDERER
 // ============================================================
 function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function _fmtBytes(b){if(!b)return '';if(b<1024)return b+' B';if(b<1048576)return (b/1024).toFixed(1)+' KB';return (b/1048576).toFixed(1)+' MB'}
 function tag(cls,text){return `<span class="tag ${cls}">${escHtml(text)}</span>`}
 function monoCell(val){return `<span class="mono">${escHtml(val)}</span>`}
 function renderDescTable(rows){if(!rows.length)return '<span style="color:#A19F9D;font-size:12px;">No data.</span>';let html='<table class="desc-table">';for(const[label,val,extra]of rows)html+=`<tr><td>${escHtml(label)}</td><td>${val}${extra||''}</td></tr>`;return html+'</table>'}
@@ -2312,7 +2313,7 @@ function toggleAppMenu(btn){
     `<div class="ctx-item" id="_amSettings">&#9881; Settings</div>`+
     `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
     `<div class="ctx-item" id="_amKba">&#128203; KBA 3771222</div>`+
-    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_26_03</div>`
+    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_26_06</div>`
   document.getElementById('_amSettings').onclick=(e)=>{
     e.stopPropagation()
     hideAppMenu()
@@ -3305,6 +3306,10 @@ async function traceOpenFileEntry(e){
 
 async function traceCloseFile(){
   if(!traceExplState)return
+  const vf=traceExplState.viewingFile
+  if(vf?._rustBacked&&vf._path){
+    invoke('trace_close',{path:vf._path}).catch(()=>{})
+  }
   traceExplState.viewingFile=null
   await traceLoadDir()
 }
@@ -3538,61 +3543,81 @@ async function traceShowFileView(s){
     })
   }
   try{
-    const file=await vf.handle.getFile()
-    vf.fileSize=file.size
-    const MAX=50*1024*1024
-    const end=Math.min(MAX,file.size)
-    const text=await file.slice(0,end).text()
-    vf.offset=end
-    const MAX_LINE=5000
-    let rawLines=text.split('\n')
-    traceExplState._partialLine=end<file.size?(rawLines.pop()||''):''
-    const safeLines=rawLines.map(l=>l.length>MAX_LINE?l.slice(0,MAX_LINE)+' … [line truncated]':l)
-    let truncatedCount=rawLines.filter((l,i)=>safeLines[i]!==l).length
-    vf._lines=safeLines
-    // Auto-suggest date filter from first/last timestamp (only on fresh open, not on restore)
-    if(!vf._filterFrom&&!vf._filterTo){
-      let firstTs=null
-      for(const line of vf._lines){
-        const ts=traceExtractTimestamp(line)
-        if(ts){firstTs=ts;break}
+    const filePath=vf.handle?._path
+    if(filePath&&window.__TAURI__?.core?.invoke){
+      // ── Rust-backed path: fast native indexing ──────────────────────────────
+      const loading=document.createElement('div')
+      loading.style.cssText='padding:12px 16px;font-size:11px;color:#605E5C;'
+      loading.textContent='Indexing file…'
+      list.appendChild(loading)
+      let info
+      try{
+        info=await invoke('trace_open',{path:filePath})
+      }finally{
+        loading.remove()
       }
-      if(firstTs){
+      vf._rustBacked=true
+      vf._path=filePath
+      vf._lineCount=info.lineCount
+      vf.fileSize=info.fileSize
+      vf.offset=info.fileSize  // fully indexed — hide "load more" button
+      if(!vf._filterFrom&&!vf._filterTo&&info.firstTs){
         const fi=document.getElementById('trace-filter-from')
         const ti=document.getElementById('trace-filter-to')
         const hint=document.getElementById('trace-filter-date-hint')
-        if(fi)fi.value=firstTs.replace('T',' ')
-        let lastTs=null
-        if(end>=file.size){
-          for(let i=vf._lines.length-1;i>=0;i--){
-            const ts=traceExtractTimestamp(vf._lines[i])
-            if(ts){lastTs=ts;break}
-          }
-        }else{
-          try{
-            const tailText=await file.slice(Math.max(0,file.size-2048),file.size).text()
-            const tailLines=tailText.split('\n')
-            for(let i=tailLines.length-1;i>=0;i--){
-              const ts=traceExtractTimestamp(tailLines[i])
-              if(ts){lastTs=ts;break}
-            }
-          }catch(e){}
-        }
-        if(lastTs){
-          if(ti)ti.value=lastTs.replace('T',' ')
+        if(fi)fi.value=info.firstTs.replace('T',' ')
+        if(info.lastTs){
+          if(ti)ti.value=info.lastTs.replace('T',' ')
           if(hint)hint.textContent='start · end of trace · both editable'
         }else{
-          if(ti)ti.value=traceTimePlusMins(firstTs,30)
+          if(ti)ti.value=traceTimePlusMins(info.firstTs,30)
           if(hint)hint.textContent='start of trace · To = From + 30 min · both editable'
         }
       }
-    }
-    traceRenderFromLines(list,vf)
-    if(truncatedCount){
-      const warn=document.createElement('div')
-      warn.style.cssText='margin:4px 14px;padding:4px 10px;background:#FFFBE6;border:1px solid #FFE58F;border-radius:2px;font-size:11px;color:#AD6800;'
-      warn.textContent=`⚠ ${truncatedCount} line(s) truncated to ${MAX_LINE} characters`
-      list.insertBefore(warn,document.getElementById('trace-file-wrap'))
+      await traceRenderFromLines(list,vf)
+    }else{
+      // ── JS fallback path (no Tauri path available) ──────────────────────────
+      const file=await vf.handle.getFile()
+      vf.fileSize=file.size
+      const MAX=50*1024*1024
+      const end=Math.min(MAX,file.size)
+      const text=await file.slice(0,end).text()
+      vf.offset=end
+      const MAX_LINE=5000
+      let rawLines=text.split('\n')
+      traceExplState._partialLine=end<file.size?(rawLines.pop()||''):''
+      const safeLines=rawLines.map(l=>l.length>MAX_LINE?l.slice(0,MAX_LINE)+' … [line truncated]':l)
+      let truncatedCount=rawLines.filter((l,i)=>safeLines[i]!==l).length
+      vf._lines=safeLines
+      if(!vf._filterFrom&&!vf._filterTo){
+        let firstTs=null
+        for(const line of vf._lines){const ts=traceExtractTimestamp(line);if(ts){firstTs=ts;break}}
+        if(firstTs){
+          const fi=document.getElementById('trace-filter-from')
+          const ti=document.getElementById('trace-filter-to')
+          const hint=document.getElementById('trace-filter-date-hint')
+          if(fi)fi.value=firstTs.replace('T',' ')
+          let lastTs=null
+          if(end>=file.size){
+            for(let i=vf._lines.length-1;i>=0;i--){const ts=traceExtractTimestamp(vf._lines[i]);if(ts){lastTs=ts;break}}
+          }else{
+            try{
+              const tailText=await file.slice(Math.max(0,file.size-2048),file.size).text()
+              const tailLines=tailText.split('\n')
+              for(let i=tailLines.length-1;i>=0;i--){const ts=traceExtractTimestamp(tailLines[i]);if(ts){lastTs=ts;break}}
+            }catch(e){}
+          }
+          if(lastTs){if(ti)ti.value=lastTs.replace('T',' ');if(hint)hint.textContent='start · end of trace · both editable'}
+          else{if(ti)ti.value=traceTimePlusMins(firstTs,30);if(hint)hint.textContent='start of trace · To = From + 30 min · both editable'}
+        }
+      }
+      traceRenderFromLines(list,vf)
+      if(truncatedCount){
+        const warn=document.createElement('div')
+        warn.style.cssText='margin:4px 14px;padding:4px 10px;background:#FFFBE6;border:1px solid #FFE58F;border-radius:2px;font-size:11px;color:#AD6800;'
+        warn.textContent=`⚠ ${truncatedCount} line(s) truncated to ${MAX_LINE} characters`
+        list.insertBefore(warn,document.getElementById('trace-file-wrap'))
+      }
     }
     if(traceExplState._pendingScrollRestore!=null){
       const sv=traceExplState._pendingScrollRestore
@@ -3606,6 +3631,7 @@ async function traceShowFileView(s){
 
 async function traceLoadAllRemaining(){
   const vf=traceExplState?.viewingFile;if(!vf)return
+  if(vf._rustBacked)return  // rust-backed: all lines already indexed
   const btn=document.getElementById('trace-load-more-btn')
   const MAX_LINE=5000
   try{
@@ -3710,11 +3736,110 @@ function traceNormalizeFilterVal(val){
   return s  // "YYYY-MM-DDTHH:MM:SS" — string-sortable, same format as traceExtractTimestamp
 }
 
-function traceRenderFromLines(list,vf){
+async function traceRenderFromLines(list,vf){
   document.getElementById('trace-file-wrap')?.remove()
   const _lmb=document.getElementById('trace-load-more-btn');if(_lmb){_lmb.style.display='none';_lmb.style.color='#0078D4';_lmb.style.borderColor='#0078D4'}
   if(vf._traceObserver){vf._traceObserver.disconnect();vf._traceObserver=null}
   vf._traceAddChunks=null
+
+  // ── Rust-backed path ──────────────────────────────────────────────────────
+  if(vf._rustBacked&&vf._path){
+    const from=traceNormalizeFilterVal(vf._filterFrom)
+    const to=traceNormalizeFilterVal(vf._filterTo)
+    const terms=vf._searchTerms||[]
+    const termTexts=terms.map(t=>(typeof t==='string'?t:t.text)?.trim()).filter(Boolean)
+    let displayIndices=null  // null = all lines (u32[] when filtered)
+
+    if(from||to){
+      try{
+        displayIndices=await invoke('trace_search_time_range',{path:vf._path,fromTs:from||null,toTs:to||null})
+      }catch(e){console.warn('[trace] time range search:',e)}
+    }
+
+    let termMatchOrigSet=null
+    if(termTexts.length){
+      try{
+        const allMatches=await invoke('trace_search',{path:vf._path,terms:termTexts})
+        termMatchOrigSet=new Set(allMatches)
+        if(vf._termFilterOnly){
+          displayIndices=displayIndices?displayIndices.filter(i=>termMatchOrigSet.has(i)):allMatches
+        }
+      }catch(e){console.warn('[trace] term search:',e)}
+    }
+
+    // Build relative term-match positions (for nav buttons)
+    vf._termMatchLines=[]
+    if(termMatchOrigSet){
+      if(displayIndices){
+        for(let r=0;r<displayIndices.length;r++){if(termMatchOrigSet.has(displayIndices[r]))vf._termMatchLines.push(r)}
+      }else{
+        vf._termMatchLines=[...termMatchOrigSet].sort((a,b)=>a-b)
+      }
+    }else{
+      vf._termMatchCursor=null
+    }
+
+    vf._displayOrigIndices=displayIndices
+    const displayCount=displayIndices?displayIndices.length:vf._lineCount
+    const totalStr=vf._lineCount.toLocaleString()
+    let infoText=displayIndices?`${displayCount.toLocaleString()} / ${totalStr} lines`:`${totalStr} lines`
+    const mCount=vf._termMatchLines.length
+    const bmCount=vf._bookmarks?.size||0
+    if(bmCount>0)infoText+=` · ${bmCount} bookmark${bmCount>1?'s':''}`
+    else if(mCount>0)infoText+=` · ${mCount} match${mCount!==1?'es':''}`
+
+    const navUp=document.getElementById('trace-nav-up'),navDown=document.getElementById('trace-nav-down')
+    const showNav=bmCount>0||mCount>0
+    if(navUp)navUp.style.display=showNav?'':'none'
+    if(navDown)navDown.style.display=showNav?'':'none'
+    const infoEl=document.getElementById('trace-filter-info')
+    if(infoEl)infoEl.textContent=infoText
+
+    const showNums=true
+    const wrapper=document.createElement('div')
+    wrapper.id='trace-file-wrap'
+    wrapper.style.cssText='display:flex;flex-direction:column;align-items:flex-start;overflow-x:auto;margin:8px 14px;padding:8px 0;background:#F8F8F7;border:1px solid #EDEBE9;border-radius:2px;'
+    const opts={searchTerms:terms,bookmarks:vf._bookmarks||null,onBookmarkToggle:traceToggleBookmark}
+    const p=vf._path  // capture for closures
+
+    const observer=new IntersectionObserver(entries=>{
+      for(const entry of entries){
+        if(!entry.isIntersecting||entry.target._rendered)continue
+        entry.target._rendered=true;observer.unobserve(entry.target)
+        const el=entry.target
+        const cs=parseInt(el.dataset.start),cc=parseInt(el.dataset.count)
+        const req=displayIndices
+          ?invoke('trace_get_lines_at',{path:p,indices:displayIndices.slice(cs,cs+cc)})
+          :invoke('trace_get_lines',{path:p,from:cs,count:cc})
+        req.then(lines=>{if(el.isConnected)el.replaceWith(traceCreateChunk(lines,cs,showNums,opts))}).catch(()=>{})
+      }
+    },{rootMargin:'1000px'})
+    vf._traceObserver=observer
+
+    for(let i=0;i<displayCount;i+=_TRACE_CHUNK){
+      const count=Math.min(_TRACE_CHUNK,displayCount-i)
+      const ph=document.createElement('div');ph.dataset.start=i;ph.dataset.count=count
+      ph.style.cssText=`height:${count*_TRACE_LH}px;display:flex;min-width:100%;user-select:none;-webkit-user-select:none;`;ph._rendered=false
+      observer.observe(ph);wrapper.appendChild(ph)
+    }
+
+    vf._traceForceRender=(lineIdx)=>{
+      const ci=Math.floor(lineIdx/_TRACE_CHUNK)
+      const ph=wrapper.children[ci]
+      if(!ph)return
+      ph._rendered=true;observer.unobserve(ph)
+      const cs=parseInt(ph.dataset.start),cc=parseInt(ph.dataset.count)
+      const req=displayIndices
+        ?invoke('trace_get_lines_at',{path:p,indices:displayIndices.slice(cs,cs+cc)})
+        :invoke('trace_get_lines',{path:p,from:cs,count:cc})
+      req.then(lines=>{if(ph.isConnected)ph.replaceWith(traceCreateChunk(lines,cs,showNums,opts))}).catch(()=>{})
+    }
+
+    list.appendChild(wrapper)
+    return
+  }
+
+  // ── JS-backed path (fallback / non-Tauri) ────────────────────────────────
   const allLines=vf._lines||[]
   let displayLines=allLines
   let origIndices=null  // null = no filter (displayLines === allLines)
@@ -3733,7 +3858,6 @@ function traceRenderFromLines(list,vf){
     displayLines=filtered;origIndices=idxMap
     infoText=`${displayLines.length.toLocaleString()} / ${allLines.length.toLocaleString()} lines`
   }
-  // compute term match line indices
   const terms=vf._searchTerms||[]
   if(terms.length){
     vf._termMatchLines=[]
@@ -3741,11 +3865,10 @@ function traceRenderFromLines(list,vf){
       const lo=displayLines[i].toLowerCase()
       if(terms.some(t=>{const tt=(typeof t==='string'?t:t.text).trim().toLowerCase();return tt&&lo.includes(tt)}))vf._termMatchLines.push(i)
     }
-  } else {
+  }else{
     vf._termMatchLines=[]
     vf._termMatchCursor=null
   }
-  // "Show only matching lines" mode: keep only lines that matched a term
   if(vf._termFilterOnly&&terms.length&&vf._termMatchLines.length){
     const matchSet=new Set(vf._termMatchLines)
     const filtered=[],idxMap=[]
@@ -3757,7 +3880,6 @@ function traceRenderFromLines(list,vf){
     infoText=`${displayLines.length.toLocaleString()} / ${allLines.length.toLocaleString()} lines`
   }
   vf._displayOrigIndices=origIndices
-  // update nav buttons and info
   const navUp=document.getElementById('trace-nav-up'),navDown=document.getElementById('trace-nav-down')
   const bmCount=vf._bookmarks?.size||0
   const mCount=vf._termMatchLines?.length||0
@@ -3774,8 +3896,6 @@ function traceRenderFromLines(list,vf){
   wrapper.id='trace-file-wrap'
   wrapper.style.cssText='display:flex;flex-direction:column;align-items:flex-start;overflow-x:auto;margin:8px 14px;padding:8px 0;background:#F8F8F7;border:1px solid #EDEBE9;border-radius:2px;'
   const opts={searchTerms:terms,bookmarks:vf._bookmarks||null,onBookmarkToggle:traceToggleBookmark}
-  // Lazy rendering: chunks rendered only when they scroll into view (IntersectionObserver)
-  // No-filter case: getLines() reads vf._lines at render-time so "Load More" appends work seamlessly
   const getLines=origIndices?()=>displayLines:()=>vf._lines
   const observer=new IntersectionObserver((entries)=>{
     for(const entry of entries){
@@ -3790,7 +3910,7 @@ function traceRenderFromLines(list,vf){
     for(let i=0;i<linesArr.length;i+=_TRACE_CHUNK){
       const count=Math.min(_TRACE_CHUNK,linesArr.length-i)
       const ph=document.createElement('div');ph.dataset.start=offset+i;ph.dataset.count=count
-      ph.style.cssText=`height:${count*_TRACE_LH}px;display:flex;min-width:100%;`;ph._rendered=false
+      ph.style.cssText=`height:${count*_TRACE_LH}px;display:flex;min-width:100%;user-select:none;-webkit-user-select:none;`;ph._rendered=false
       observer.observe(ph);wrapper.appendChild(ph)
     }
   }
@@ -5878,14 +5998,31 @@ async function hsiLoadRteDumpsFromDir(idx){
 
 // Inline file viewer — keeps the HSI panel (sub-tab bar) intact
 async function _hsiExplOpenInline(contentArea, fileHandle, backFn){
+  const CHUNK = 2 * 1024 * 1024   // 2 MB per load
+  const MAX_DIRECT = 10 * 1024 * 1024  // ≤ 10 MB: load whole file at once
+  const filePath = fileHandle._path
+  const fileSize = fileHandle._meta?.size ?? 0
+  const largeMode = fileSize > MAX_DIRECT && filePath && window.__TAURI__
+
   contentArea.innerHTML = '<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
   try{
-    const f = await fileHandle.getFile()
-    const txt = await f.text()
-    const lines = txt.split('\n')
+    let txt = ''
+    let loadedOffset = 0
+
+    if(largeMode){
+      const raw = await invoke('read_file_range',{path:filePath,offset:0,length:CHUNK})
+      const cut = raw.lastIndexOf('\n'); txt = cut>0 ? raw.slice(0,cut+1) : raw
+      loadedOffset = CHUNK
+    } else {
+      const f = await fileHandle.getFile(); txt = await f.text()
+      loadedOffset = fileSize
+    }
+
+    let lines = txt.split('\n')
     const wrapper = document.createElement('div')
     wrapper.style.cssText = 'display:flex;flex-direction:column;height:100%;'
-    // Up / breadcrumb bar
+
+    // ── Up / breadcrumb bar ───────────────────────────────────────────────
     const upBar = document.createElement('div')
     upBar.style.cssText = 'padding:5px 10px;background:#F3F2F1;border-bottom:1px solid #EDEBE9;display:flex;align-items:center;gap:8px;font-size:12px;flex-shrink:0;'
     const upBtn = document.createElement('button')
@@ -5895,53 +6032,107 @@ async function _hsiExplOpenInline(contentArea, fileHandle, backFn){
     upBtn.onclick = backFn
     upBar.appendChild(upBtn)
     const nameSpan = document.createElement('span')
-    nameSpan.textContent = fileHandle.name
     nameSpan.style.cssText = 'color:#605E5C;font-family:Consolas,monospace;font-size:11px;'
+    nameSpan.textContent = fileHandle.name + (fileSize ? '  (' + _fmtBytes(fileSize) + ')' : '')
     upBar.appendChild(nameSpan)
     const copyBtn = document.createElement('button')
-    copyBtn.title = 'Copy all'
+    copyBtn.title = 'Copy loaded text'
     copyBtn.innerHTML = '&#128203;'
     copyBtn.style.cssText = 'margin-left:auto;background:none;border:none;cursor:pointer;font-size:14px;padding:0 4px;color:#605E5C;'
     copyBtn.onclick = () => navigator.clipboard?.writeText(txt).catch(()=>{})
     upBar.appendChild(copyBtn)
     wrapper.appendChild(upBar)
-    // Filter bar
+
+    // ── Large-file notice ─────────────────────────────────────────────────
+    if(largeMode){
+      const notice = document.createElement('div')
+      notice.style.cssText = 'padding:5px 12px;background:#FFF4CE;border-bottom:1px solid #F7E28A;font-size:11px;color:#605E5C;display:flex;align-items:center;gap:10px;flex-shrink:0;'
+      notice.innerHTML = `<span>⚠ Large file — showing first ${_fmtBytes(Math.min(loadedOffset,fileSize))} of ${_fmtBytes(fileSize)}.</span>`
+      wrapper.appendChild(notice)
+    }
+
+    // ── Filter bar ────────────────────────────────────────────────────────
     const filterBar = document.createElement('div')
     filterBar.style.cssText = 'padding:4px 10px;background:#F8F8F8;border-bottom:1px solid #EDEBE9;display:flex;align-items:center;gap:6px;flex-shrink:0;'
     const filterInput = document.createElement('input')
-    filterInput.type = 'text'
-    filterInput.placeholder = 'Filter lines…'
+    filterInput.type = 'text'; filterInput.placeholder = 'Filter lines…'
     filterInput.className = 'trace-filter-input'
     filterInput.style.cssText = 'flex:1;padding:3px 8px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:inherit;'
     const countSpan = document.createElement('span')
     countSpan.style.cssText = 'color:#A19F9D;font-size:11px;white-space:nowrap;'
-    countSpan.textContent = lines.length + ' lines loaded'
-    filterBar.appendChild(filterInput)
-    filterBar.appendChild(countSpan)
+    filterBar.appendChild(filterInput); filterBar.appendChild(countSpan)
     wrapper.appendChild(filterBar)
-    // Line list
+
+    // ── Line list ─────────────────────────────────────────────────────────
     const traceList = document.createElement('div')
     traceList.className = 'trace-list'
     traceList.style.cssText = 'flex:1;overflow-y:auto;'
+
     function renderLines(filter){
       const lc = filter.toLowerCase()
-      let shown = 0
-      traceList.innerHTML = ''
+      let shown = 0; traceList.innerHTML = ''
       lines.forEach((line, i) => {
         if(filter && !line.toLowerCase().includes(lc)) return
         shown++
-        const row = document.createElement('div')
-        row.className = 'trace-line'
+        const row = document.createElement('div'); row.className = 'trace-line'
         row.innerHTML = `<span class="trace-ln">${i+1}</span><span class="trace-text">${escHtml(line)}</span>`
         traceList.appendChild(row)
       })
-      countSpan.textContent = filter ? `${shown} / ${lines.length} lines` : `${lines.length} lines loaded`
+      countSpan.textContent = filter ? `${shown} / ${lines.length} lines` : `${lines.length} lines`
     }
     filterInput.oninput = () => renderLines(filterInput.value)
     renderLines('')
     wrapper.appendChild(traceList)
-    contentArea.innerHTML = ''
-    contentArea.appendChild(wrapper)
+
+    // ── Load-more footer (large files only) ───────────────────────────────
+    if(largeMode && loadedOffset < fileSize){
+      const moreBar = document.createElement('div')
+      moreBar.style.cssText = 'padding:6px 12px;background:#F3F2F1;border-top:1px solid #EDEBE9;display:flex;align-items:center;gap:10px;flex-shrink:0;font-size:12px;'
+      const moreBtn = document.createElement('button')
+      moreBtn.style.cssText = 'height:28px;padding:0 14px;background:#0078D4;color:#fff;border:none;border-radius:2px;font-size:12px;cursor:pointer;font-family:inherit;'
+      const remainBar = document.createElement('span')
+      remainBar.style.cssText = 'color:#A19F9D;font-size:11px;'
+
+      const updateRemain = () => {
+        const rem = fileSize - Math.min(loadedOffset, fileSize)
+        remainBar.textContent = rem > 0 ? `${_fmtBytes(Math.min(loadedOffset,fileSize))} loaded of ${_fmtBytes(fileSize)} — ${_fmtBytes(rem)} remaining` : 'Fully loaded'
+        moreBtn.style.display = rem > 0 ? '' : 'none'
+      }
+      const updateBtn = () => {
+        const next = Math.min(CHUNK, fileSize - loadedOffset)
+        moreBtn.textContent = `▼ Load next ${_fmtBytes(next)}`
+      }
+      updateRemain(); updateBtn()
+
+      moreBtn.onclick = async () => {
+        if(loadedOffset >= fileSize) return
+        moreBtn.disabled = true; moreBtn.textContent = 'Loading…'
+        try{
+          const raw = await invoke('read_file_range',{path:filePath,offset:loadedOffset,length:CHUNK})
+          const cut = raw.lastIndexOf('\n'); const chunk = cut>0 ? raw.slice(0,cut+1) : raw
+          loadedOffset += CHUNK
+          if(loadedOffset > fileSize) loadedOffset = fileSize
+          const newLines = chunk.split('\n')
+          const lineOffset = lines.length
+          lines = lines.concat(newLines)
+          // Append only new rows instead of full re-render
+          const filter = filterInput.value; const lc = filter.toLowerCase()
+          newLines.forEach((line,i)=>{
+            if(filter && !line.toLowerCase().includes(lc)) return
+            const row = document.createElement('div'); row.className='trace-line'
+            row.innerHTML=`<span class="trace-ln">${lineOffset+i+1}</span><span class="trace-text">${escHtml(line)}</span>`
+            traceList.appendChild(row)
+          })
+          if(!filter) countSpan.textContent = lines.length+' lines'
+          updateRemain(); updateBtn()
+        }catch(e){ moreBtn.textContent='✗ Error: '+String(e) }
+        moreBtn.disabled = false
+      }
+      moreBar.appendChild(moreBtn); moreBar.appendChild(remainBar)
+      wrapper.appendChild(moreBar)
+    }
+
+    contentArea.innerHTML = ''; contentArea.appendChild(wrapper)
   }catch(e){
     contentArea.innerHTML = `<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>Could not read file: ${escHtml(String(e))}</span></div>`
   }
@@ -6370,7 +6561,11 @@ function _hsiExplFileRow(name, handle, parentHandle, sid){
     return `<div class="lcm-file-item" style="cursor:default;"><span class="lcm-file-icon">${icon}</span><span style="color:#323130;">${escHtml(name)}</span><span style="font-size:10px;color:#A19F9D;margin-left:6px;">${label}</span>${btn}</div>`
   }
   const idx = _hsiExplHandles.push({handle, name, parentHandle, sid}) - 1
-  return `<div class="lcm-file-item" onclick="hsiExplOpenFile(${idx})"><span class="lcm-file-icon">${lcmFileIcon(name)}</span>${escHtml(name)}</div>`
+  const size = handle._meta?.size ?? 0
+  const sizeStr = _fmtBytes(size)
+  const isLarge = size > 10 * 1024 * 1024
+  const sizeHtml = sizeStr ? `<span style="font-size:10px;color:${isLarge?'#C50F1F':'#A19F9D'};margin-left:auto;flex-shrink:0;">${isLarge?'⚠ ':''}${sizeStr}</span>` : ''
+  return `<div class="lcm-file-item" onclick="hsiExplOpenFile(${idx})"><span class="lcm-file-icon">${lcmFileIcon(name)}</span><span>${escHtml(name)}</span>${sizeHtml}</div>`
 }
 
 async function hsiExplOpenFile(idx){

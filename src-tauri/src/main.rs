@@ -2,8 +2,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::UNIX_EPOCH;
 use tauri::Manager;
 
@@ -23,6 +25,221 @@ struct FileMetadata {
     last_modified: u64,
 }
 
+// ── Trace file index cache ────────────────────────────────────────────────────
+
+struct TraceFile {
+    content: Vec<u8>,
+    offsets: Vec<u32>, // byte offset of each line's start in content
+}
+
+static TRACE_CACHE: OnceLock<RwLock<HashMap<String, Arc<TraceFile>>>> = OnceLock::new();
+
+fn trace_cache() -> &'static RwLock<HashMap<String, Arc<TraceFile>>> {
+    TRACE_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn get_trace_cached(path: &str) -> Option<Arc<TraceFile>> {
+    trace_cache().read().ok()?.get(path).map(Arc::clone)
+}
+
+fn trace_extract_line(tf: &TraceFile, idx: usize) -> String {
+    if idx >= tf.offsets.len() {
+        return String::new();
+    }
+    let start = tf.offsets[idx] as usize;
+    let end = if idx + 1 < tf.offsets.len() {
+        tf.offsets[idx + 1] as usize
+    } else {
+        tf.content.len()
+    };
+    let bytes = tf.content.get(start..end).unwrap_or(&[]);
+    let bytes = bytes
+        .strip_suffix(b"\r\n")
+        .or_else(|| bytes.strip_suffix(b"\n"))
+        .unwrap_or(bytes);
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+// Scan up to first 200 bytes of a line for a YYYY-MM-DD HH:MM:SS / YYYY-MM-DDTHH:MM:SS pattern.
+// Returns 19-byte normalized timestamp with 'T' separator, suitable for string comparison.
+fn extract_timestamp(bytes: &[u8]) -> Option<[u8; 19]> {
+    let limit = bytes.len().saturating_sub(18).min(200);
+    for i in 0..=limit {
+        let s = &bytes[i..];
+        if s.len() >= 19
+            && s[0..4].iter().all(|b| b.is_ascii_digit())
+            && s[4] == b'-'
+            && s[5..7].iter().all(|b| b.is_ascii_digit())
+            && s[7] == b'-'
+            && s[8..10].iter().all(|b| b.is_ascii_digit())
+            && (s[10] == b' ' || s[10] == b'T')
+            && s[11..13].iter().all(|b| b.is_ascii_digit())
+            && s[13] == b':'
+            && s[14..16].iter().all(|b| b.is_ascii_digit())
+            && s[16] == b':'
+            && s[17..19].iter().all(|b| b.is_ascii_digit())
+        {
+            let mut out = [0u8; 19];
+            out[..4].copy_from_slice(&s[..4]);
+            out[4] = b'-';
+            out[5..7].copy_from_slice(&s[5..7]);
+            out[7] = b'-';
+            out[8..10].copy_from_slice(&s[8..10]);
+            out[10] = b'T'; // normalize to T for string comparison
+            out[11..13].copy_from_slice(&s[11..13]);
+            out[13] = b':';
+            out[14..16].copy_from_slice(&s[14..16]);
+            out[16] = b':';
+            out[17..19].copy_from_slice(&s[17..19]);
+            return Some(out);
+        }
+    }
+    None
+}
+
+fn ts_to_t_string(ts: &[u8; 19]) -> String {
+    String::from_utf8_lossy(ts).into_owned()
+}
+
+fn get_line_timestamp(tf: &TraceFile, idx: usize) -> Option<[u8; 19]> {
+    if idx >= tf.offsets.len() {
+        return None;
+    }
+    let start = tf.offsets[idx] as usize;
+    let end = (start + 200).min(tf.content.len());
+    extract_timestamp(&tf.content[start..end])
+}
+
+// ── Trace Tauri commands ──────────────────────────────────────────────────────
+
+// Index a file, cache line offsets, return {lineCount, fileSize, firstTs, lastTs}.
+// firstTs/lastTs are "YYYY-MM-DDTHH:MM:SS" strings (null if no timestamps found).
+#[tauri::command]
+fn trace_open(path: String) -> Result<serde_json::Value, String> {
+    let content = fs::read(&path).map_err(|e| e.to_string())?;
+    let file_size = content.len() as u64;
+    let mut offsets: Vec<u32> = vec![0];
+    for (i, &b) in content.iter().enumerate() {
+        if b == b'\n' && i + 1 < content.len() {
+            offsets.push((i + 1) as u32);
+        }
+    }
+    let line_count = offsets.len() as u32;
+    let tf = Arc::new(TraceFile { content, offsets });
+
+    // Find first timestamp (scan forward)
+    let first_ts = (0..tf.offsets.len())
+        .find_map(|i| get_line_timestamp(&tf, i).map(|ts| ts_to_t_string(&ts)));
+
+    // Find last timestamp (scan backward from end)
+    let last_ts = (0..tf.offsets.len())
+        .rev()
+        .find_map(|i| get_line_timestamp(&tf, i).map(|ts| ts_to_t_string(&ts)));
+
+    trace_cache().write().unwrap().insert(path, tf);
+
+    Ok(serde_json::json!({
+        "lineCount": line_count,
+        "fileSize": file_size,
+        "firstTs": first_ts,
+        "lastTs": last_ts,
+    }))
+}
+
+// Fetch lines[from .. from+count] as a Vec<String>.
+#[tauri::command]
+fn trace_get_lines(path: String, from: u32, count: u32) -> Result<Vec<String>, String> {
+    let tf = get_trace_cached(&path).ok_or("File not indexed")?;
+    let from = from as usize;
+    let end = (from + count as usize).min(tf.offsets.len());
+    Ok((from..end).map(|i| trace_extract_line(&tf, i)).collect())
+}
+
+// Fetch lines at specific (original) indices.
+#[tauri::command]
+fn trace_get_lines_at(path: String, indices: Vec<u32>) -> Result<Vec<String>, String> {
+    let tf = get_trace_cached(&path).ok_or("File not indexed")?;
+    Ok(indices
+        .iter()
+        .map(|&i| trace_extract_line(&tf, i as usize))
+        .collect())
+}
+
+// Case-insensitive ASCII search: return original line indices where ANY term matches.
+#[tauri::command]
+fn trace_search(path: String, terms: Vec<String>) -> Result<Vec<u32>, String> {
+    let tf = get_trace_cached(&path).ok_or("File not indexed")?;
+    let lower: Vec<Vec<u8>> = terms
+        .into_iter()
+        .map(|t| t.to_ascii_lowercase().into_bytes())
+        .filter(|t| !t.is_empty())
+        .collect();
+    if lower.is_empty() {
+        return Ok(vec![]);
+    }
+    let matches: Vec<u32> = tf
+        .offsets
+        .iter()
+        .enumerate()
+        .filter(|&(i, &start_off)| {
+            let end_off = if i + 1 < tf.offsets.len() {
+                tf.offsets[i + 1] as usize
+            } else {
+                tf.content.len()
+            };
+            let line = tf.content[start_off as usize..end_off].to_ascii_lowercase();
+            lower
+                .iter()
+                .any(|t| line.windows(t.len()).any(|w| w == t.as_slice()))
+        })
+        .map(|(i, _)| i as u32)
+        .collect();
+    Ok(matches)
+}
+
+// Return original line indices whose timestamp falls within [from_ts, to_ts].
+// Lines without a timestamp inherit visibility from the most recent timestamped line above them
+// (same "sticky" behavior as the JS implementation).
+// from_ts / to_ts are "YYYY-MM-DDTHH:MM:SS" strings; pass null to open-end the range.
+#[tauri::command]
+fn trace_search_time_range(
+    path: String,
+    from_ts: Option<String>,
+    to_ts: Option<String>,
+) -> Result<Vec<u32>, String> {
+    let tf = get_trace_cached(&path).ok_or("File not indexed")?;
+
+    let from_bytes: Option<[u8; 19]> = from_ts
+        .as_deref()
+        .and_then(|s| s.as_bytes().try_into().ok());
+    let to_bytes: Option<[u8; 19]> = to_ts
+        .as_deref()
+        .and_then(|s| s.as_bytes().try_into().ok());
+
+    let mut last_visible = from_bytes.is_none();
+    let mut matches: Vec<u32> = Vec::new();
+
+    for i in 0..tf.offsets.len() {
+        if let Some(ts) = get_line_timestamp(&tf, i) {
+            let in_range = from_bytes.as_ref().map(|f| ts >= *f).unwrap_or(true)
+                && to_bytes.as_ref().map(|t| ts <= *t).unwrap_or(true);
+            last_visible = in_range;
+        }
+        if last_visible {
+            matches.push(i as u32);
+        }
+    }
+    Ok(matches)
+}
+
+// Remove a file from the index cache to free memory.
+#[tauri::command]
+fn trace_close(path: String) {
+    trace_cache().write().unwrap().remove(&path);
+}
+
+// ── Directory / file commands ─────────────────────────────────────────────────
+
 // List directory contents with name, kind, size, lastModified
 #[tauri::command]
 fn read_dir(path: String) -> Result<Vec<DirEntry>, String> {
@@ -34,7 +251,8 @@ fn read_dir(path: String) -> Result<Vec<DirEntry>, String> {
         let name = entry.file_name().to_string_lossy().to_string();
         let kind = if entry.path().is_dir() { "directory" } else { "file" }.to_string();
         let size = meta.as_ref().filter(|m| m.is_file()).map(|m| m.len());
-        let last_modified = meta.as_ref()
+        let last_modified = meta
+            .as_ref()
             .and_then(|m| m.modified().ok())
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
             .map(|d| d.as_millis() as u64);
@@ -66,7 +284,9 @@ fn read_file_range(path: String, offset: u64, length: u64) -> Result<String, Str
 fn get_file_metadata(path: String) -> Result<FileMetadata, String> {
     let meta = fs::metadata(&path).map_err(|e| e.to_string())?;
     let size = meta.len();
-    let last_modified = meta.modified().ok()
+    let last_modified = meta
+        .modified()
+        .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
@@ -96,7 +316,8 @@ fn path_accessible(path: String) -> bool {
 
 // Open an http/https URL in the system default browser
 #[tauri::command]
-fn open_external_url(url: String) -> Result<(), String> {    if !url.starts_with("https://") && !url.starts_with("http://") {
+fn open_external_url(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") && !url.starts_with("http://") {
         return Err("Only http/https URLs are supported".to_string());
     }
     #[cfg(target_os = "windows")]
@@ -236,7 +457,6 @@ fn write_settings(app: tauri::AppHandle, content: String) -> Result<(), String> 
 fn get_settings_path(app: tauri::AppHandle) -> String {
     settings_dir(&app).join("hana-lens-settings.json").display().to_string()
 }
-}
 
 #[tauri::command]
 fn open_in_dump_analyzer(app: tauri::AppHandle, dump_path: String) -> Result<(), String> {
@@ -244,13 +464,16 @@ fn open_in_dump_analyzer(app: tauri::AppHandle, dump_path: String) -> Result<(),
     if let Ok(p) = app.path().executable_dir() { bases.push(p); }
     if let Ok(p) = app.path().resource_dir() { bases.push(p); }
     if let Ok(p) = app.path().app_data_dir() { bases.push(p); }
-    let jar = bases.iter()
+    let jar = bases
+        .iter()
         .map(|b| b.join("SAP_HanaDumpAnalyzer").join("HanaDumpAnalyzer.jar"))
         .find(|p| p.exists())
         .ok_or_else(|| "HanaDumpAnalyzer.jar not found in SAP_HanaDumpAnalyzer/".to_string())?;
     std::process::Command::new("java")
-        .arg("-jar").arg(&jar)
-        .arg("-s").arg(&dump_path)
+        .arg("-jar")
+        .arg(&jar)
+        .arg("-s")
+        .arg(&dump_path)
         .spawn()
         .map_err(|e| format!("Failed to start java: {}", e))?;
     Ok(())
@@ -260,6 +483,12 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            trace_open,
+            trace_get_lines,
+            trace_get_lines_at,
+            trace_search,
+            trace_search_time_range,
+            trace_close,
             read_dir,
             read_text_file,
             read_file_range,
