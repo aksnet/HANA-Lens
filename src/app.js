@@ -1996,6 +1996,28 @@ async function loadFSIDFolder(existingHandle){
   }catch(err){if(err.name!=='AbortError')alert('Error loading folder: '+err.message)}
 }
 
+function _initAutoSaveOnClose(){
+  // Tauri v2: intercept close-requested so we can flush settings to disk first
+  try{
+    const w=window.__TAURI__?.window?.getCurrentWindow?.()
+    if(w&&typeof w.onCloseRequested==='function'){
+      let _saving=false
+      w.onCloseRequested(async event=>{
+        if(_saving)return
+        event.preventDefault()
+        _saving=true
+        try{ await invoke('write_settings',{content:JSON.stringify(window._hanaLensSettings)}) }catch(e){}
+        w.destroy()
+      })
+      return
+    }
+  }catch(e){}
+  // Fallback: beforeunload (best-effort; async invoke may not complete before window closes)
+  window.addEventListener('beforeunload',()=>{
+    try{ invoke('write_settings',{content:JSON.stringify(window._hanaLensSettings)}) }catch(e){}
+  })
+}
+
 // ── DOMContentLoaded ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded',()=>{
   // Try to load filesystem_reference.txt from disk (next to exe); overrides bundled version
@@ -2005,6 +2027,8 @@ document.addEventListener('DOMContentLoaded',()=>{
     if(txt){try{window._hanaLensSettings=JSON.parse(txt)}catch(e){}}
     initNavSettingsUI()
   }).catch(()=>{ initNavSettingsUI() })
+  // Auto-save settings when the window is closed
+  _initAutoSaveOnClose()
   // close context menus on outside click (mousedown fires before stopPropagation on child click handlers)
   document.addEventListener('mousedown',(e)=>{
     if(!e.target.closest('#fsid-ctx-menu'))hideFsidCtxMenu()
@@ -2142,8 +2166,12 @@ function renderNavSettingsPanel(){
   panel.appendChild(footer)
 }
 
-function buildGroupRow(gi, g){
-  const row=document.createElement('div')
+function _rebuildSettingsUI(){
+  const mp=document.getElementById('panel-settings')
+  if(mp&&mp.classList.contains('active')) showSettingsPanel()
+  else renderNavSettingsPanel()
+}
+function buildGroupRow(gi, g){  const row=document.createElement('div')
   row.style.cssText='background:#FAFAFA;border:1px solid #EDEBE9;border-radius:3px;padding:6px 8px;margin:0 8px 6px;'
 
   // Header row: color + name + delete
@@ -2169,7 +2197,7 @@ function buildGroupRow(gi, g){
   delBtn.style.cssText='background:none;border:none;cursor:pointer;font-size:12px;color:#A19F9D;padding:0 2px;'
   delBtn.onclick=()=>{
     window._hanaLensSettings.navColorGroups.splice(gi,1)
-    renderNavSettingsPanel()
+    _rebuildSettingsUI()
   }
 
   hdr.appendChild(colorPicker)
@@ -2184,7 +2212,7 @@ function buildGroupRow(gi, g){
     const chip=document.createElement('span')
     chip.style.cssText=`background:${g.color||'#EFF6FC'};border:1px solid #C8C6C4;border-radius:10px;font-size:10px;padding:1px 6px;display:inline-flex;align-items:center;gap:3px;`
     chip.innerHTML=`${escHtml(item)} <button style="background:none;border:none;cursor:pointer;font-size:9px;color:#605E5C;padding:0;" title="Remove item">✕</button>`
-    chip.querySelector('button').onclick=()=>{ g.items.splice(ii,1); renderNavSettingsPanel() }
+    chip.querySelector('button').onclick=()=>{ g.items.splice(ii,1); _rebuildSettingsUI() }
     itemsList.appendChild(chip)
   })
   row.appendChild(itemsList)
@@ -2204,7 +2232,7 @@ function buildGroupRow(gi, g){
     if(!v) return
     if(!g.items) g.items=[]
     g.items.push(v)
-    renderNavSettingsPanel()
+    _rebuildSettingsUI()
   }
   addItemBtn.onclick=doAdd
   itemInput.addEventListener('keydown',(e)=>{ if(e.key==='Enter'){e.preventDefault();doAdd()} })
@@ -2280,7 +2308,7 @@ function toggleAppMenu(btn){
     `<div class="ctx-item" id="_amSettings">&#9881; Settings</div>`+
     `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
     `<div class="ctx-item" id="_amKba">&#128203; KBA 3771222</div>`+
-    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_22_13</div>`
+    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_26_01</div>`
   document.getElementById('_amSettings').onclick=(e)=>{
     e.stopPropagation()
     hideAppMenu()
@@ -2361,10 +2389,21 @@ function showSettingsPanel(){
       pathIn.type='text';pathIn.value=bk.path||'';pathIn.placeholder='Full path (C:\\...)'
       pathIn.style.cssText='flex:1;height:26px;padding:0 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:inherit;'
       pathIn.oninput=e=>bk.path=e.target.value
+      const browseBtn=document.createElement('button')
+      browseBtn.textContent='📂';browseBtn.title='Browse for folder'
+      browseBtn.style.cssText='height:26px;padding:0 7px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:13px;cursor:pointer;flex-shrink:0;'
+      browseBtn.onclick=async()=>{
+        try{
+          const result=await window.__TAURI__.dialog.open({directory:true,multiple:false,defaultPath:bk.path||undefined})
+          if(!result)return
+          const p=typeof result==='string'?result:result[0]
+          bk.path=p;pathIn.value=p
+        }catch(e){ if(e?.name!=='AbortError') console.warn('browse failed',e) }
+      }
       const delBtn=document.createElement('button')
       delBtn.textContent='✕';delBtn.style.cssText='background:none;border:none;cursor:pointer;font-size:13px;color:#A19F9D;padding:0 4px;'
       delBtn.onclick=()=>{ s.bookmarkPaths.splice(bi,1); rebuildBk() }
-      row.appendChild(nameIn);row.appendChild(pathIn);row.appendChild(delBtn)
+      row.appendChild(nameIn);row.appendChild(pathIn);row.appendChild(browseBtn);row.appendChild(delBtn)
       bkList.appendChild(row)
     })
   }
@@ -2377,20 +2416,65 @@ function showSettingsPanel(){
   bkSec.appendChild(addBkBtn)
   panel.appendChild(bkSec)
 
-  // ── Save + status ─────────────────────────────────────────────────────────
+  // ── Save / Export / Import + status ──────────────────────────────────────
   const footer=document.createElement('div')
-  footer.style.cssText='max-width:700px;display:flex;align-items:center;gap:12px;padding-top:16px;border-top:1px solid #EDEBE9;'
+  footer.style.cssText='max-width:700px;display:flex;align-items:center;gap:10px;padding-top:16px;border-top:1px solid #EDEBE9;flex-wrap:wrap;'
   const saveBtn=document.createElement('button')
-  saveBtn.textContent='💾 Save Settings'
-  saveBtn.style.cssText='height:32px;padding:0 20px;background:#107C10;color:#fff;border:none;border-radius:2px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;'
+  saveBtn.textContent='💾 Save'
+  saveBtn.style.cssText='height:32px;padding:0 16px;background:#107C10;color:#fff;border:none;border-radius:2px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;'
+  const exportBtn=document.createElement('button')
+  exportBtn.textContent='⬆ Export'
+  exportBtn.title='Save a copy of the settings file to a location you choose'
+  exportBtn.style.cssText='height:32px;padding:0 14px;background:#F3F2F1;color:#323130;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;font-family:inherit;'
+  const importBtn=document.createElement('button')
+  importBtn.textContent='⬇ Import'
+  importBtn.title='Load settings from a JSON file (replaces current settings)'
+  importBtn.style.cssText='height:32px;padding:0 14px;background:#F3F2F1;color:#323130;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;font-family:inherit;'
   const statusEl=document.createElement('span')
   statusEl.style.cssText='font-size:12px;'
-  saveBtn.onclick=()=>saveSettingsFull(statusEl)
   const pathEl=document.createElement('span')
   pathEl.style.cssText='font-size:11px;color:#A19F9D;margin-left:auto;'
-  pathEl.textContent='Settings file: …'
-  invoke('get_settings_path').then(p=>{ pathEl.textContent='Settings file: '+p }).catch(()=>{})
-  footer.appendChild(saveBtn);footer.appendChild(statusEl);footer.appendChild(pathEl)
+  pathEl.textContent='Settings locations: …'
+  invoke('get_settings_path').then(p=>{
+    pathEl.style.whiteSpace='pre'
+    pathEl.textContent='Saved to:\n'+p
+  }).catch(()=>{})
+
+  saveBtn.onclick=()=>saveSettingsFull(statusEl)
+
+  exportBtn.onclick=async()=>{
+    try{
+      const saveFn=window.__TAURI__?.dialog?.save
+      if(!saveFn){statusEl.textContent='✗ Dialog not available';statusEl.style.color='#C50F1F';return}
+      const path=await saveFn({filters:[{name:'JSON',extensions:['json']}],defaultPath:'hana-lens-settings.json'})
+      if(!path)return
+      await invoke('write_text_file',{path,content:JSON.stringify(window._hanaLensSettings,null,2)})
+      statusEl.textContent='✓ Exported';statusEl.style.color='#107C10'
+      setTimeout(()=>{statusEl.textContent=''},2500)
+    }catch(e){
+      statusEl.textContent='✗ Export: '+e;statusEl.style.color='#C50F1F'
+    }
+  }
+
+  importBtn.onclick=async()=>{
+    try{
+      const openFn=window.__TAURI__?.dialog?.open
+      if(!openFn){statusEl.textContent='✗ Dialog not available';statusEl.style.color='#C50F1F';return}
+      const result=await openFn({filters:[{name:'JSON',extensions:['json']}],multiple:false})
+      if(!result)return
+      const filePath=typeof result==='string'?result:result[0]
+      const text=await invoke('read_text_file',{path:filePath})
+      const parsed=JSON.parse(text)
+      window._hanaLensSettings=parsed
+      await invoke('write_settings',{content:JSON.stringify(parsed)})
+      showSettingsPanel()
+    }catch(e){
+      statusEl.textContent='✗ Import: '+e;statusEl.style.color='#C50F1F'
+    }
+  }
+
+  footer.appendChild(saveBtn);footer.appendChild(exportBtn);footer.appendChild(importBtn)
+  footer.appendChild(statusEl);footer.appendChild(pathEl)
   panel.appendChild(footer)
 }
 

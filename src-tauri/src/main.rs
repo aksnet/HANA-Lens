@@ -214,33 +214,44 @@ fn read_settings(app: tauri::AppHandle) -> Option<String> {
     None
 }
 
-// Write hana-lens-settings.json — tries exe dir first, falls back to app_data_dir
+// Write hana-lens-settings.json — writes to ALL candidate dirs so settings
+// survive both within-version (exe dir, portable) and across-version upgrades (app_data_dir).
 #[tauri::command]
 fn write_settings(app: tauri::AppHandle, content: String) -> Result<(), String> {
     let dirs = settings_candidate_dirs(&app);
+    let mut wrote_any = false;
     let mut last_err = String::from("no writable directory found");
     for dir in &dirs {
         let _ = fs::create_dir_all(dir);
         match fs::write(dir.join("hana-lens-settings.json"), &content) {
-            Ok(_) => return Ok(()),
-            Err(e) => last_err = format!("{}: {}", dir.display(), e),
+            Ok(_) => { wrote_any = true; }
+            Err(e) => { last_err = format!("{}: {}", dir.display(), e); }
         }
     }
-    Err(last_err)
+    if wrote_any { Ok(()) } else { Err(last_err) }
 }
 
-// Return the path where settings are (or would be) stored
+// Write arbitrary content to an arbitrary path (used by settings export)
+#[tauri::command]
+fn write_text_file(path: String, content: String) -> Result<(), String> {
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+// Return all paths where settings are stored (or would be written)
 #[tauri::command]
 fn get_settings_path(app: tauri::AppHandle) -> String {
-    for dir in settings_candidate_dirs(&app) {
-        let p = dir.join("hana-lens-settings.json");
-        if p.exists() { return p.display().to_string(); }
-    }
-    // Return where it would be written
-    settings_candidate_dirs(&app)
-        .into_iter().next()
-        .map(|d| d.join("hana-lens-settings.json").display().to_string())
-        .unwrap_or_else(|| "(unknown)".to_string())
+    let dirs = settings_candidate_dirs(&app);
+    let paths: Vec<String> = dirs.iter()
+        .map(|d| {
+            let p = d.join("hana-lens-settings.json");
+            let exists = if p.exists() { " ✓" } else { "" };
+            format!("{}{}", p.display(), exists)
+        })
+        .collect();
+    paths.join("\n")
 }
 
 #[tauri::command]
@@ -277,6 +288,7 @@ fn main() {
             read_fs_reference,
             read_settings,
             write_settings,
+            write_text_file,
             get_settings_path,
             open_in_dump_analyzer,
         ])
