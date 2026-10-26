@@ -1996,25 +1996,25 @@ async function loadFSIDFolder(existingHandle){
   }catch(err){if(err.name!=='AbortError')alert('Error loading folder: '+err.message)}
 }
 
+function _autoSaveSettings(){
+  invoke('write_settings',{content:JSON.stringify(window._hanaLensSettings,null,2)}).catch(e=>console.warn('[HANA-Lens] auto-save failed:',e))
+}
+
 function _initAutoSaveOnClose(){
-  // Tauri v2: intercept close-requested so we can flush settings to disk first
-  try{
-    const w=window.__TAURI__?.window?.getCurrentWindow?.()
-    if(w&&typeof w.onCloseRequested==='function'){
-      let _saving=false
-      w.onCloseRequested(async event=>{
-        if(_saving)return
-        event.preventDefault()
-        _saving=true
-        try{ await invoke('write_settings',{content:JSON.stringify(window._hanaLensSettings)}) }catch(e){}
-        w.destroy()
-      })
-      return
-    }
-  }catch(e){}
-  // Fallback: beforeunload (best-effort; async invoke may not complete before window closes)
+  // Listen for the Tauri close-requested event and flush settings before the window dies.
+  // Uses the low-level event API which works without extra capabilities.
+  const listen=window.__TAURI__?.event?.listen
+  if(typeof listen==='function'){
+    listen('tauri://close-requested',async()=>{
+      try{ await invoke('write_settings',{content:JSON.stringify(window._hanaLensSettings,null,2)}) }catch(e){}
+      // Let Tauri close the window — we cannot call destroy() here without window capability,
+      // so we emit a confirm-close back, or simply rely on the event listener completing.
+      window.__TAURI__?.window?.getCurrentWindow?.()?.destroy?.().catch?.(()=>{})
+    }).catch(()=>{})
+  }
+  // Fallback: beforeunload (best-effort)
   window.addEventListener('beforeunload',()=>{
-    try{ invoke('write_settings',{content:JSON.stringify(window._hanaLensSettings)}) }catch(e){}
+    try{ invoke('write_settings',{content:JSON.stringify(window._hanaLensSettings,null,2)}) }catch(e){}
   })
 }
 
@@ -2183,6 +2183,7 @@ function buildGroupRow(gi, g){  const row=document.createElement('div')
   colorPicker.value=g.color||'#EFF6FC'
   colorPicker.style.cssText='width:26px;height:22px;padding:0;border:1px solid #C8C6C4;border-radius:2px;cursor:pointer;'
   colorPicker.oninput=(e)=>{ g.color=e.target.value }
+  colorPicker.onchange=()=>{ _autoSaveSettings() }
 
   const nameInput=document.createElement('input')
   nameInput.type='text'
@@ -2190,6 +2191,7 @@ function buildGroupRow(gi, g){  const row=document.createElement('div')
   nameInput.placeholder='Group name'
   nameInput.style.cssText='flex:1;height:22px;padding:0 4px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;'
   nameInput.oninput=(e)=>{ g.name=e.target.value }
+  nameInput.onchange=()=>{ _autoSaveSettings() }
 
   const delBtn=document.createElement('button')
   delBtn.textContent='✕'
@@ -2198,6 +2200,7 @@ function buildGroupRow(gi, g){  const row=document.createElement('div')
   delBtn.onclick=()=>{
     window._hanaLensSettings.navColorGroups.splice(gi,1)
     _rebuildSettingsUI()
+    _autoSaveSettings()
   }
 
   hdr.appendChild(colorPicker)
@@ -2212,7 +2215,7 @@ function buildGroupRow(gi, g){  const row=document.createElement('div')
     const chip=document.createElement('span')
     chip.style.cssText=`background:${g.color||'#EFF6FC'};border:1px solid #C8C6C4;border-radius:10px;font-size:10px;padding:1px 6px;display:inline-flex;align-items:center;gap:3px;`
     chip.innerHTML=`${escHtml(item)} <button style="background:none;border:none;cursor:pointer;font-size:9px;color:#605E5C;padding:0;" title="Remove item">✕</button>`
-    chip.querySelector('button').onclick=()=>{ g.items.splice(ii,1); _rebuildSettingsUI() }
+    chip.querySelector('button').onclick=()=>{ g.items.splice(ii,1); _rebuildSettingsUI(); _autoSaveSettings() }
     itemsList.appendChild(chip)
   })
   row.appendChild(itemsList)
@@ -2233,6 +2236,7 @@ function buildGroupRow(gi, g){  const row=document.createElement('div')
     if(!g.items) g.items=[]
     g.items.push(v)
     _rebuildSettingsUI()
+    _autoSaveSettings()
   }
   addItemBtn.onclick=doAdd
   itemInput.addEventListener('keydown',(e)=>{ if(e.key==='Enter'){e.preventDefault();doAdd()} })
@@ -2245,7 +2249,7 @@ function buildGroupRow(gi, g){  const row=document.createElement('div')
 
 async function saveNavSettings(){
   try{
-    await invoke('write_settings',{content:JSON.stringify(window._hanaLensSettings)})
+    await invoke('write_settings',{content:JSON.stringify(window._hanaLensSettings,null,2)})
   }catch(e){
     console.error('saveNavSettings failed',e)
   }
@@ -2284,7 +2288,7 @@ function _trackRecentPath(path){
   if(!Array.isArray(s.recentPaths)) s.recentPaths=[]
   const idx=s.recentPaths.indexOf(path);if(idx!==-1)s.recentPaths.splice(idx,1)
   s.recentPaths.unshift(path);if(s.recentPaths.length>5)s.recentPaths.length=5
-  invoke('write_settings',{content:JSON.stringify(s)}).catch(e=>console.warn('[HANA-Lens] write_settings failed:',e))
+  invoke('write_settings',{content:JSON.stringify(s,null,2)}).catch(e=>console.warn('[HANA-Lens] write_settings failed:',e))
 }
 
 let _loadDropdownMode=null
@@ -2308,7 +2312,7 @@ function toggleAppMenu(btn){
     `<div class="ctx-item" id="_amSettings">&#9881; Settings</div>`+
     `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
     `<div class="ctx-item" id="_amKba">&#128203; KBA 3771222</div>`+
-    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_26_01</div>`
+    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_26_03</div>`
   document.getElementById('_amSettings').onclick=(e)=>{
     e.stopPropagation()
     hideAppMenu()
@@ -2327,7 +2331,7 @@ function toggleAppMenu(btn){
 
 async function saveSettingsFull(statusEl){
   try{
-    await invoke('write_settings',{content:JSON.stringify(window._hanaLensSettings)})
+    await invoke('write_settings',{content:JSON.stringify(window._hanaLensSettings,null,2)})
     if(statusEl){ statusEl.textContent='✓ Saved'; statusEl.style.color='#107C10'; setTimeout(()=>{statusEl.textContent=''},2000) }
     renderNavTree()
   }catch(e){
@@ -2366,7 +2370,7 @@ function showSettingsPanel(){
   const addCgBtn=document.createElement('button')
   addCgBtn.textContent='+ Add Color Group'
   addCgBtn.style.cssText='margin-top:6px;height:28px;padding:0 14px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;'
-  addCgBtn.onclick=()=>{ if(!s.navColorGroups)s.navColorGroups=[]; s.navColorGroups.push({name:'New Group',color:'#EFF6FC',items:[]}); rebuildCg() }
+  addCgBtn.onclick=()=>{ if(!s.navColorGroups)s.navColorGroups=[]; s.navColorGroups.push({name:'New Group',color:'#EFF6FC',items:[]}); rebuildCg(); _autoSaveSettings() }
   cgSec.appendChild(addCgBtn)
   panel.appendChild(cgSec)
 
@@ -2385,10 +2389,12 @@ function showSettingsPanel(){
       nameIn.type='text';nameIn.value=bk.name||'';nameIn.placeholder='Name (displayed in dropdown)'
       nameIn.style.cssText='width:160px;height:26px;padding:0 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:inherit;'
       nameIn.oninput=e=>bk.name=e.target.value
+      nameIn.onchange=()=>_autoSaveSettings()
       const pathIn=document.createElement('input')
       pathIn.type='text';pathIn.value=bk.path||'';pathIn.placeholder='Full path (C:\\...)'
       pathIn.style.cssText='flex:1;height:26px;padding:0 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:inherit;'
       pathIn.oninput=e=>bk.path=e.target.value
+      pathIn.onchange=()=>_autoSaveSettings()
       const browseBtn=document.createElement('button')
       browseBtn.textContent='📂';browseBtn.title='Browse for folder'
       browseBtn.style.cssText='height:26px;padding:0 7px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:13px;cursor:pointer;flex-shrink:0;'
@@ -2398,11 +2404,12 @@ function showSettingsPanel(){
           if(!result)return
           const p=typeof result==='string'?result:result[0]
           bk.path=p;pathIn.value=p
+          _autoSaveSettings()
         }catch(e){ if(e?.name!=='AbortError') console.warn('browse failed',e) }
       }
       const delBtn=document.createElement('button')
       delBtn.textContent='✕';delBtn.style.cssText='background:none;border:none;cursor:pointer;font-size:13px;color:#A19F9D;padding:0 4px;'
-      delBtn.onclick=()=>{ s.bookmarkPaths.splice(bi,1); rebuildBk() }
+      delBtn.onclick=()=>{ s.bookmarkPaths.splice(bi,1); rebuildBk(); _autoSaveSettings() }
       row.appendChild(nameIn);row.appendChild(pathIn);row.appendChild(browseBtn);row.appendChild(delBtn)
       bkList.appendChild(row)
     })
@@ -2412,69 +2419,26 @@ function showSettingsPanel(){
   const addBkBtn=document.createElement('button')
   addBkBtn.textContent='+ Add Bookmark'
   addBkBtn.style.cssText='margin-top:6px;height:28px;padding:0 14px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;'
-  addBkBtn.onclick=()=>{ if(!s.bookmarkPaths)s.bookmarkPaths=[]; s.bookmarkPaths.push({name:'',path:''}); rebuildBk() }
+  addBkBtn.onclick=()=>{ if(!s.bookmarkPaths)s.bookmarkPaths=[]; s.bookmarkPaths.push({name:'',path:''}); rebuildBk(); _autoSaveSettings() }
   bkSec.appendChild(addBkBtn)
   panel.appendChild(bkSec)
 
-  // ── Save / Export / Import + status ──────────────────────────────────────
+  // ── Save + status + path info ─────────────────────────────────────────────
   const footer=document.createElement('div')
-  footer.style.cssText='max-width:700px;display:flex;align-items:center;gap:10px;padding-top:16px;border-top:1px solid #EDEBE9;flex-wrap:wrap;'
+  footer.style.cssText='max-width:700px;display:flex;align-items:center;gap:12px;padding-top:16px;border-top:1px solid #EDEBE9;'
   const saveBtn=document.createElement('button')
   saveBtn.textContent='💾 Save'
   saveBtn.style.cssText='height:32px;padding:0 16px;background:#107C10;color:#fff;border:none;border-radius:2px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;'
-  const exportBtn=document.createElement('button')
-  exportBtn.textContent='⬆ Export'
-  exportBtn.title='Save a copy of the settings file to a location you choose'
-  exportBtn.style.cssText='height:32px;padding:0 14px;background:#F3F2F1;color:#323130;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;font-family:inherit;'
-  const importBtn=document.createElement('button')
-  importBtn.textContent='⬇ Import'
-  importBtn.title='Load settings from a JSON file (replaces current settings)'
-  importBtn.style.cssText='height:32px;padding:0 14px;background:#F3F2F1;color:#323130;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;font-family:inherit;'
   const statusEl=document.createElement('span')
   statusEl.style.cssText='font-size:12px;'
   const pathEl=document.createElement('span')
   pathEl.style.cssText='font-size:11px;color:#A19F9D;margin-left:auto;'
-  pathEl.textContent='Settings locations: …'
-  invoke('get_settings_path').then(p=>{
-    pathEl.style.whiteSpace='pre'
-    pathEl.textContent='Saved to:\n'+p
-  }).catch(()=>{})
+  pathEl.textContent='Settings file: …'
+  invoke('get_settings_path').then(p=>{ pathEl.textContent='Settings file: '+p }).catch(()=>{})
 
   saveBtn.onclick=()=>saveSettingsFull(statusEl)
 
-  exportBtn.onclick=async()=>{
-    try{
-      const saveFn=window.__TAURI__?.dialog?.save
-      if(!saveFn){statusEl.textContent='✗ Dialog not available';statusEl.style.color='#C50F1F';return}
-      const path=await saveFn({filters:[{name:'JSON',extensions:['json']}],defaultPath:'hana-lens-settings.json'})
-      if(!path)return
-      await invoke('write_text_file',{path,content:JSON.stringify(window._hanaLensSettings,null,2)})
-      statusEl.textContent='✓ Exported';statusEl.style.color='#107C10'
-      setTimeout(()=>{statusEl.textContent=''},2500)
-    }catch(e){
-      statusEl.textContent='✗ Export: '+e;statusEl.style.color='#C50F1F'
-    }
-  }
-
-  importBtn.onclick=async()=>{
-    try{
-      const openFn=window.__TAURI__?.dialog?.open
-      if(!openFn){statusEl.textContent='✗ Dialog not available';statusEl.style.color='#C50F1F';return}
-      const result=await openFn({filters:[{name:'JSON',extensions:['json']}],multiple:false})
-      if(!result)return
-      const filePath=typeof result==='string'?result:result[0]
-      const text=await invoke('read_text_file',{path:filePath})
-      const parsed=JSON.parse(text)
-      window._hanaLensSettings=parsed
-      await invoke('write_settings',{content:JSON.stringify(parsed)})
-      showSettingsPanel()
-    }catch(e){
-      statusEl.textContent='✗ Import: '+e;statusEl.style.color='#C50F1F'
-    }
-  }
-
-  footer.appendChild(saveBtn);footer.appendChild(exportBtn);footer.appendChild(importBtn)
-  footer.appendChild(statusEl);footer.appendChild(pathEl)
+  footer.appendChild(saveBtn);footer.appendChild(statusEl);footer.appendChild(pathEl)
   panel.appendChild(footer)
 }
 
