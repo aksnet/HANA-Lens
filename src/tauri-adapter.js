@@ -185,10 +185,11 @@
     }
   }
 
-  // ── Expose classes globally ──────────────────────────────────────────────────
+  // ── Expose classes + invoke globally ────────────────────────────────────────
   window.TauriDirHandle = TauriDirHandle
   window.TauriFileHandle = TauriFileHandle
   window.CombinedFileHandle = CombinedFileHandle
+  window.invoke = invoke
 
   // ── External link handler ────────────────────────────────────────────────────
   // WebView2/WebKit does not open target="_blank" links in the system browser.
