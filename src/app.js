@@ -2313,7 +2313,7 @@ function toggleAppMenu(btn){
     `<div class="ctx-item" id="_amSettings">&#9881; Settings</div>`+
     `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
     `<div class="ctx-item" id="_amKba">&#128203; KBA 3771222</div>`+
-    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_26_06</div>`
+    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_27_01</div>`
   document.getElementById('_amSettings').onclick=(e)=>{
     e.stopPropagation()
     hideAppMenu()
@@ -2424,22 +2424,54 @@ function showSettingsPanel(){
   bkSec.appendChild(addBkBtn)
   panel.appendChild(bkSec)
 
-  // ── Save + status + path info ─────────────────────────────────────────────
+  // ── Save · Export · Import + status + path info ──────────────────────────
   const footer=document.createElement('div')
-  footer.style.cssText='max-width:700px;display:flex;align-items:center;gap:12px;padding-top:16px;border-top:1px solid #EDEBE9;'
+  footer.style.cssText='max-width:700px;display:flex;align-items:center;gap:8px;padding-top:16px;border-top:1px solid #EDEBE9;flex-wrap:wrap;'
   const saveBtn=document.createElement('button')
   saveBtn.textContent='💾 Save'
   saveBtn.style.cssText='height:32px;padding:0 16px;background:#107C10;color:#fff;border:none;border-radius:2px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;'
+  const exportBtn=document.createElement('button')
+  exportBtn.textContent='⬆ Export'
+  exportBtn.title='Save a copy of settings to any file'
+  exportBtn.style.cssText='height:32px;padding:0 14px;background:#fff;color:#323130;border:1px solid #C8C6C4;border-radius:2px;font-size:13px;cursor:pointer;font-family:inherit;'
+  const importBtn=document.createElement('button')
+  importBtn.textContent='⬇ Import'
+  importBtn.title='Load settings from a previously exported file'
+  importBtn.style.cssText='height:32px;padding:0 14px;background:#fff;color:#323130;border:1px solid #C8C6C4;border-radius:2px;font-size:13px;cursor:pointer;font-family:inherit;'
   const statusEl=document.createElement('span')
   statusEl.style.cssText='font-size:12px;'
-  const pathEl=document.createElement('span')
-  pathEl.style.cssText='font-size:11px;color:#A19F9D;margin-left:auto;'
+  const pathEl=document.createElement('div')
+  pathEl.style.cssText='width:100%;font-size:11px;color:#A19F9D;padding-top:4px;'
   pathEl.textContent='Settings file: …'
   invoke('get_settings_path').then(p=>{ pathEl.textContent='Settings file: '+p }).catch(()=>{})
 
   saveBtn.onclick=()=>saveSettingsFull(statusEl)
 
-  footer.appendChild(saveBtn);footer.appendChild(statusEl);footer.appendChild(pathEl)
+  exportBtn.onclick=async()=>{
+    try{
+      const path=await window.__TAURI__.dialog.save({filters:[{name:'JSON Settings',extensions:['json']}],defaultPath:'hana-lens-settings.json'})
+      if(!path)return
+      await invoke('write_text_file',{path,content:JSON.stringify(window._hanaLensSettings,null,2)})
+      statusEl.textContent='✓ Exported';statusEl.style.color='#107C10';setTimeout(()=>{statusEl.textContent=''},3000)
+    }catch(e){statusEl.textContent='✗ Export failed: '+e;statusEl.style.color='#C50F1F'}
+  }
+
+  importBtn.onclick=async()=>{
+    try{
+      const result=await window.__TAURI__.dialog.open({filters:[{name:'JSON Settings',extensions:['json']}],multiple:false})
+      const filePath=typeof result==='string'?result:(Array.isArray(result)?result[0]:null)
+      if(!filePath)return
+      const txt=await invoke('read_text_file',{path:filePath})
+      const parsed=JSON.parse(txt)
+      window._hanaLensSettings=parsed
+      await invoke('write_settings',{content:JSON.stringify(parsed,null,2)})
+      showSettingsPanel()
+      renderNavTree()
+      statusEl.textContent='✓ Imported';statusEl.style.color='#107C10';setTimeout(()=>{statusEl.textContent=''},3000)
+    }catch(e){statusEl.textContent='✗ Import failed: '+e;statusEl.style.color='#C50F1F'}
+  }
+
+  footer.appendChild(saveBtn);footer.appendChild(exportBtn);footer.appendChild(importBtn);footer.appendChild(statusEl);footer.appendChild(pathEl)
   panel.appendChild(footer)
 }
 

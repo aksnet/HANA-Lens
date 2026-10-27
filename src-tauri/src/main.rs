@@ -413,29 +413,47 @@ fn read_fs_reference(app: tauri::AppHandle) -> Option<String> {
     None
 }
 
-// Resolve the single directory where hana-lens-settings.json lives.
-// Windows / Linux : directory that contains the running executable.
-// macOS           : directory that contains the .app bundle (visible to the user),
-//                   so the file lands next to HANA-Lens.app rather than buried inside it.
-// Fallback        : Tauri app_data_dir (should never be needed in normal use).
+// Resolve the directory where hana-lens-settings.json lives.
+// Order of preference:
+//   1. Directory next to the exe (Windows/Linux) or next to the .app bundle (macOS)
+//      → used for portable installs; verified writable via a probe write
+//   2. Tauri app_data_dir (%APPDATA%\com.sap.hana-lens\ on Windows)
+//      → fallback when running from Program Files or other write-protected locations
+// The result is cached after the first call so the probe only runs once.
+static SETTINGS_DIR_CACHE: OnceLock<std::path::PathBuf> = OnceLock::new();
+
 fn settings_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        #[cfg(target_os = "macos")]
-        {
-            // Walk up to find the .app bundle, then return its parent directory.
-            for ancestor in exe.ancestors() {
-                if ancestor.extension().map(|e| e == "app").unwrap_or(false) {
-                    if let Some(parent) = ancestor.parent() {
-                        return parent.to_path_buf();
+    SETTINGS_DIR_CACHE.get_or_init(|| {
+        // Determine exe-adjacent candidate dir
+        let candidate: Option<std::path::PathBuf> = std::env::current_exe().ok().and_then(|exe| {
+            #[cfg(target_os = "macos")]
+            {
+                for ancestor in exe.ancestors() {
+                    if ancestor.extension().map(|e| e == "app").unwrap_or(false) {
+                        if let Some(p) = ancestor.parent() {
+                            return Some(p.to_path_buf());
+                        }
                     }
                 }
             }
+            exe.parent().map(|d| d.to_path_buf())
+        });
+
+        // Check if the candidate dir is actually writable
+        if let Some(dir) = candidate {
+            let probe = dir.join(".hana-lens-write-probe");
+            if fs::write(&probe, b"").is_ok() {
+                let _ = fs::remove_file(&probe);
+                return dir;
+            }
         }
-        if let Some(dir) = exe.parent() {
-            return dir.to_path_buf();
-        }
-    }
-    app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+
+        // Fallback: app_data_dir is always writable
+        app.path()
+            .app_data_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+    })
+    .clone()
 }
 
 // Read hana-lens-settings.json from the settings directory
@@ -456,6 +474,12 @@ fn write_settings(app: tauri::AppHandle, content: String) -> Result<(), String> 
 #[tauri::command]
 fn get_settings_path(app: tauri::AppHandle) -> String {
     settings_dir(&app).join("hana-lens-settings.json").display().to_string()
+}
+
+// Write arbitrary text to a file path — used for settings Export
+#[tauri::command]
+fn write_text_file(path: String, content: String) -> Result<(), String> {
+    fs::write(&path, content).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -502,6 +526,7 @@ fn main() {
             read_settings,
             write_settings,
             get_settings_path,
+            write_text_file,
             open_in_dump_analyzer,
         ])
         .run(tauri::generate_context!())
