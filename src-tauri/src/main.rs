@@ -414,55 +414,71 @@ fn read_fs_reference(app: tauri::AppHandle) -> Option<String> {
 }
 
 // Resolve the directory where hana-lens-settings.json lives.
-// Order of preference:
-//   1. Directory next to the exe (Windows/Linux) or next to the .app bundle (macOS)
-//      → used for portable installs; verified writable via a probe write
-//   2. Tauri app_data_dir (%APPDATA%\com.sap.hana-lens\ on Windows)
-//      → fallback when running from Program Files or other write-protected locations
-// The result is cached after the first call so the probe only runs once.
+// Always uses app_data_dir so settings survive across different version folders
+// (each portable release lands in a new folder, so "next to the exe" would lose
+//  settings with every update).
+//   Windows : %APPDATA%\com.sap.hana-lens\
+//   macOS   : ~/Library/Application Support/com.sap.hana-lens/
+// The result is cached after the first call.
 static SETTINGS_DIR_CACHE: OnceLock<std::path::PathBuf> = OnceLock::new();
 
 fn settings_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
-    SETTINGS_DIR_CACHE.get_or_init(|| {
-        // Determine exe-adjacent candidate dir
-        let candidate: Option<std::path::PathBuf> = std::env::current_exe().ok().and_then(|exe| {
-            #[cfg(target_os = "macos")]
-            {
-                for ancestor in exe.ancestors() {
-                    if ancestor.extension().map(|e| e == "app").unwrap_or(false) {
-                        if let Some(p) = ancestor.parent() {
-                            return Some(p.to_path_buf());
-                        }
-                    }
-                }
-            }
-            exe.parent().map(|d| d.to_path_buf())
-        });
-
-        // Check if the candidate dir is actually writable
-        if let Some(dir) = candidate {
-            let probe = dir.join(".hana-lens-write-probe");
-            if fs::write(&probe, b"").is_ok() {
-                let _ = fs::remove_file(&probe);
-                return dir;
-            }
-        }
-
-        // Fallback: app_data_dir is always writable
-        app.path()
-            .app_data_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-    })
-    .clone()
+    SETTINGS_DIR_CACHE
+        .get_or_init(|| {
+            app.path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        })
+        .clone()
 }
 
-// Read hana-lens-settings.json from the settings directory
+// Read hana-lens-settings.json from app_data_dir.
+// Also checks the exe-adjacent location for migration from older portable installs.
 #[tauri::command]
 fn read_settings(app: tauri::AppHandle) -> Option<String> {
-    fs::read_to_string(settings_dir(&app).join("hana-lens-settings.json")).ok()
+    let primary = settings_dir(&app).join("hana-lens-settings.json");
+
+    // Primary: app_data_dir (version-independent)
+    if let Ok(txt) = fs::read_to_string(&primary) {
+        return Some(txt);
+    }
+
+    // Migration: if there is a settings file next to the exe (older installs), read and
+    // promote it to app_data_dir so future reads find it in the right place.
+    if let Ok(exe) = std::env::current_exe() {
+        let legacy_opt: Option<std::path::PathBuf> = {
+            #[cfg(target_os = "macos")]
+            {
+                let mut found = None;
+                for anc in exe.ancestors() {
+                    if anc.extension().map(|e| e == "app").unwrap_or(false) {
+                        found = anc.parent().map(|p| p.join("hana-lens-settings.json"));
+                        break;
+                    }
+                }
+                found.or_else(|| exe.parent().map(|d| d.join("hana-lens-settings.json")))
+            }
+            #[cfg(not(target_os = "macos"))]
+            exe.parent().map(|d| d.join("hana-lens-settings.json"))
+        };
+        if let Some(legacy) = legacy_opt {
+            if legacy != primary {
+                if let Ok(txt) = fs::read_to_string(&legacy) {
+                    // Promote to app_data_dir
+                    if let Some(dir) = primary.parent() {
+                        let _ = fs::create_dir_all(dir);
+                    }
+                    let _ = fs::write(&primary, &txt);
+                    return Some(txt);
+                }
+            }
+        }
+    }
+
+    None
 }
 
-// Write hana-lens-settings.json to the settings directory (next to the exe / .app)
+// Write hana-lens-settings.json to app_data_dir
 #[tauri::command]
 fn write_settings(app: tauri::AppHandle, content: String) -> Result<(), String> {
     let dir = settings_dir(&app);
@@ -473,7 +489,10 @@ fn write_settings(app: tauri::AppHandle, content: String) -> Result<(), String> 
 // Return the full path of the settings file (existing or expected)
 #[tauri::command]
 fn get_settings_path(app: tauri::AppHandle) -> String {
-    settings_dir(&app).join("hana-lens-settings.json").display().to_string()
+    settings_dir(&app)
+        .join("hana-lens-settings.json")
+        .display()
+        .to_string()
 }
 
 // Write arbitrary text to a file path — used for settings Export
