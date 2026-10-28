@@ -1763,7 +1763,7 @@ const HANA_INI_FILES=['global.ini','indexserver.ini','nameserver.ini','daemon.in
   'backint.ini','traceanalyzer.ini','hdbalert.ini','auditlog.ini','inifile_checker.ini']
 let activeFsidId = null     // id of the currently viewed session
 let activePanel  = null     // 'topology' | 'versionhistory' | ... for the active session
-window._hanaLensSettings = { navColorGroups: [], recentPaths: [], bookmarkPaths: [] }
+window._hanaLensSettings = { navColorGroups: [], recentPaths: [], bookmarkPaths: [], customFilters: [], filesystemReference: '' }
 let traceExplState = null   // {sid, serverIdx, stack:[{name,handle}], entries:[...]}
 let _lastPickedHandle = null  // last FileSystemHandle used in any picker — passed as startIn
 let _traceCopyPath = ''       // full path of the currently open trace file, for breadcrumb copy btn
@@ -2021,13 +2021,32 @@ function _initAutoSaveOnClose(){
 
 // ── DOMContentLoaded ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded',()=>{
-  // Try to load filesystem_reference.txt from disk (next to exe); overrides bundled version
-  invoke('read_fs_reference').then(txt=>{if(txt)window.BUNDLED_FS_REFERENCE=txt}).catch(()=>{})
-  // Load nav color group settings, then initialise gear-icon UI
-  invoke('read_settings').then(txt=>{
-    if(txt){try{window._hanaLensSettings=JSON.parse(txt)}catch(e){}}
+  // Async boot: load settings, migrate filters + fs-reference from files (once), then init UI
+  ;(async()=>{
+    try{
+      const txt=await invoke('read_settings')
+      if(txt){try{window._hanaLensSettings=JSON.parse(txt)}catch(e){}}
+    }catch(e){}
+    const s=window._hanaLensSettings
+    let needsSave=false
+    // Migration: import filter presets from txt files on first run
+    if(s.customFilters===undefined){
+      try{
+        const presets=await invoke('read_filter_files')
+        s.customFilters=(presets||[]).map(p=>({name:p.name,content:p.content}))
+      }catch(e){s.customFilters=[]}
+      needsSave=true
+    }
+    // Migration: import filesystem_reference.txt on first run
+    if(s.filesystemReference===undefined){
+      try{s.filesystemReference=await invoke('read_fs_reference')||''}
+      catch(e){s.filesystemReference=''}
+      needsSave=true
+    }
+    if(s.filesystemReference)window.BUNDLED_FS_REFERENCE=s.filesystemReference
+    if(needsSave)invoke('write_settings',{content:JSON.stringify(s,null,2)}).catch(()=>{})
     initNavSettingsUI()
-  }).catch(()=>{ initNavSettingsUI() })
+  })().catch(()=>initNavSettingsUI())
   // Auto-save settings when the window is closed
   _initAutoSaveOnClose()
   // close context menus on outside click (mousedown fires before stopPropagation on child click handlers)
@@ -2313,7 +2332,7 @@ function toggleAppMenu(btn){
     `<div class="ctx-item" id="_amSettings">&#9881; Settings</div>`+
     `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
     `<div class="ctx-item" id="_amKba">&#128203; KBA 3771222</div>`+
-    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_27_03</div>`
+    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_28_01</div>`
   document.getElementById('_amSettings').onclick=(e)=>{
     e.stopPropagation()
     hideAppMenu()
@@ -2423,6 +2442,59 @@ function showSettingsPanel(){
   addBkBtn.onclick=()=>{ if(!s.bookmarkPaths)s.bookmarkPaths=[]; s.bookmarkPaths.push({name:'',path:''}); rebuildBk(); _autoSaveSettings() }
   bkSec.appendChild(addBkBtn)
   panel.appendChild(bkSec)
+
+  // ── Filter Presets ────────────────────────────────────────────────────────
+  const fpSec=document.createElement('div')
+  fpSec.style.cssText='max-width:700px;margin-bottom:28px;'
+  fpSec.innerHTML='<div style="font-size:13px;font-weight:600;color:#323130;margin-bottom:10px;">Filter Presets</div>'
+  const fpList=document.createElement('div')
+  fpList.id='settings-panel-fp-list'
+  const rebuildFp=()=>{
+    fpList.innerHTML=''
+    ;(s.customFilters||[]).forEach((f,fi)=>{
+      const row=document.createElement('div')
+      row.style.cssText='display:flex;gap:6px;align-items:flex-start;margin-bottom:8px;'
+      const nameIn=document.createElement('input')
+      nameIn.type='text';nameIn.value=f.name||'';nameIn.placeholder='Name'
+      nameIn.style.cssText='width:130px;height:26px;padding:0 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:inherit;flex-shrink:0;'
+      nameIn.oninput=e=>f.name=e.target.value
+      nameIn.onchange=()=>_autoSaveSettings()
+      const contentIn=document.createElement('textarea')
+      contentIn.value=f.content||''
+      contentIn.placeholder='Filter terms (one per line or comma-separated)'
+      contentIn.style.cssText='flex:1;min-height:52px;padding:4px 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;font-family:monospace;resize:vertical;'
+      contentIn.oninput=e=>f.content=e.target.value
+      contentIn.onchange=()=>_autoSaveSettings()
+      const delBtn=document.createElement('button')
+      delBtn.textContent='✕'
+      delBtn.style.cssText='background:none;border:none;cursor:pointer;font-size:13px;color:#A19F9D;padding:0 4px;flex-shrink:0;margin-top:4px;'
+      delBtn.onclick=()=>{ s.customFilters.splice(fi,1); rebuildFp(); _autoSaveSettings() }
+      row.appendChild(nameIn);row.appendChild(contentIn);row.appendChild(delBtn)
+      fpList.appendChild(row)
+    })
+  }
+  rebuildFp()
+  fpSec.appendChild(fpList)
+  const addFpBtn=document.createElement('button')
+  addFpBtn.textContent='+ Add Filter'
+  addFpBtn.style.cssText='margin-top:6px;height:28px;padding:0 14px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;'
+  addFpBtn.onclick=()=>{ if(!s.customFilters)s.customFilters=[]; s.customFilters.push({name:'',content:''}); rebuildFp(); _autoSaveSettings() }
+  fpSec.appendChild(addFpBtn)
+  panel.appendChild(fpSec)
+
+  // ── Filesystem Reference ──────────────────────────────────────────────────
+  const fsrSec=document.createElement('div')
+  fsrSec.style.cssText='max-width:700px;margin-bottom:28px;'
+  fsrSec.innerHTML='<div style="font-size:13px;font-weight:600;color:#323130;margin-bottom:4px;">Filesystem Reference</div>'+
+    '<div style="font-size:11px;color:#A19F9D;margin-bottom:8px;">Used for the Permissions comparison column. Paste the content of filesystem_reference.txt here.</div>'
+  const fsrArea=document.createElement('textarea')
+  fsrArea.value=s.filesystemReference||''
+  fsrArea.placeholder='Paste filesystem_reference.txt content here...'
+  fsrArea.style.cssText='width:100%;min-height:120px;padding:6px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;font-family:monospace;resize:vertical;box-sizing:border-box;'
+  fsrArea.oninput=e=>{ s.filesystemReference=e.target.value; if(e.target.value)window.BUNDLED_FS_REFERENCE=e.target.value; else delete window.BUNDLED_FS_REFERENCE }
+  fsrArea.onchange=()=>_autoSaveSettings()
+  fsrSec.appendChild(fsrArea)
+  panel.appendChild(fsrSec)
 
   // ── Save · Export · Import + status + path info ──────────────────────────
   const footer=document.createElement('div')
@@ -3538,31 +3610,19 @@ async function traceShowFileView(s){
   }
   document.getElementById('trace-filter-apply-btn').addEventListener('click',traceApplyFilter)
   document.getElementById('trace-filter-clear-btn').addEventListener('click',traceClearFilter)
-  // Load preset filter files from filter_pre-defined and filter_custom folders
+  // Load preset filters from settings
   const presetSel=document.getElementById('trace-filter-preset')
-  if(presetSel&&window.__TAURI__?.core?.invoke){
+  if(presetSel){
     const loadPresets=sel=>{
-      window.__TAURI__.core.invoke('read_filter_files').then(presets=>{
-        while(sel.children.length>1)sel.removeChild(sel.lastChild)
-        if(!presets?.length)return
-        const groups={}
-        for(const p of presets){
-          const g=p.source==='filter_pre-defined'?'Pre-defined':'Custom'
-          if(!groups[g])groups[g]=[]
-          groups[g].push(p)
-        }
-        for(const[label,items]of Object.entries(groups)){
-          const grp=document.createElement('optgroup')
-          grp.label=label
-          for(const p of items){
-            const opt=document.createElement('option')
-            opt.value=p.content
-            opt.textContent=p.name
-            grp.appendChild(opt)
-          }
-          sel.appendChild(grp)
-        }
-      }).catch(()=>{})
+      while(sel.children.length>1)sel.removeChild(sel.lastChild)
+      const filters=window._hanaLensSettings?.customFilters||[]
+      for(const f of filters){
+        if(!f.name||!f.content)continue
+        const opt=document.createElement('option')
+        opt.value=f.content
+        opt.textContent=f.name
+        sel.appendChild(opt)
+      }
     }
     loadPresets(presetSel)
     presetSel.addEventListener('focus',()=>loadPresets(presetSel))
