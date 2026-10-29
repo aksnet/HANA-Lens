@@ -2333,7 +2333,7 @@ function toggleAppMenu(btn){
     `<div class="ctx-item" id="_amSettings">&#9881; Settings</div>`+
     `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
     `<div class="ctx-item" id="_amKba">&#128203; KBA 3771222</div>`+
-    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_29_02</div>`
+    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_29_03</div>`
   document.getElementById('_amSettings').onclick=(e)=>{
     e.stopPropagation()
     hideAppMenu()
@@ -2420,6 +2420,7 @@ function showSettingsPanel(){
       browseBtn.textContent='📂';browseBtn.title='Browse for folder'
       browseBtn.style.cssText='height:26px;padding:0 7px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:13px;cursor:pointer;flex-shrink:0;'
       browseBtn.onclick=async()=>{
+        if(!window.__TAURI__?.dialog){browseBtn.style.display='none';return}
         try{
           const result=await window.__TAURI__.dialog.open({directory:true,multiple:false,defaultPath:bk.path||undefined})
           if(!result)return
@@ -2428,6 +2429,7 @@ function showSettingsPanel(){
           _autoSaveSettings()
         }catch(e){ if(e?.name!=='AbortError') console.warn('browse failed',e) }
       }
+      if(!window.__TAURI__?.dialog) browseBtn.style.display='none'
       const delBtn=document.createElement('button')
       delBtn.textContent='✕';delBtn.style.cssText='background:none;border:none;cursor:pointer;font-size:13px;color:#A19F9D;padding:0 4px;'
       delBtn.onclick=()=>{ s.bookmarkPaths.splice(bi,1); rebuildBk(); _autoSaveSettings() }
@@ -2522,25 +2524,49 @@ function showSettingsPanel(){
 
   exportBtn.onclick=async()=>{
     try{
-      const path=await window.__TAURI__.dialog.save({filters:[{name:'JSON Settings',extensions:['json']}],defaultPath:'hana-lens-settings.json'})
-      if(!path)return
-      await invoke('write_text_file',{path,content:JSON.stringify(window._hanaLensSettings,null,2)})
+      const jsonStr=JSON.stringify(window._hanaLensSettings,null,2)
+      if(window.__TAURI__?.dialog){
+        const path=await window.__TAURI__.dialog.save({filters:[{name:'JSON Settings',extensions:['json']}],defaultPath:'hana-lens-settings.json'})
+        if(!path)return
+        await invoke('write_text_file',{path,content:jsonStr})
+      }else{
+        const a=document.createElement('a')
+        a.href='data:application/json;charset=utf-8,'+encodeURIComponent(jsonStr)
+        a.download='hana-lens-settings.json'
+        a.click()
+      }
       statusEl.textContent='✓ Exported';statusEl.style.color='#107C10';setTimeout(()=>{statusEl.textContent=''},3000)
     }catch(e){statusEl.textContent='✗ Export failed: '+e;statusEl.style.color='#C50F1F'}
   }
 
   importBtn.onclick=async()=>{
     try{
-      const result=await window.__TAURI__.dialog.open({filters:[{name:'JSON Settings',extensions:['json']}],multiple:false})
-      const filePath=typeof result==='string'?result:(Array.isArray(result)?result[0]:null)
-      if(!filePath)return
-      const txt=await invoke('read_text_file',{path:filePath})
-      const parsed=JSON.parse(txt)
-      window._hanaLensSettings=parsed
-      await invoke('write_settings',{content:JSON.stringify(parsed,null,2)})
-      showSettingsPanel()
-      renderNavTree()
-      statusEl.textContent='✓ Imported';statusEl.style.color='#107C10';setTimeout(()=>{statusEl.textContent=''},3000)
+      if(window.__TAURI__?.dialog){
+        const result=await window.__TAURI__.dialog.open({filters:[{name:'JSON Settings',extensions:['json']}],multiple:false})
+        const filePath=typeof result==='string'?result:(Array.isArray(result)?result[0]:null)
+        if(!filePath)return
+        const txt=await invoke('read_text_file',{path:filePath})
+        const parsed=JSON.parse(txt)
+        window._hanaLensSettings=parsed
+        await invoke('write_settings',{content:JSON.stringify(parsed,null,2)})
+        showSettingsPanel();renderNavTree()
+        statusEl.textContent='✓ Imported';statusEl.style.color='#107C10';setTimeout(()=>{statusEl.textContent=''},3000)
+      }else{
+        const fi=document.createElement('input')
+        fi.type='file';fi.accept='.json,application/json'
+        fi.onchange=async()=>{
+          const file=fi.files[0];if(!file)return
+          try{
+            const txt=await file.text()
+            const parsed=JSON.parse(txt)
+            window._hanaLensSettings=parsed
+            await invoke('write_settings',{content:JSON.stringify(parsed,null,2)})
+            showSettingsPanel();renderNavTree()
+            statusEl.textContent='✓ Imported';statusEl.style.color='#107C10';setTimeout(()=>{statusEl.textContent=''},3000)
+          }catch(e2){statusEl.textContent='✗ Import failed: '+e2;statusEl.style.color='#C50F1F'}
+        }
+        fi.click()
+      }
     }catch(e){statusEl.textContent='✗ Import failed: '+e;statusEl.style.color='#C50F1F'}
   }
 
