@@ -2332,7 +2332,7 @@ function toggleAppMenu(btn){
     `<div class="ctx-item" id="_amSettings">&#9881; Settings</div>`+
     `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
     `<div class="ctx-item" id="_amKba">&#128203; KBA 3771222</div>`+
-    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_28_01</div>`
+    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_28_02</div>`
   document.getElementById('_amSettings').onclick=(e)=>{
     e.stopPropagation()
     hideAppMenu()
@@ -3532,7 +3532,7 @@ async function traceShowFileView(s){
   // Toolbar: Filter button + bookmark navigation
   const btnStyle='padding:2px 10px;font-size:11px;font-family:inherit;border-radius:2px;cursor:pointer;'
   const toolbar=document.createElement('div')
-  toolbar.style.cssText='padding:4px 14px;background:#F3F2F1;border-bottom:1px solid #EDEBE9;display:flex;align-items:center;gap:6px;flex-shrink:0;position:sticky;top:0;z-index:5;'
+  toolbar.style.cssText='padding:4px 14px;background:#F3F2F1;border-bottom:1px solid #EDEBE9;display:flex;align-items:center;gap:6px;flex-shrink:0;position:relative;z-index:5;'
   const filterBtn=document.createElement('button')
   filterBtn.id='trace-filter-btn'
   filterBtn.style.cssText=btnStyle+'background:#fff;color:#323130;border:1px solid #C8C6C4;'
@@ -3572,7 +3572,7 @@ async function traceShowFileView(s){
   const inpStyle='font-size:11px;padding:2px 5px;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;width:220px;'
   const filterPanel=document.createElement('div')
   filterPanel.id='trace-filter-panel'
-  filterPanel.style.cssText='display:none;flex-direction:column;gap:5px;padding:7px 14px;background:#FAF9F8;border-bottom:1px solid #EDEBE9;flex-shrink:0;position:sticky;top:31px;z-index:4;'
+  filterPanel.style.cssText='display:none;flex-direction:column;gap:5px;padding:7px 14px;background:#FAF9F8;border-bottom:1px solid #EDEBE9;flex-shrink:0;position:relative;z-index:4;'
   filterPanel.innerHTML=
     `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">`+
     `<span style="font-size:11px;color:#605E5C;min-width:34px;">From</span>`+
@@ -7075,6 +7075,7 @@ function renderPermFile(lines){
     <div class="hsi-perm-col"><div class="hsi-perm-col-header">Captured Filesystemdetails</div></div>
     <div class="hsi-perm-col"><div class="hsi-perm-col-header">Comparison of working Filesystemdetails
       <button class="hsi-upload-btn" onclick="hsiPermUpload(this)">&#128196; Load reference file</button>
+      <span class="hsi-ref-version-badge"></span>
     </div></div>
   </div>`
 
