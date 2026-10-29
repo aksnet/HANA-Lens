@@ -138,6 +138,7 @@ function checkKernelParameters(mach){
 // HTML RENDERER
 // ============================================================
 function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function escRegex(s){return String(s||'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
 function _fmtBytes(b){if(!b)return '';if(b<1024)return b+' B';if(b<1048576)return (b/1024).toFixed(1)+' KB';return (b/1048576).toFixed(1)+' MB'}
 function tag(cls,text){return `<span class="tag ${cls}">${escHtml(text)}</span>`}
 function monoCell(val){return `<span class="mono">${escHtml(val)}</span>`}
@@ -2332,7 +2333,7 @@ function toggleAppMenu(btn){
     `<div class="ctx-item" id="_amSettings">&#9881; Settings</div>`+
     `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
     `<div class="ctx-item" id="_amKba">&#128203; KBA 3771222</div>`+
-    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_29_01</div>`
+    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_29_02</div>`
   document.getElementById('_amSettings').onclick=(e)=>{
     e.stopPropagation()
     hideAppMenu()
@@ -2797,16 +2798,35 @@ function traceJumpToOrigLine(){
   const origIdx=_traceLineCtxOrigIdx
   hideTraceLineCtxMenu()
   if(origIdx==null)return
-  traceClearFilter()
-  // double-rAF: first frame updates DOM, second frame has correct layout
+  const vf=traceExplState?.viewingFile
+  if(!vf)return
+  // Keep time range + terms; only remove "show only matching lines"
+  vf._termFilterOnly=false
+  const fh=traceExplState._filterHdr
+  if(fh){const st=fh.getState();st.termFilterOnly=false;fh.setState(st)}
+  const list=document.getElementById('trace-list')
+  if(!list)return
+  traceRenderFromLines(list,vf).then?.(()=>{
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      const wrap=document.getElementById('trace-file-wrap')
+      if(!wrap)return
+      // origIdx is the original line index — find its display position
+      const disp=vf._displayOrigIndices
+      const pos=disp?disp.indexOf(origIdx):origIdx
+      const targetPos=pos>=0?pos:origIdx
+      list.scrollTop=wrap.offsetTop+targetPos*_TRACE_LH-list.clientHeight/2+_TRACE_LH/2
+      if(vf?._traceForceRender)vf._traceForceRender(targetPos)
+    }))
+  })
+  // Fallback for sync render path (non-Promise)
   requestAnimationFrame(()=>requestAnimationFrame(()=>{
-    const list=document.getElementById('trace-list')
     const wrap=document.getElementById('trace-file-wrap')
-    if(!list||!wrap)return
-    list.scrollTop=wrap.offsetTop+origIdx*_TRACE_LH-list.clientHeight/2+_TRACE_LH/2
-    // force-render the target chunk immediately (don't wait for IntersectionObserver)
-    const vf=traceExplState?.viewingFile
-    if(vf?._traceForceRender)vf._traceForceRender(origIdx)
+    if(!wrap)return
+    const disp=vf._displayOrigIndices
+    const pos=disp?disp.indexOf(origIdx):origIdx
+    const targetPos=pos>=0?pos:origIdx
+    list.scrollTop=wrap.offsetTop+targetPos*_TRACE_LH-list.clientHeight/2+_TRACE_LH/2
+    if(vf?._traceForceRender)vf._traceForceRender(targetPos)
   }))
 }
 function rteDumpOpenInAnalyzer(){
@@ -3529,111 +3549,36 @@ async function traceShowFileView(s){
   up.innerHTML=`<span class="trace-icon">⬆️</span><span class="trace-name">..</span>`
   up.onclick=()=>traceCloseFile()
   list.appendChild(up)
-  // Toolbar: Filter button + bookmark navigation
+  // Toolbar + filter panel — built by shared module
   const btnStyle='padding:2px 10px;font-size:11px;font-family:inherit;border-radius:2px;cursor:pointer;'
-  const toolbar=document.createElement('div')
-  toolbar.style.cssText='padding:4px 14px;background:#F3F2F1;border-bottom:1px solid #EDEBE9;display:flex;align-items:center;gap:6px;flex-shrink:0;position:relative;z-index:5;'
-  const filterBtn=document.createElement('button')
-  filterBtn.id='trace-filter-btn'
-  filterBtn.style.cssText=btnStyle+'background:#fff;color:#323130;border:1px solid #C8C6C4;'
-  filterBtn.textContent='🔍 Filter ▾'
-  filterBtn.addEventListener('click',()=>{
-    const panel=document.getElementById('trace-filter-panel')
-    if(!panel)return
-    const open=panel.style.display==='flex'
-    panel.style.display=open?'none':'flex'
-    filterBtn.textContent=open?'🔍 Filter ▾':'🔍 Filter ▴'
+  const fh=_buildFileFilterHeader(list,{
+    initialState:vf._filterFrom||vf._filterTo||vf._searchTerms?.length||vf._termFilterOnly?{
+      filterFrom:vf._filterFrom,filterTo:vf._filterTo,
+      searchTerms:vf._searchTerms,termFilterOnly:vf._termFilterOnly}:null,
+    onApply:(st)=>{
+      const timeChanged=st.filterFrom!==vf._filterFrom||st.filterTo!==vf._filterTo
+      vf._filterFrom=st.filterFrom;vf._filterTo=st.filterTo
+      vf._searchTerms=st.searchTerms;vf._termFilterOnly=st.termFilterOnly
+      fh.setFilterBtnActive(!!(vf._filterFrom||vf._filterTo||vf._searchTerms.length||vf._termFilterOnly))
+      if(timeChanged){if(vf._bookmarks)vf._bookmarks.clear();vf._bookmarkCursor=null}
+      traceRenderFromLines(list,vf)
+    },
+    onClear:()=>{
+      vf._filterFrom=null;vf._filterTo=null;vf._searchTerms=[];vf._termFilterOnly=false
+      vf._termMatchLines=[];vf._termMatchCursor=null
+      if(vf._bookmarks)vf._bookmarks.clear();vf._bookmarkCursor=null
+      fh.setState({filterFrom:null,filterTo:null,searchTerms:[],termFilterOnly:false})
+      fh.setInfo('');fh.setFilterBtnActive(false)
+      traceRenderFromLines(list,vf)
+    },
+    onNavUp:()=>traceBookmarkNav(-1),
+    onNavDown:()=>traceBookmarkNav(1),
   })
-  const navUp=document.createElement('button')
-  navUp.id='trace-nav-up'
-  navUp.style.cssText=btnStyle+'background:#fff;color:#323130;border:1px solid #C8C6C4;display:none;'
-  navUp.title='Previous mark'
-  navUp.textContent='▲'
-  navUp.addEventListener('click',()=>traceBookmarkNav(-1))
-  const navDown=document.createElement('button')
-  navDown.id='trace-nav-down'
-  navDown.style.cssText=btnStyle+'background:#fff;color:#323130;border:1px solid #C8C6C4;display:none;'
-  navDown.title='Next mark'
-  navDown.textContent='▼'
-  navDown.addEventListener('click',()=>traceBookmarkNav(1))
-  const infoSpan=document.createElement('span')
-  infoSpan.id='trace-filter-info'
-  infoSpan.style.cssText='font-size:11px;color:#605E5C;margin-left:4px;'
-  toolbar.appendChild(filterBtn)
-  toolbar.appendChild(navUp)
-  toolbar.appendChild(navDown)
-  toolbar.appendChild(infoSpan)
-  const loadRestBtn=document.createElement('button')
-  loadRestBtn.id='trace-load-more-btn'
-  loadRestBtn.style.cssText=btnStyle+'background:#EFF6FC;color:#0078D4;border:1px solid #0078D4;margin-left:auto;display:none;white-space:nowrap;'
-  toolbar.appendChild(loadRestBtn)
-  list.appendChild(toolbar)
-  // Filter panel (hidden by default)
-  const inpStyle='font-size:11px;padding:2px 5px;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;width:220px;'
-  const filterPanel=document.createElement('div')
-  filterPanel.id='trace-filter-panel'
-  filterPanel.style.cssText='display:none;flex-direction:column;gap:5px;padding:7px 14px;background:#FAF9F8;border-bottom:1px solid #EDEBE9;flex-shrink:0;position:relative;z-index:4;'
-  filterPanel.innerHTML=
-    `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">`+
-    `<span style="font-size:11px;color:#605E5C;min-width:34px;">From</span>`+
-    `<input type="text" id="trace-filter-from" placeholder="YYYY-MM-DD HH:MM:SS" style="${inpStyle}">`+
-    `<span style="font-size:11px;color:#605E5C;">To</span>`+
-    `<input type="text" id="trace-filter-to" placeholder="YYYY-MM-DD HH:MM:SS" style="${inpStyle}">`+
-    `<span id="trace-filter-date-hint" style="font-size:10px;color:#A19F9D;font-style:italic;margin-left:6px;"></span>`+
-    `</div>`+
-    `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">`+
-    `<span style="font-size:11px;color:#605E5C;min-width:34px;">Terms</span>`+
-    `<input type="text" id="trace-filter-terms" placeholder="term, term[[#BG]], term[[#BG,#FG]] — e.g.: savepoint[[#9600FF,#fff]], error[[#FF4444,#fff]]" style="${inpStyle.replace('width:220px','flex:1;min-width:220px')}">`+
-    `<select id="trace-filter-preset" style="font-size:11px;padding:2px 4px;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;color:#605E5C;background:#fff;cursor:pointer;" title="Load preset filter"><option value="">📂 preset</option></select>`+
-    `<button id="trace-filter-apply-btn" style="${btnStyle}background:#0078D4;color:#fff;border:none;">Apply</button>`+
-    `<button id="trace-filter-clear-btn" style="${btnStyle}background:#fff;color:#323130;border:1px solid #C8C6C4;">Clear</button>`+
-    `<label style="font-size:11px;color:#605E5C;display:flex;align-items:center;gap:4px;cursor:pointer;margin-left:6px;"><input type="checkbox" id="trace-filter-only-matches" style="cursor:pointer;margin:0;"> Show only matching lines</label>`+
-    `</div>`+
-    `<div style="font-size:10px;color:#605E5C;padding:1px 0 0 40px;">Color syntax: <code style="font-size:10px;">term[[#BG]]</code> or <code style="font-size:10px;">term[[#BG,#FG]]</code> — no color = grey background. Look up hex codes at <a href="https://www.color-hex.com/" target="_blank" style="color:#0078D4;text-decoration:none;">color-hex.com</a></div>`
-  list.appendChild(filterPanel)
-  // Restore filter state if this file had active filters
-  if(vf._filterFrom||vf._filterTo||vf._searchTerms?.length||vf._termFilterOnly){
-    const fi=document.getElementById('trace-filter-from')
-    const ti=document.getElementById('trace-filter-to')
-    const tr=document.getElementById('trace-filter-terms')
-    const cb=document.getElementById('trace-filter-only-matches')
-    if(fi&&vf._filterFrom)fi.value=vf._filterFrom
-    if(ti&&vf._filterTo)ti.value=vf._filterTo
-    if(tr&&vf._searchTerms?.length)tr.value=traceSerializeTerms(vf._searchTerms)
-    if(cb)cb.checked=!!vf._termFilterOnly
-    // Re-open filter panel and mark button as active so the user can see / change the filter
-    filterPanel.style.display='flex'
-    filterBtn.textContent='🔍 Filter ▴'
-    filterBtn.style.background='#0078D4'
-    filterBtn.style.color='#fff'
-    filterBtn.style.border='none'
-  }
-  document.getElementById('trace-filter-apply-btn').addEventListener('click',traceApplyFilter)
-  document.getElementById('trace-filter-clear-btn').addEventListener('click',traceClearFilter)
-  // Load preset filters from settings
-  const presetSel=document.getElementById('trace-filter-preset')
-  if(presetSel){
-    const loadPresets=sel=>{
-      while(sel.children.length>1)sel.removeChild(sel.lastChild)
-      const filters=window._hanaLensSettings?.customFilters||[]
-      for(const f of filters){
-        if(!f.name||!f.content)continue
-        const opt=document.createElement('option')
-        opt.value=f.content
-        opt.textContent=f.name
-        sel.appendChild(opt)
-      }
-    }
-    loadPresets(presetSel)
-    presetSel.addEventListener('focus',()=>loadPresets(presetSel))
-    presetSel.addEventListener('change',()=>{
-      if(!presetSel.value)return
-      const ti=document.getElementById('trace-filter-terms')
-      if(ti)ti.value=presetSel.value
-      presetSel.value=''
-      traceApplyFilter()
-    })
-  }
+  traceExplState._filterHdr=fh
+  // expose nav button IDs for existing bookmark nav code
+  fh.navUp.id='trace-nav-up';fh.navDown.id='trace-nav-down'
+  fh.infoSpan.id='trace-filter-info'
+  fh.loadMoreBtn.id='trace-load-more-btn'
   try{
     const filePath=vf.handle?._path
     if(filePath&&window.__TAURI__?.core?.invoke){
@@ -3654,17 +3599,8 @@ async function traceShowFileView(s){
       vf.fileSize=info.fileSize
       vf.offset=info.fileSize  // fully indexed — hide "load more" button
       if(!vf._filterFrom&&!vf._filterTo&&info.firstTs){
-        const fi=document.getElementById('trace-filter-from')
-        const ti=document.getElementById('trace-filter-to')
-        const hint=document.getElementById('trace-filter-date-hint')
-        if(fi)fi.value=info.firstTs.replace('T',' ')
-        if(info.lastTs){
-          if(ti)ti.value=info.lastTs.replace('T',' ')
-          if(hint)hint.textContent='start · end of trace · both editable'
-        }else{
-          if(ti)ti.value=traceTimePlusMins(info.firstTs,30)
-          if(hint)hint.textContent='start of trace · To = From + 30 min · both editable'
-        }
+        const hint=info.lastTs?'start · end of trace · both editable':'start of trace · To = From + 30 min · both editable'
+        traceExplState._filterHdr?.setFirstLastTs(info.firstTs,info.lastTs||null,hint)
       }
       await traceRenderFromLines(list,vf)
     }else{
@@ -3685,10 +3621,6 @@ async function traceShowFileView(s){
         let firstTs=null
         for(const line of vf._lines){const ts=traceExtractTimestamp(line);if(ts){firstTs=ts;break}}
         if(firstTs){
-          const fi=document.getElementById('trace-filter-from')
-          const ti=document.getElementById('trace-filter-to')
-          const hint=document.getElementById('trace-filter-date-hint')
-          if(fi)fi.value=firstTs.replace('T',' ')
           let lastTs=null
           if(end>=file.size){
             for(let i=vf._lines.length-1;i>=0;i--){const ts=traceExtractTimestamp(vf._lines[i]);if(ts){lastTs=ts;break}}
@@ -3699,8 +3631,8 @@ async function traceShowFileView(s){
               for(let i=tailLines.length-1;i>=0;i--){const ts=traceExtractTimestamp(tailLines[i]);if(ts){lastTs=ts;break}}
             }catch(e){}
           }
-          if(lastTs){if(ti)ti.value=lastTs.replace('T',' ');if(hint)hint.textContent='start · end of trace · both editable'}
-          else{if(ti)ti.value=traceTimePlusMins(firstTs,30);if(hint)hint.textContent='start of trace · To = From + 30 min · both editable'}
+          const hint=lastTs?'start · end of trace · both editable':'start of trace · To = From + 30 min · both editable'
+          traceExplState._filterHdr?.setFirstLastTs(firstTs,lastTs||null,hint)
         }
       }
       traceRenderFromLines(list,vf)
@@ -3800,10 +3732,326 @@ function traceCreateChunk(lines,startIdx,showNums,opts){
   return cv
 }
 
+// ── DateTime Picker (singleton, shared by all filter headers) ─────────────────
+let _dtPicker=null
+let _dtPickerState=null  // { viewY,viewMo,selY,selMo,selD,selH,selM,selS,minP,maxP,onConfirm }
+
+function _dtParseTs(s){
+  if(!s)return null
+  const m=String(s).match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/)
+  return m?{y:+m[1],mo:+m[2],d:+m[3],h:+m[4],mi:+m[5],s:+m[6]}:null
+}
+function _dtPad(n){return String(n).padStart(2,'0')}
+function _dtDateStr(y,mo,d){return `${y}-${_dtPad(mo)}-${_dtPad(d)}`}
+
+function _dtPickerShow(anchorEl,currentVal,minTs,maxTs,onConfirm){
+  const cur=_dtParseTs(currentVal)
+  const minP=_dtParseTs(minTs)
+  const maxP=_dtParseTs(maxTs)
+  const now=new Date()
+  const sy=cur?.y??minP?.y??now.getFullYear()
+  const smo=cur?.mo??minP?.mo??(now.getMonth()+1)
+  const sd=cur?.d??minP?.d??1
+  _dtPickerState={viewY:sy,viewMo:smo,selY:sy,selMo:smo,selD:sd,
+    selH:cur?.h??0,selM:cur?.mi??0,selS:cur?.s??0,
+    minP,maxP,onConfirm}
+  if(!_dtPicker){
+    _dtPicker=document.createElement('div')
+    _dtPicker.id='dt-picker-popup'
+    _dtPicker.style.cssText='position:fixed;z-index:9999;background:#fff;border:1px solid #C8C6C4;border-radius:4px;box-shadow:0 4px 20px rgba(0,0,0,0.22);font-family:inherit;font-size:12px;min-width:264px;user-select:none;'
+    document.body.appendChild(_dtPicker)
+    document.addEventListener('mousedown',e=>{
+      if(_dtPicker&&_dtPicker.style.display!=='none'&&!_dtPicker.contains(e.target)&&!e.target.closest('.dt-cal-btn'))
+        _dtPickerHide()
+    },true)
+  }
+  _dtPickerRender()
+  _dtPicker.style.display='block'
+  const r=anchorEl.getBoundingClientRect()
+  _dtPicker.style.left=r.left+'px'
+  _dtPicker.style.top=(r.bottom+4)+'px'
+  requestAnimationFrame(()=>{
+    const pr=_dtPicker.getBoundingClientRect()
+    if(pr.right>window.innerWidth-8)_dtPicker.style.left=Math.max(4,window.innerWidth-pr.width-8)+'px'
+    if(pr.bottom>window.innerHeight-8)_dtPicker.style.top=(r.top-pr.height-4)+'px'
+  })
+}
+function _dtPickerHide(){
+  if(_dtPicker)_dtPicker.style.display='none'
+  _dtPickerState=null
+}
+function _dtPickerNav(dir){
+  if(!_dtPickerState)return
+  let mo=_dtPickerState.viewMo+dir,y=_dtPickerState.viewY
+  if(mo<1){mo=12;y--}else if(mo>12){mo=1;y++}
+  _dtPickerState.viewY=y;_dtPickerState.viewMo=mo
+  _dtPickerRender()
+}
+function _dtPickerSelDay(y,mo,d){
+  if(!_dtPickerState)return
+  _dtPickerState.selY=y;_dtPickerState.selMo=mo;_dtPickerState.selD=d
+  _dtPickerState.viewY=y;_dtPickerState.viewMo=mo
+  _dtPickerRender()
+}
+function _dtPickerTimeChg(){
+  if(!_dtPickerState)return
+  const clamp=(id,mn,mx)=>Math.max(mn,Math.min(mx,parseInt(document.getElementById(id)?.value||0,10)||0))
+  _dtPickerState.selH=clamp('dtp-h',0,23)
+  _dtPickerState.selM=clamp('dtp-m',0,59)
+  _dtPickerState.selS=clamp('dtp-s',0,59)
+}
+function _dtPickerApply(){
+  if(!_dtPickerState)return
+  const st=_dtPickerState
+  // read current time inputs (user may have typed without triggering oninput)
+  const h=parseInt(document.getElementById('dtp-h')?.value||0,10)||0
+  const m=parseInt(document.getElementById('dtp-m')?.value||0,10)||0
+  const s=parseInt(document.getElementById('dtp-s')?.value||0,10)||0
+  const val=`${_dtDateStr(st.selY,st.selMo,st.selD)} ${_dtPad(Math.max(0,Math.min(23,h)))}:${_dtPad(Math.max(0,Math.min(59,m)))}:${_dtPad(Math.max(0,Math.min(59,s)))}`
+  const cb=st.onConfirm
+  _dtPickerHide()
+  if(cb)cb(val)
+}
+function _dtPickerRender(){
+  if(!_dtPicker||!_dtPickerState)return
+  const st=_dtPickerState
+  const MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December']
+  const DAYS=['Mo','Tu','We','Th','Fr','Sa','Su']
+  const firstDow=new Date(st.viewY,st.viewMo-1,1).getDay() // 0=Sun
+  const startCol=(firstDow+6)%7 // 0=Mon
+  const daysInMo=new Date(st.viewY,st.viewMo,0).getDate()
+  const minStr=st.minP?_dtDateStr(st.minP.y,st.minP.mo,st.minP.d):null
+  const maxStr=st.maxP?_dtDateStr(st.maxP.y,st.maxP.mo,st.maxP.d):null
+  const nStyle='width:34px;text-align:center;border:1px solid #C8C6C4;border-radius:2px;padding:2px 0;font-size:12px;font-family:inherit;'
+  let cells=''
+  for(let i=0;i<startCol;i++)cells+=`<div></div>`
+  for(let d=1;d<=daysInMo;d++){
+    const ds=_dtDateStr(st.viewY,st.viewMo,d)
+    const dis=(minStr&&ds<minStr)||(maxStr&&ds>maxStr)
+    const sel=st.selY===st.viewY&&st.selMo===st.viewMo&&st.selD===d
+    const css=dis?'color:#C8C6C4;cursor:default;'
+      :sel?'background:#0078D4;color:#fff;font-weight:600;border-radius:3px;cursor:pointer;'
+      :'color:#323130;cursor:pointer;border-radius:3px;'
+    cells+=`<div style="text-align:center;padding:3px 0;${css}"${dis?'':` onclick="_dtPickerSelDay(${st.viewY},${st.viewMo},${d})"`}>${d}</div>`
+  }
+  _dtPicker.innerHTML=
+    `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:#F3F2F1;border-bottom:1px solid #EDEBE9;border-radius:4px 4px 0 0;">`+
+      `<button onclick="_dtPickerNav(-1)" style="background:none;border:none;cursor:pointer;font-size:14px;padding:0 6px;color:#323130;line-height:1;" title="Previous month">◀</button>`+
+      `<span style="font-weight:600;font-size:12px;color:#323130;">${MONTHS[st.viewMo-1]} ${st.viewY}</span>`+
+      `<button onclick="_dtPickerNav(1)" style="background:none;border:none;cursor:pointer;font-size:14px;padding:0 6px;color:#323130;line-height:1;" title="Next month">▶</button>`+
+    `</div>`+
+    `<div style="padding:6px 10px 2px;">`+
+      `<div style="display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:3px;">`+
+        DAYS.map(d=>`<div style="text-align:center;font-size:10px;color:#A19F9D;padding:2px 0;">${d}</div>`).join('')+
+      `</div>`+
+      `<div style="display:grid;grid-template-columns:repeat(7,1fr);">${cells}</div>`+
+    `</div>`+
+    `<div style="display:flex;align-items:center;gap:4px;padding:6px 10px;border-top:1px solid #EDEBE9;">`+
+      `<span style="font-size:11px;color:#605E5C;min-width:30px;">Time</span>`+
+      `<input id="dtp-h" type="number" min="0" max="23" value="${_dtPad(st.selH)}" style="${nStyle}" oninput="_dtPickerTimeChg()">`+
+      `<span style="color:#605E5C;">:</span>`+
+      `<input id="dtp-m" type="number" min="0" max="59" value="${_dtPad(st.selM)}" style="${nStyle}" oninput="_dtPickerTimeChg()">`+
+      `<span style="color:#605E5C;">:</span>`+
+      `<input id="dtp-s" type="number" min="0" max="59" value="${_dtPad(st.selS)}" style="${nStyle}" oninput="_dtPickerTimeChg()">`+
+    `</div>`+
+    `<div style="display:flex;justify-content:flex-end;gap:6px;padding:6px 10px 8px;border-top:1px solid #EDEBE9;">`+
+      `<button onclick="_dtPickerHide()" style="padding:3px 12px;font-size:11px;border:1px solid #C8C6C4;border-radius:2px;background:#fff;cursor:pointer;font-family:inherit;">Cancel</button>`+
+      `<button onclick="_dtPickerApply()" style="padding:3px 12px;font-size:11px;background:#0078D4;color:#fff;border:none;border-radius:2px;cursor:pointer;font-family:inherit;">Apply</button>`+
+    `</div>`
+}
+
+// ── Shared file-filter header (toolbar + collapsible panel) ──────────────────
+// Returns { getState, setState, setInfo, setNavVisible, setFirstLastTs, setFilterBtnActive, loadMoreBtn }
+// opts: { firstTs, lastTs, initialState, onApply, onClear, getPresets }
+function _buildFileFilterHeader(listEl,opts){
+  opts=opts||{}
+  const btnStyle='padding:2px 10px;font-size:11px;font-family:inherit;border-radius:2px;cursor:pointer;'
+  const inpStyle='font-size:11px;padding:2px 5px;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;width:180px;'
+  const calBtnStyle='background:none;border:none;cursor:pointer;font-size:13px;padding:0 3px;color:#605E5C;line-height:1;vertical-align:middle;'
+
+  let _firstTs=opts.firstTs||null
+  let _lastTs=opts.lastTs||null
+
+  // ── Toolbar ───────────────────────────────────────────────────────────────
+  const toolbar=document.createElement('div')
+  toolbar.style.cssText='padding:4px 14px;background:#F3F2F1;border-bottom:1px solid #EDEBE9;display:flex;align-items:center;gap:6px;flex-shrink:0;position:relative;z-index:5;'
+
+  const filterBtn=document.createElement('button')
+  filterBtn.style.cssText=btnStyle+'background:#fff;color:#323130;border:1px solid #C8C6C4;'
+  filterBtn.textContent='🔍 Filter ▾'
+
+  const navUp=document.createElement('button')
+  navUp.style.cssText=btnStyle+'background:#fff;color:#323130;border:1px solid #C8C6C4;display:none;'
+  navUp.title='Previous mark';navUp.textContent='▲'
+
+  const navDown=document.createElement('button')
+  navDown.style.cssText=btnStyle+'background:#fff;color:#323130;border:1px solid #C8C6C4;display:none;'
+  navDown.title='Next mark';navDown.textContent='▼'
+
+  const infoSpan=document.createElement('span')
+  infoSpan.style.cssText='font-size:11px;color:#605E5C;margin-left:4px;'
+
+  const loadMoreBtn=document.createElement('button')
+  loadMoreBtn.style.cssText=btnStyle+'background:#EFF6FC;color:#0078D4;border:1px solid #0078D4;margin-left:auto;display:none;white-space:nowrap;'
+
+  toolbar.appendChild(filterBtn);toolbar.appendChild(navUp);toolbar.appendChild(navDown)
+  toolbar.appendChild(infoSpan);toolbar.appendChild(loadMoreBtn)
+  listEl.appendChild(toolbar)
+
+  // ── Filter panel ──────────────────────────────────────────────────────────
+  const panel=document.createElement('div')
+  panel.style.cssText='display:none;flex-direction:column;gap:5px;padding:7px 14px;background:#FAF9F8;border-bottom:1px solid #EDEBE9;flex-shrink:0;position:relative;z-index:4;'
+
+  // Row 1: From / To with calendar buttons
+  const row1=document.createElement('div')
+  row1.style.cssText='display:flex;align-items:center;gap:6px;flex-wrap:wrap;'
+
+  const fromInput=document.createElement('input')
+  fromInput.type='text';fromInput.placeholder='YYYY-MM-DD HH:MM:SS';fromInput.style.cssText=inpStyle
+  const fromCalBtn=document.createElement('button')
+  fromCalBtn.className='dt-cal-btn';fromCalBtn.title='Pick date/time'
+  fromCalBtn.style.cssText=calBtnStyle;fromCalBtn.textContent='📅'
+  fromCalBtn.onclick=()=>_dtPickerShow(fromCalBtn,fromInput.value,_firstTs,_lastTs,v=>{fromInput.value=v})
+
+  const toInput=document.createElement('input')
+  toInput.type='text';toInput.placeholder='YYYY-MM-DD HH:MM:SS';toInput.style.cssText=inpStyle
+  const toCalBtn=document.createElement('button')
+  toCalBtn.className='dt-cal-btn';toCalBtn.title='Pick date/time'
+  toCalBtn.style.cssText=calBtnStyle;toCalBtn.textContent='📅'
+  toCalBtn.onclick=()=>_dtPickerShow(toCalBtn,toInput.value,_firstTs,_lastTs,v=>{toInput.value=v})
+
+  const hintSpan=document.createElement('span')
+  hintSpan.style.cssText='font-size:10px;color:#A19F9D;font-style:italic;margin-left:4px;'
+
+  row1.appendChild(document.createElement('span')).outerHTML  // workaround: appendChild returns node
+  const fromLbl=document.createElement('span');fromLbl.style.cssText='font-size:11px;color:#605E5C;min-width:34px;';fromLbl.textContent='From'
+  row1.appendChild(fromLbl);row1.appendChild(fromInput);row1.appendChild(fromCalBtn)
+  const toLbl=document.createElement('span');toLbl.style.cssText='font-size:11px;color:#605E5C;';toLbl.textContent='To'
+  row1.appendChild(toLbl);row1.appendChild(toInput);row1.appendChild(toCalBtn)
+  row1.appendChild(hintSpan)
+  panel.appendChild(row1)
+
+  // Row 2: Terms + presets + Apply/Clear + only-matches
+  const row2=document.createElement('div')
+  row2.style.cssText='display:flex;align-items:center;gap:6px;flex-wrap:wrap;'
+
+  const termsLbl=document.createElement('span');termsLbl.style.cssText='font-size:11px;color:#605E5C;min-width:34px;';termsLbl.textContent='Terms'
+  const termsInput=document.createElement('input')
+  termsInput.type='text'
+  termsInput.placeholder='term, term[[#BG]], term[[#BG,#FG]] — e.g.: savepoint[[#9600FF,#fff]], error[[#FF4444,#fff]]'
+  termsInput.style.cssText=inpStyle.replace('width:180px','flex:1;min-width:180px')
+
+  const presetSel=document.createElement('select')
+  presetSel.style.cssText='font-size:11px;padding:2px 4px;border:1px solid #C8C6C4;border-radius:2px;font-family:inherit;color:#605E5C;background:#fff;cursor:pointer;'
+  presetSel.title='Load preset filter'
+  const defOpt=document.createElement('option');defOpt.value='';defOpt.textContent='📂 preset'
+  presetSel.appendChild(defOpt)
+
+  const applyBtn=document.createElement('button')
+  applyBtn.style.cssText=btnStyle+'background:#0078D4;color:#fff;border:none;';applyBtn.textContent='Apply'
+  const clearBtn=document.createElement('button')
+  clearBtn.style.cssText=btnStyle+'background:#fff;color:#323130;border:1px solid #C8C6C4;';clearBtn.textContent='Clear'
+
+  const onlyLbl=document.createElement('label')
+  onlyLbl.style.cssText='font-size:11px;color:#605E5C;display:flex;align-items:center;gap:4px;cursor:pointer;margin-left:6px;'
+  const onlyCb=document.createElement('input');onlyCb.type='checkbox';onlyCb.style.cssText='cursor:pointer;margin:0;'
+  onlyLbl.appendChild(onlyCb);onlyLbl.appendChild(document.createTextNode(' Show only matching lines'))
+
+  row2.appendChild(termsLbl);row2.appendChild(termsInput);row2.appendChild(presetSel)
+  row2.appendChild(applyBtn);row2.appendChild(clearBtn);row2.appendChild(onlyLbl)
+  panel.appendChild(row2)
+
+  // Row 3: color syntax hint
+  const row3=document.createElement('div')
+  row3.style.cssText='font-size:10px;color:#605E5C;padding:1px 0 0 40px;'
+  row3.innerHTML='Color syntax: <code style="font-size:10px;">term[[#BG]]</code> or <code style="font-size:10px;">term[[#BG,#FG]]</code> — no color = grey background. Look up hex codes at <a href="https://www.color-hex.com/" target="_blank" style="color:#0078D4;text-decoration:none;">color-hex.com</a>'
+  panel.appendChild(row3)
+
+  listEl.appendChild(panel)
+
+  // ── Toggle ────────────────────────────────────────────────────────────────
+  filterBtn.onclick=()=>{
+    const open=panel.style.display==='flex'
+    panel.style.display=open?'none':'flex'
+    filterBtn.textContent=open?'🔍 Filter ▾':'🔍 Filter ▴'
+  }
+
+  // ── Preset loader ─────────────────────────────────────────────────────────
+  const loadPresets=()=>{
+    while(presetSel.children.length>1)presetSel.removeChild(presetSel.lastChild)
+    const filters=(opts.getPresets?opts.getPresets():window._hanaLensSettings?.customFilters)||[]
+    for(const f of filters){
+      if(!f.name||!f.content)continue
+      const o=document.createElement('option');o.value=f.content;o.textContent=f.name
+      presetSel.appendChild(o)
+    }
+  }
+  loadPresets()
+  presetSel.addEventListener('focus',loadPresets)
+  presetSel.addEventListener('change',()=>{
+    if(!presetSel.value)return
+    termsInput.value=presetSel.value
+    presetSel.value=''
+    applyBtn.click()
+  })
+
+  // ── API ───────────────────────────────────────────────────────────────────
+  function getState(){
+    return{
+      filterFrom:fromInput.value.trim()||null,
+      filterTo:toInput.value.trim()||null,
+      searchTerms:termsInput.value.trim()?traceParseTerms(termsInput.value.trim()):[],
+      termFilterOnly:onlyCb.checked
+    }
+  }
+  function setState(st){
+    fromInput.value=st.filterFrom||''
+    toInput.value=st.filterTo||''
+    termsInput.value=st.searchTerms?.length?traceSerializeTerms(st.searchTerms):''
+    onlyCb.checked=!!st.termFilterOnly
+  }
+  function setInfo(text){infoSpan.textContent=text}
+  function setNavVisible(up,down){
+    if(up!=null)navUp.style.display=up?'':'none'
+    if(down!=null)navDown.style.display=down?'':'none'
+  }
+  function setFilterBtnActive(active){
+    filterBtn.style.background=active?'#0078D4':'#fff'
+    filterBtn.style.color=active?'#fff':'#323130'
+    filterBtn.style.border=active?'none':'1px solid #C8C6C4'
+  }
+  function setFirstLastTs(firstTs,lastTs,hint){
+    _firstTs=firstTs||_firstTs
+    _lastTs=lastTs||_lastTs
+    if(firstTs&&!fromInput.value)fromInput.value=firstTs.replace('T',' ')
+    if(lastTs&&!toInput.value)toInput.value=lastTs.replace('T',' ')
+    else if(firstTs&&!toInput.value)toInput.value=traceTimePlusMins(firstTs,30)
+    if(hintSpan&&hint)hintSpan.textContent=hint
+  }
+  function openPanel(){
+    panel.style.display='flex';filterBtn.textContent='🔍 Filter ▴'
+  }
+
+  applyBtn.onclick=()=>{if(opts.onApply)opts.onApply(getState())}
+  clearBtn.onclick=()=>{if(opts.onClear)opts.onClear()}
+  navUp.onclick=()=>{if(opts.onNavUp)opts.onNavUp()}
+  navDown.onclick=()=>{if(opts.onNavDown)opts.onNavDown()}
+
+  // Restore initial state if provided
+  if(opts.initialState){
+    setState(opts.initialState)
+    if(opts.initialState.filterFrom||opts.initialState.filterTo||opts.initialState.searchTerms?.length||opts.initialState.termFilterOnly){
+      openPanel();setFilterBtnActive(true)
+    }
+  }
+
+  return{getState,setState,setInfo,setNavVisible,setFilterBtnActive,setFirstLastTs,openPanel,loadMoreBtn,navUp,navDown,filterBtn,infoSpan}
+}
+
 // ── Trace date/time filter + bookmarks ───────────────────────────────────────
 
 function traceExtractTimestamp(line){
-  const m=line.match(/\b(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})/)
+  const m=line.match(/\b(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})/)
   return m?m[1]+'T'+m[2]:null
 }
 
@@ -4062,23 +4310,18 @@ function traceParseTerms(raw){
   return terms.filter(t=>t.text)
 }
 function traceApplyFilter(){
+  // Delegate to filter header module (called from keyboard shortcuts etc.)
+  traceExplState?._filterHdr?.filterBtn?.click()
+  // filterBtn click only toggles panel; trigger the actual apply via onApply callback
+  const fh=traceExplState?._filterHdr
   const vf=traceExplState?.viewingFile
-  if(!vf)return
-  const newFrom=document.getElementById('trace-filter-from')?.value?.trim()||null
-  const newTo=document.getElementById('trace-filter-to')?.value?.trim()||null
-  const timeFilterChanged=newFrom!==vf._filterFrom||newTo!==vf._filterTo
-  vf._filterFrom=newFrom
-  vf._filterTo=newTo
-  const termsRaw=document.getElementById('trace-filter-terms')?.value?.trim()||''
-  vf._searchTerms=termsRaw?traceParseTerms(termsRaw):[]
-  vf._termFilterOnly=document.getElementById('trace-filter-only-matches')?.checked||false
-  const btn=document.getElementById('trace-filter-btn')
-  const hasFilter=vf._filterFrom||vf._filterTo||vf._searchTerms.length||vf._termFilterOnly
-  if(btn)btn.style.background=hasFilter?'#0078D4':'#fff',btn.style.color=hasFilter?'#fff':'#323130',btn.style.border=hasFilter?'none':'1px solid #C8C6C4'
-  if(timeFilterChanged){
-    if(vf._bookmarks)vf._bookmarks.clear()
-    vf._bookmarkCursor=null
-  }
+  if(!fh||!vf)return
+  const st=fh.getState()
+  const timeChanged=st.filterFrom!==vf._filterFrom||st.filterTo!==vf._filterTo
+  vf._filterFrom=st.filterFrom;vf._filterTo=st.filterTo
+  vf._searchTerms=st.searchTerms;vf._termFilterOnly=st.termFilterOnly
+  fh.setFilterBtnActive(!!(vf._filterFrom||vf._filterTo||vf._searchTerms.length||vf._termFilterOnly))
+  if(timeChanged){if(vf._bookmarks)vf._bookmarks.clear();vf._bookmarkCursor=null}
   const list=document.getElementById('trace-list')
   if(list)traceRenderFromLines(list,vf)
 }
@@ -4086,24 +4329,11 @@ function traceApplyFilter(){
 function traceClearFilter(){
   const vf=traceExplState?.viewingFile
   if(!vf)return
-  vf._filterFrom=null
-  vf._filterTo=null
-  vf._searchTerms=[]
-  vf._termFilterOnly=false
-  vf._termMatchLines=[]
-  vf._termMatchCursor=null
-  if(vf._bookmarks)vf._bookmarks.clear()
-  vf._bookmarkCursor=null
-  const f=document.getElementById('trace-filter-from'),t=document.getElementById('trace-filter-to'),tr=document.getElementById('trace-filter-terms')
-  if(f)f.value=''
-  if(t)t.value=''
-  if(tr)tr.value=''
-  const hint=document.getElementById('trace-filter-date-hint')
-  if(hint)hint.textContent=''
-  const cb=document.getElementById('trace-filter-only-matches')
-  if(cb)cb.checked=false
-  const btn=document.getElementById('trace-filter-btn')
-  if(btn)btn.style.background='#fff',btn.style.color='#323130',btn.style.border='1px solid #C8C6C4'
+  vf._filterFrom=null;vf._filterTo=null;vf._searchTerms=[];vf._termFilterOnly=false
+  vf._termMatchLines=[];vf._termMatchCursor=null
+  if(vf._bookmarks)vf._bookmarks.clear();vf._bookmarkCursor=null
+  const fh=traceExplState?._filterHdr
+  if(fh){fh.setState({filterFrom:null,filterTo:null,searchTerms:[],termFilterOnly:false});fh.setInfo('');fh.setFilterBtnActive(false)}
   const list=document.getElementById('trace-list')
   if(list)traceRenderFromLines(list,vf)
 }
@@ -6090,8 +6320,8 @@ async function hsiLoadRteDumpsFromDir(idx){
 
 // Inline file viewer — keeps the HSI panel (sub-tab bar) intact
 async function _hsiExplOpenInline(contentArea, fileHandle, backFn){
-  const CHUNK = 2 * 1024 * 1024   // 2 MB per load
-  const MAX_DIRECT = 10 * 1024 * 1024  // ≤ 10 MB: load whole file at once
+  const CHUNK = 2 * 1024 * 1024
+  const MAX_DIRECT = 10 * 1024 * 1024
   const filePath = fileHandle._path
   const fileSize = fileHandle._meta?.size ?? 0
   const largeMode = fileSize > MAX_DIRECT && filePath && window.__TAURI__
@@ -6143,37 +6373,63 @@ async function _hsiExplOpenInline(contentArea, fileHandle, backFn){
       wrapper.appendChild(notice)
     }
 
-    // ── Filter bar ────────────────────────────────────────────────────────
-    const filterBar = document.createElement('div')
-    filterBar.style.cssText = 'padding:4px 10px;background:#F8F8F8;border-bottom:1px solid #EDEBE9;display:flex;align-items:center;gap:6px;flex-shrink:0;'
-    const filterInput = document.createElement('input')
-    filterInput.type = 'text'; filterInput.placeholder = 'Filter lines…'
-    filterInput.className = 'trace-filter-input'
-    filterInput.style.cssText = 'flex:1;padding:3px 8px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:inherit;'
-    const countSpan = document.createElement('span')
-    countSpan.style.cssText = 'color:#A19F9D;font-size:11px;white-space:nowrap;'
-    filterBar.appendChild(filterInput); filterBar.appendChild(countSpan)
-    wrapper.appendChild(filterBar)
+    // ── Filter state ──────────────────────────────────────────────────────
+    let _filterState = { filterFrom:null, filterTo:null, searchTerms:[], termFilterOnly:false }
 
     // ── Line list ─────────────────────────────────────────────────────────
     const traceList = document.createElement('div')
     traceList.className = 'trace-list'
     traceList.style.cssText = 'flex:1;overflow-y:auto;'
 
-    function renderLines(filter){
-      const lc = filter.toLowerCase()
+    function applyFilter(st){
+      _filterState = st||_filterState
+      const {filterFrom,filterTo,searchTerms,termFilterOnly} = _filterState
+      const fromNorm = traceNormalizeFilterVal(filterFrom)
+      const toNorm = traceNormalizeFilterVal(filterTo)
+      const terms = (searchTerms||[]).filter(t=>(typeof t==='string'?t:t.text)?.trim())
+      const termTexts = terms.map(t=>(typeof t==='string'?t:t.text).toLowerCase().trim())
       let shown = 0; traceList.innerHTML = ''
       lines.forEach((line, i) => {
-        if(filter && !line.toLowerCase().includes(lc)) return
+        const ts = traceExtractTimestamp(line)
+        if(fromNorm && ts && ts < fromNorm) return
+        if(toNorm && ts && ts > toNorm) return
+        const termHit = termTexts.length===0 || termTexts.some(t=>line.toLowerCase().includes(t))
+        if(termFilterOnly && !termHit) return
+        if(!termHit && termTexts.length && fromNorm===null && toNorm===null) return
         shown++
         const row = document.createElement('div'); row.className = 'trace-line'
-        row.innerHTML = `<span class="trace-ln">${i+1}</span><span class="trace-text">${escHtml(line)}</span>`
+        let dispLine = escHtml(line)
+        if(terms.length){
+          // highlight matched terms
+          for(const term of terms){
+            const text = typeof term==='string'?term:term.text
+            const bg = term.bg||(typeof term==='object'?term.bg:null)||'#FFEF9F'
+            const fg = term.fg||(typeof term==='object'?term.fg:null)||'#323130'
+            if(!text)continue
+            dispLine = dispLine.replace(new RegExp(escRegex(escHtml(text)),'gi'),
+              m=>`<mark style="background:${bg};color:${fg};">${m}</mark>`)
+          }
+        }
+        row.innerHTML = `<span class="trace-ln">${i+1}</span><span class="trace-text">${dispLine}</span>`
         traceList.appendChild(row)
       })
-      countSpan.textContent = filter ? `${shown} / ${lines.length} lines` : `${lines.length} lines`
+      fh.setInfo(shown < lines.length ? `${shown} / ${lines.length} lines` : `${lines.length} lines`)
+      fh.setFilterBtnActive(!!(filterFrom||filterTo||terms.length||termFilterOnly))
     }
-    filterInput.oninput = () => renderLines(filterInput.value)
-    renderLines('')
+
+    // ── Filter header (shared module) ─────────────────────────────────────
+    const fh = _buildFileFilterHeader(wrapper, {
+      onApply: (st) => applyFilter(st),
+      onClear: () => applyFilter({ filterFrom:null, filterTo:null, searchTerms:[], termFilterOnly:false }),
+    })
+
+    // Auto-detect first/last timestamp in loaded lines
+    let firstTs=null, lastTs=null
+    for(const line of lines){ const ts=traceExtractTimestamp(line); if(ts){firstTs=ts;break} }
+    for(let i=lines.length-1;i>=0;i--){ const ts=traceExtractTimestamp(lines[i]); if(ts){lastTs=ts;break} }
+    if(firstTs) fh.setFirstLastTs(firstTs, lastTs||null, lastTs?'start · end of file':'start of file · +30 min')
+
+    applyFilter(_filterState)
     wrapper.appendChild(traceList)
 
     // ── Load-more footer (large files only) ───────────────────────────────
@@ -6205,17 +6461,11 @@ async function _hsiExplOpenInline(contentArea, fileHandle, backFn){
           loadedOffset += CHUNK
           if(loadedOffset > fileSize) loadedOffset = fileSize
           const newLines = chunk.split('\n')
-          const lineOffset = lines.length
           lines = lines.concat(newLines)
-          // Append only new rows instead of full re-render
-          const filter = filterInput.value; const lc = filter.toLowerCase()
-          newLines.forEach((line,i)=>{
-            if(filter && !line.toLowerCase().includes(lc)) return
-            const row = document.createElement('div'); row.className='trace-line'
-            row.innerHTML=`<span class="trace-ln">${lineOffset+i+1}</span><span class="trace-text">${escHtml(line)}</span>`
-            traceList.appendChild(row)
-          })
-          if(!filter) countSpan.textContent = lines.length+' lines'
+          // Update lastTs bound and re-apply filter with new lines
+          for(let i=lines.length-1;i>=0;i--){ const ts=traceExtractTimestamp(lines[i]); if(ts){lastTs=ts;break} }
+          if(lastTs) fh.setFirstLastTs(firstTs, lastTs, null)
+          applyFilter(_filterState)
           updateRemain(); updateBtn()
         }catch(e){ moreBtn.textContent='✗ Error: '+String(e) }
         moreBtn.disabled = false
