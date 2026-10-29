@@ -2043,7 +2043,7 @@ document.addEventListener('DOMContentLoaded',()=>{
       catch(e){s.filesystemReference=''}
       needsSave=true
     }
-    if(s.filesystemReference)window.BUNDLED_FS_REFERENCE=s.filesystemReference
+    window.BUNDLED_FS_REFERENCE=s.filesystemReference||''
     if(needsSave)invoke('write_settings',{content:JSON.stringify(s,null,2)}).catch(()=>{})
     initNavSettingsUI()
   })().catch(()=>initNavSettingsUI())
@@ -2332,7 +2332,7 @@ function toggleAppMenu(btn){
     `<div class="ctx-item" id="_amSettings">&#9881; Settings</div>`+
     `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
     `<div class="ctx-item" id="_amKba">&#128203; KBA 3771222</div>`+
-    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_28_02</div>`
+    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_29_01</div>`
   document.getElementById('_amSettings').onclick=(e)=>{
     e.stopPropagation()
     hideAppMenu()
@@ -2491,7 +2491,7 @@ function showSettingsPanel(){
   fsrArea.value=s.filesystemReference||''
   fsrArea.placeholder='Paste filesystem_reference.txt content here...'
   fsrArea.style.cssText='width:100%;min-height:120px;padding:6px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;font-family:monospace;resize:vertical;box-sizing:border-box;'
-  fsrArea.oninput=e=>{ s.filesystemReference=e.target.value; if(e.target.value)window.BUNDLED_FS_REFERENCE=e.target.value; else delete window.BUNDLED_FS_REFERENCE }
+  fsrArea.oninput=e=>{ s.filesystemReference=e.target.value; window.BUNDLED_FS_REFERENCE=e.target.value||'' }
   fsrArea.onchange=()=>_autoSaveSettings()
   fsrSec.appendChild(fsrArea)
   panel.appendChild(fsrSec)
@@ -6032,7 +6032,7 @@ async function activateHsiTab(sid, tabId, subTabFile){
       }
     } else {
       contentArea.innerHTML = renderHsiFile(txt, resolvedName)
-      if(typeof BUNDLED_FS_REFERENCE!=='undefined'&&baseName.includes('permissions'))
+      if(BUNDLED_FS_REFERENCE&&baseName.includes('permissions'))
         applyBundledFsRef(contentArea)
     }
     if(baseName.includes('network_test')){
@@ -6919,14 +6919,14 @@ async function renderMdPermFile(contentArea, txt){
   }
   let out=tocEntries.length?`<div class="hsi-toc"><strong>Contents</strong><ul>${tocEntries.join('')}</ul></div>`:''
   contentArea.innerHTML=out+parts.join('\n')
-  if(typeof BUNDLED_FS_REFERENCE!=='undefined')applyBundledFsRef(contentArea)
+  if(BUNDLED_FS_REFERENCE)applyBundledFsRef(contentArea)
 }
 function _extractPermVersionLine(text){
   const m=text.match(/_HANA Version:\s*(.+?)_/)
   return m?m[1].trim():''
 }
 function applyBundledFsRef(container){
-  if(typeof BUNDLED_FS_REFERENCE==='undefined'||!container) return
+  if(!BUNDLED_FS_REFERENCE||!container) return
   const refSections=parsePermSections(BUNDLED_FS_REFERENCE)
   const refMap=new Map(refSections.map(s=>[s.path,s]))
   const refVer=_extractPermVersionLine(BUNDLED_FS_REFERENCE)
