@@ -1,6 +1,19 @@
+# Build output
+out/
+*.jar
+
+# Portable distribution (JARs and SAP_HanaDumpAnalyzer are not in git)
+portable/*.jar
+portable/SAP_HanaDumpAnalyzer/
+
+# Node / legacy Tauri tooling
 node_modules/
 src-tauri/target/
 src-tauri/gen/
-HANA-Lens_Tauri.code-workspace
-Projects.code-workspace
-Ideas-Bugs.txt 
+
+# IDE / workspace files
+*.code-workspace
+.vscode/
+
+# Misc
+Ideas-Bugs.txt

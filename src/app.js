@@ -1,4 +1,5 @@
 // PLACEHOLDER - PART 1: PARSER
+const APP_VERSION = '2026_10_29_04'
 const MACHINE_KEYS = new Set(['async_io_limit','build_version','clocksource.current_clocksource','cpu_clock','cpu_cores','cpu_flags','cpu_manufacturer','cpu_model','cpu_sockets','cpu_summary','cpu_threads','hw_manufacturer','hw_model','kernel.numa_balancing','kernel.shmall','kernel.shmmax','kernel.shmmni','kernel.transparent_hugepage.enabled','mem_phys','mem_swap','memory_map_area_limit','open_file_limit','os_cpe_name','os_kernel_version','os_name','os_ppms_name','os_rlimit_nofile','os_user','platform','sap_retrieval_path','sap_retrieval_path_shared','sid','sapsystem','start_time','timezone_base_name','timezone_dst_name','timezone_name','timezone_offset','timezone_tz_name','topology_mem_info','topology_mem_type'])
 const NETWORK_KEYS = new Set(['net_domain','net_hostnames','net_ip_addresses','net_nameserver_bindings','net_port_ephemeral_max_count','net_port_ranges','net_port_unreserved_ranges','net_publicname','net_publicports','net_realhostname','net.core.somaxconn','net.ipv4.tcp_max_syn_backlog','net.ipv4.tcp_rmem','net.ipv4.tcp_syn_retries','net.ipv4.tcp_timestamps','net.ipv4.tcp_tw_recycle','net.ipv4.tcp_tw_reuse','net.ipv4.tcp_window_scaling','net.ipv4.tcp_wmem'])
 
@@ -2020,6 +2021,27 @@ function _initAutoSaveOnClose(){
   })
 }
 
+// ── Update check ──────────────────────────────────────────────────────────
+function _checkForUpdates(){
+  const API='https://github.tools.sap/api/v3/repos/D055116/HANA-Lens/releases/latest'
+  const ctrl=new AbortController()
+  setTimeout(()=>ctrl.abort(),6000)
+  fetch(API,{signal:ctrl.signal})
+    .then(r=>r.ok?r.json():null)
+    .then(data=>{
+      if(!data?.tag_name)return
+      const latest=data.tag_name.replace(/^v/,'').replace(/\./g,'_')
+      if(latest<=APP_VERSION)return
+      const bar=document.createElement('div')
+      bar.id='update-banner'
+      bar.style.cssText='background:#FFF4CE;color:#323130;font-size:12px;font-weight:500;text-align:center;padding:5px 16px;border-bottom:1px solid #FFD335;flex-shrink:0;'
+      bar.innerHTML='🆕 New version available: <strong>'+latest.replace(/_/g,'.')+'</strong> &nbsp;–&nbsp; <a href="'+data.html_url+'" style="color:#0078D4;text-decoration:underline;">Download on GitHub</a>'
+      const app=document.getElementById('app')
+      if(app)app.insertBefore(bar,app.firstChild)
+    })
+    .catch(()=>{})
+}
+
 // ── DOMContentLoaded ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded',()=>{
   // Async boot: load settings, migrate filters + fs-reference from files (once), then init UI
@@ -2047,7 +2069,8 @@ document.addEventListener('DOMContentLoaded',()=>{
     window.BUNDLED_FS_REFERENCE=s.filesystemReference||''
     if(needsSave)invoke('write_settings',{content:JSON.stringify(s,null,2)}).catch(()=>{})
     initNavSettingsUI()
-  })().catch(()=>initNavSettingsUI())
+    _checkForUpdates()
+  })().catch(()=>{initNavSettingsUI();_checkForUpdates()})
   // Auto-save settings when the window is closed
   _initAutoSaveOnClose()
   // close context menus on outside click (mousedown fires before stopPropagation on child click handlers)
@@ -2333,7 +2356,7 @@ function toggleAppMenu(btn){
     `<div class="ctx-item" id="_amSettings">&#9881; Settings</div>`+
     `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
     `<div class="ctx-item" id="_amKba">&#128203; KBA 3771222</div>`+
-    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_29_03</div>`
+    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_29_04</div>`
   document.getElementById('_amSettings').onclick=(e)=>{
     e.stopPropagation()
     hideAppMenu()
