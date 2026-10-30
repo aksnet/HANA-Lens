@@ -2302,25 +2302,9 @@ async function saveNavSettings(){
 }
 
 function initNavSettingsUI(){
-  const hdr=document.getElementById('navTreeHeader')
-  if(!hdr||document.getElementById('nav-gear-btn')) return
-
-  hdr.style.display='flex'
-  hdr.style.alignItems='center'
-  hdr.style.justifyContent='space-between'
-
-  const gear=document.createElement('button')
-  gear.id='nav-gear-btn'
-  gear.textContent='⚙'
-  gear.title='Color Group Settings'
-  gear.style.cssText='background:none;border:none;cursor:pointer;font-size:16px;color:#323130;padding:0 4px;line-height:1;flex-shrink:0;'
-  gear.onclick=(e)=>{ e.stopPropagation(); toggleNavSettings(gear) }
-  hdr.appendChild(gear)
-
-  const panel=document.createElement('div')
-  panel.id='nav-settings-panel'
-  panel.style.cssText='display:none;position:fixed;z-index:9000;background:#fff;border:1px solid #C8C6C4;box-shadow:0 4px 12px rgba(0,0,0,0.12);min-width:280px;max-height:480px;overflow:hidden;'
-  document.body.appendChild(panel)
+  // Set version in topbar
+  const verEl=document.getElementById('app-ver')
+  if(verEl) verEl.textContent='v.'+APP_VERSION
 }
 
 // ── Load Dropdown (Recent paths + Bookmarks for load buttons) ────────────
@@ -2355,8 +2339,7 @@ function toggleAppMenu(btn){
   d.innerHTML=
     `<div class="ctx-item" id="_amSettings">&#9881; Settings</div>`+
     `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
-    `<div class="ctx-item" id="_amKba">&#128203; KBA 3771222</div>`+
-    `<div style="padding:5px 16px 5px;font-size:11px;color:#A19F9D;cursor:default;user-select:none;">HANA-Lens v.2026_10_29_04</div>`
+    `<div class="ctx-item" id="_amKba">&#128203; KBA 3771222</div>`
   document.getElementById('_amSettings').onclick=(e)=>{
     e.stopPropagation()
     hideAppMenu()

@@ -5,6 +5,7 @@ out/
 # Portable distribution (JARs and SAP_HanaDumpAnalyzer are not in git)
 portable/*.jar
 portable/SAP_HanaDumpAnalyzer/
+portable/hana-lens-settings.json
 
 # Node / legacy Tauri tooling
 node_modules/
