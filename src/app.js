@@ -1,5 +1,5 @@
 // PLACEHOLDER - PART 1: PARSER
-const APP_VERSION = '2026_10_30_01'
+const APP_VERSION = '2026_10_30_02'
 const MACHINE_KEYS = new Set(['async_io_limit','build_version','clocksource.current_clocksource','cpu_clock','cpu_cores','cpu_flags','cpu_manufacturer','cpu_model','cpu_sockets','cpu_summary','cpu_threads','hw_manufacturer','hw_model','kernel.numa_balancing','kernel.shmall','kernel.shmmax','kernel.shmmni','kernel.transparent_hugepage.enabled','mem_phys','mem_swap','memory_map_area_limit','open_file_limit','os_cpe_name','os_kernel_version','os_name','os_ppms_name','os_rlimit_nofile','os_user','platform','sap_retrieval_path','sap_retrieval_path_shared','sid','sapsystem','start_time','timezone_base_name','timezone_dst_name','timezone_name','timezone_offset','timezone_tz_name','topology_mem_info','topology_mem_type'])
 const NETWORK_KEYS = new Set(['net_domain','net_hostnames','net_ip_addresses','net_nameserver_bindings','net_port_ephemeral_max_count','net_port_ranges','net_port_unreserved_ranges','net_publicname','net_publicports','net_realhostname','net.core.somaxconn','net.ipv4.tcp_max_syn_backlog','net.ipv4.tcp_rmem','net.ipv4.tcp_syn_retries','net.ipv4.tcp_timestamps','net.ipv4.tcp_tw_recycle','net.ipv4.tcp_tw_reuse','net.ipv4.tcp_window_scaling','net.ipv4.tcp_wmem'])
 
@@ -2023,19 +2023,15 @@ function _initAutoSaveOnClose(){
 
 // ── Update check ──────────────────────────────────────────────────────────
 function _checkForUpdates(){
-  const API='https://github.tools.sap/api/v3/repos/D055116/HANA-Lens/releases/latest'
-  const ctrl=new AbortController()
-  setTimeout(()=>ctrl.abort(),6000)
-  fetch(API,{signal:ctrl.signal})
-    .then(r=>r.ok?r.json():null)
-    .then(data=>{
-      if(!data?.tag_name)return
-      const latest=data.tag_name.replace(/^v/,'').replace(/\./g,'_')
+  invoke('check_for_updates')
+    .then(tag=>{
+      if(!tag)return
+      const latest=tag.replace(/^v/,'').replace(/\./g,'_')
       if(latest<=APP_VERSION)return
       const bar=document.createElement('div')
       bar.id='update-banner'
       bar.style.cssText='background:#FFF4CE;color:#323130;font-size:12px;font-weight:500;text-align:center;padding:5px 16px;border-bottom:1px solid #FFD335;flex-shrink:0;'
-      bar.innerHTML='🆕 New version available: <strong>'+latest.replace(/_/g,'.')+'</strong> &nbsp;–&nbsp; <a href="'+data.html_url+'" style="color:#0078D4;text-decoration:underline;">Download on GitHub</a>'
+      bar.innerHTML='🆕 New version available: <strong>'+latest.replace(/_/g,'.')+'</strong> &nbsp;–&nbsp; <a href="https://github.tools.sap/D055116/HANA-Lens/releases/latest" style="color:#0078D4;text-decoration:underline;">Download on GitHub</a>'
       const app=document.getElementById('app')
       if(app)app.insertBefore(bar,app.firstChild)
     })
@@ -5325,6 +5321,71 @@ function mdInline(raw){
   s=s.replace(/<strong>PASSED:<\/strong>/g,'<strong style="color:#107C10;">PASSED:</strong>')
   return s
 }
+function _hsiCopyContent(btn){
+  const area=btn.closest('.hsi-toc').parentElement
+  const text=_cleanCopiedText(_domToClipboardText(area))
+  navigator.clipboard.writeText(text).then(()=>{
+    const orig=btn.textContent
+    btn.textContent='✓ Copied!'
+    btn.style.color='#107C10'
+    setTimeout(()=>{btn.textContent=orig;btn.style.color=''},1800)
+  }).catch(()=>{})
+}
+function _cleanCopiedText(text){
+  text=text.replace(/^\s*[▲↑]\s*TOP\s*$/gm,'')
+  // Join all continuation lines of WARNING/PASSED/FAILED blocks into one line each
+  text=text.replace(/((?:WARNING|PASSED|FAILED):[^\n]*)(\n(?!(?:WARNING|PASSED|FAILED):|\n)[^\n]*)*/g,
+    m=>m.replace(/\n\s*/g,' ').trim()
+  )
+  text=text.replace(/\n{3,}/g,'\n\n')
+  return text.trim()
+}
+function _domToClipboardText(el){
+  const parts=[]
+  _walkForCopy(el,parts)
+  return parts.join('\n').replace(/\n{3,}/g,'\n\n').trim()
+}
+function _walkForCopy(el,parts){
+  for(const node of el.childNodes){
+    if(node.nodeType===Node.TEXT_NODE){const t=node.textContent;if(t.trim())parts.push(t);continue}
+    if(node.nodeType!==Node.ELEMENT_NODE) continue
+    const cls=node.className||''
+    const tag=node.tagName
+    // Skip TOC navigation
+    if(cls.includes('hsi-toc')) continue
+    // Skip ALL top-anchor links (class="top-link" or href="#hsi-top")
+    if(tag==='A' && (cls.includes('top-link')||node.getAttribute('href')==='#hsi-top')) continue
+    // Section headers: extract text, skip top-link children
+    if(cls.includes('hsi-h4')){
+      const headText=Array.from(node.childNodes)
+        .filter(n=>!(n.nodeType===Node.ELEMENT_NODE&&(n.className?.includes('top-link')||n.getAttribute?.('href')==='#hsi-top')))
+        .map(n=>n.textContent).join('').trim()
+      if(headText){parts.push('');parts.push(headText);parts.push('─'.repeat(Math.min(headText.length,80)))}
+      continue
+    }
+    // Pre blocks: verbatim
+    if(tag==='PRE'){const t=node.innerText||node.textContent;if(t.trim())parts.push(t);continue}
+    // HR
+    if(tag==='HR'){parts.push('─'.repeat(40));continue}
+    // Tables: column-aligned
+    if(tag==='TABLE'){parts.push(_tableToAlignedText(node));continue}
+    // Recurse
+    _walkForCopy(node,parts)
+  }
+}
+function _tableToAlignedText(table){
+  const rows=Array.from(table.querySelectorAll('tr')).map(tr=>
+    Array.from(tr.querySelectorAll('th,td')).map(cell=>
+      (cell.innerText||cell.textContent||'').replace(/\s+/g,' ').trim()
+    )
+  )
+  if(!rows.length) return ''
+  const colCount=Math.max(...rows.map(r=>r.length))
+  const widths=Array.from({length:colCount},(_,ci)=>
+    Math.max(...rows.map(r=>(r[ci]||'').length))
+  )
+  return rows.map(r=>r.map((c,i)=>c.padEnd(widths[i])).join('  ')).join('\n')
+}
 function renderMdTable(lines){
   const rows=lines.map(l=>l.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim()))
   const sepIdx=rows.findIndex(r=>r.every(c=>/^[-: ]+$/.test(c)))
@@ -5355,7 +5416,7 @@ function renderMarkdown(md){
   }
   const TOP_BTN=`<a href="#hsi-top" style="font-size:0.76em;text-decoration:none;color:#6c757d;padding:2px 8px;border:1px solid #dee2e6;border-radius:12px;white-space:nowrap;flex-shrink:0;">▲ TOP</a>`
   let html=tocEntries.length>1
-    ?`<div id="hsi-top" class="hsi-toc"><strong>Contents</strong><ul>${tocEntries.join('')}</ul></div>`
+    ?`<div id="hsi-top" class="hsi-toc"><strong>Contents</strong><button onclick="_hsiCopyContent(this)" style="float:right;font-size:0.72em;color:#6c757d;background:none;border:1px solid #dee2e6;border-radius:4px;padding:1px 8px;cursor:pointer;line-height:1.6;">📋 Copy</button><ul>${tocEntries.join('')}</ul></div>`
     :`<a id="hsi-top"></a>`
   let i=0
   while(i<lines.length){
@@ -7199,7 +7260,7 @@ async function renderMdPermFile(contentArea, txt){
     parts.push(`<div class="hsi-h4" id="${anchor}">${TOP_BTN} ls -lah ${escHtml(sec.path)}</div>`)
     parts.push(`<div class="hsi-perm-split"><div class="hsi-perm-col"><div class="hsi-log-block">${renderPermContentLines(sec.lines)}</div></div><div class="hsi-perm-col"><div class="hsi-log-block hsi-ref-section" data-ref-path="${escHtml(sec.path)}"><div class="hsi-perm-ref-empty">No reference file loaded.</div></div></div></div>`)
   }
-  let out=tocEntries.length?`<div class="hsi-toc"><strong>Contents</strong><ul>${tocEntries.join('')}</ul></div>`:''
+  let out=tocEntries.length?`<div class="hsi-toc"><strong>Contents</strong><button onclick="_hsiCopyContent(this)" style="float:right;font-size:0.72em;color:#6c757d;background:none;border:1px solid #dee2e6;border-radius:4px;padding:1px 8px;cursor:pointer;line-height:1.6;">📋 Copy</button><ul>${tocEntries.join('')}</ul></div>`:''
   contentArea.innerHTML=out+parts.join('\n')
   if(BUNDLED_FS_REFERENCE)applyBundledFsRef(contentArea)
 }
@@ -7277,7 +7338,7 @@ function renderHsiFile(text, filename){
   // anchor for "▲ TOP" links — only used as fallback when no banner is rendered
   let out = '<a id="hsi-top" style="display:block;"></a>'
   if(tocEntries.length){
-    out += `<div class="hsi-toc"><strong>Contents</strong><ul>${tocEntries.join('')}</ul></div>`
+    out += `<div class="hsi-toc"><strong>Contents</strong><button onclick="_hsiCopyContent(this)" style="float:right;font-size:0.72em;color:#6c757d;background:none;border:1px solid #dee2e6;border-radius:4px;padding:1px 8px;cursor:pointer;line-height:1.6;">📋 Copy</button><ul>${tocEntries.join('')}</ul></div>`
   }
   out += contentParts.join('\n')
   return out
@@ -7372,7 +7433,7 @@ function renderPermFile(lines){
   }
 
   let out=`<a id="hsi-top" style="display:block;"></a>`
-  if(tocEntries.length)out+=`<div class="hsi-toc"><strong>Contents</strong><ul>${tocEntries.join('')}</ul></div>`
+  if(tocEntries.length)out+=`<div class="hsi-toc"><strong>Contents</strong><button onclick="_hsiCopyContent(this)" style="float:right;font-size:0.72em;color:#6c757d;background:none;border:1px solid #dee2e6;border-radius:4px;padding:1px 8px;cursor:pointer;line-height:1.6;">📋 Copy</button><ul>${tocEntries.join('')}</ul></div>`
   return out+body
 }
 

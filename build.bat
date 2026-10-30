@@ -56,6 +56,10 @@ echo.
 echo [4/4] Updating portable\ folder...
 if not exist "%PORTABLE%" mkdir "%PORTABLE%"
 copy /Y "%JAR_NAME%" "%PORTABLE%\%JAR_NAME%" >nul
+:: Remove old version markers and create new one
+for %%F in ("%PORTABLE%\????_??_??_??") do del "%%F" >nul 2>&1
+set /p VER=<VERSION
+echo. > "%PORTABLE%\%VER%"
 echo   OK.
 
 echo.

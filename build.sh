@@ -42,6 +42,10 @@ echo "[4/4] Updating portable/ folder..."
 mkdir -p "$PORTABLE"
 cp "$JAR_NAME" "$PORTABLE/$JAR_NAME"
 chmod +x "$PORTABLE/start.sh" 2>/dev/null || true
+# Remove old version markers and create new one
+find "$PORTABLE" -maxdepth 1 -name "????_??_??_??" -delete 2>/dev/null || true
+VER=$(cat VERSION)
+touch "$PORTABLE/$VER"
 echo "  OK."
 
 echo ""
