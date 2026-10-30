@@ -1,3 +1,0 @@
-nameserver_sechanadbnew2.30001.457.trc
-takeover
-cluster package
