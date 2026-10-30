@@ -2344,7 +2344,7 @@ function toggleAppMenu(btn){
   document.getElementById('_amKba').onclick=(e)=>{
     e.stopPropagation()
     hideAppMenu()
-    window.__TAURI__?.core.invoke('open_external_url',{url:'https://me.sap.com/notes/3771222'}).catch(()=>{})
+    invoke('open_external_url',{url:'https://me.sap.com/notes/3771222'}).catch(()=>{})
   }
   d.style.right=(window.innerWidth-rect.right)+'px'
   d.style.left='auto'
