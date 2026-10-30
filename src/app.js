@@ -2518,9 +2518,22 @@ function showSettingsPanel(){
   const statusEl=document.createElement('span')
   statusEl.style.cssText='font-size:12px;'
   const pathEl=document.createElement('div')
-  pathEl.style.cssText='width:100%;font-size:11px;color:#A19F9D;padding-top:4px;'
-  pathEl.textContent='Settings file: …'
-  invoke('get_settings_path').then(p=>{ pathEl.textContent='Settings file: '+p }).catch(()=>{})
+  pathEl.style.cssText='width:100%;font-size:11px;color:#A19F9D;padding-top:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;'
+  const pathText=document.createElement('span')
+  pathText.textContent='Settings file: …'
+  const openFolderBtn=document.createElement('button')
+  openFolderBtn.textContent='📂'
+  openFolderBtn.title='Open settings folder'
+  openFolderBtn.style.cssText='font-size:12px;background:none;border:none;cursor:pointer;padding:0 2px;line-height:1;opacity:0.6;'
+  openFolderBtn.onmouseenter=()=>{openFolderBtn.style.opacity='1'}
+  openFolderBtn.onmouseleave=()=>{openFolderBtn.style.opacity='0.6'}
+  pathEl.appendChild(pathText)
+  pathEl.appendChild(openFolderBtn)
+  invoke('get_settings_path').then(p=>{
+    pathText.textContent='Settings file: '+p
+    const folder=p.replace(/[/\\][^/\\]+$/,'')
+    openFolderBtn.onclick=()=>invoke('open_folder',{path:folder}).catch(()=>{})
+  }).catch(()=>{})
 
   saveBtn.onclick=()=>saveSettingsFull(statusEl)
 
@@ -5499,7 +5512,6 @@ const HSI_ORDER = [
   'Users_Groups.log',
   'Security.log',
   'Backup.log',
-  'Cluster.log',
   'HANA_DB.log',
   'GROUP:HANA_Custom_Config',
   'GROUP:Replication',
@@ -5921,6 +5933,32 @@ function hsiGetTabList(s){
 }
 
 // Build nav group for an HSI session
+function _hsiTabIcon(label){
+  const l=label.toLowerCase().replace(/_/g,' ')
+  if(l==='start'||l.includes('initialization')) return '🚀'
+  if(l.includes('os information')||l.includes('host information')) return '🖥️'
+  if(l.includes('filesystem')) return '🗂️'
+  if(l.includes('volume')) return '💾'
+  if(l.includes('network')) return '🌐'
+  if(l.includes('users')||l.includes('groups')) return '👥'
+  if(l.includes('security')) return '🔒'
+  if(l.includes('backup')) return '🔄'
+  if(l.includes('cluster')) return '🔗'
+  if(l==='hana db'||l==='hana_db') return '🗄️'
+  if(l.includes('configuration')||l.includes('config')) return '⚙️'
+  if(l.includes('replication')) return '↔️'
+  if(l==='sld') return '📡'
+  if(l==='sda') return '🔌'
+  if(l.includes('warning')) return '⚠️'
+  if(l.includes('os messages')||l.includes('messages')) return '💬'
+  if(l.includes('lcm')) return '📋'
+  if(l.includes('runtime')&&l.includes('dump')) return '💥'
+  if(l.includes('log')) return '📂'
+  if(l.includes('topology')) return '🗺️'
+  if(l.includes('telemetry')) return '📡'
+  if(l.includes('nameserver')) return '📈'
+  return '📄'
+}
 function buildHsiNavGroup(s){
   const tabs = hsiGetTabList(s)
   const grp = document.createElement('div')
@@ -5946,10 +5984,26 @@ function buildHsiNavGroup(s){
     const sub = document.createElement('div')
     sub.className = 'fsid-sub-item'
     sub.dataset.hsiTab = tab.id
-    sub.innerHTML = `<span style="font-size:11px;">📄</span>${escHtml(tab.label)}`
+    sub.innerHTML = `<span style="font-size:11px;">${_hsiTabIcon(tab.label)}</span>${escHtml(tab.label.replace(/_/g,' '))}`
     const _tabCol=navItemColor(tab.label);if(_tabCol)sub.style.background=_tabCol
     sub.onclick = () => activateHsiTab(s.id, tab.id, null)
     children.appendChild(sub)
+    // Async file count badge for dyn-explorer tabs (shows non-rtetemp files)
+    if(tab.type==='dyn-explorer' && tab.handle){
+      ;(async()=>{
+        try{
+          let count=0
+          for await(const [name,h] of tab.handle.entries())
+            if(h.kind==='file' && name.toLowerCase()!=='rtetemp.txt') count++
+          if(count>0){
+            const badge=document.createElement('span')
+            badge.textContent=` (${count})`
+            badge.style.cssText='font-size:10px;color:#605E5C;font-weight:400;'
+            sub.appendChild(badge)
+          }
+        }catch(e){}
+      })()
+    }
     // After HANA DB tab, inject Topology shortcut (VH + Avail appear as HANA DB sub-tabs instead)
     if(_primaryFsid && tab.label.toLowerCase().replace(/_/g,' ')==='hana db'){
       const _makeHsiLink=(icon,label,panel)=>{
