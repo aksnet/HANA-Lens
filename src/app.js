@@ -1,5 +1,5 @@
 // PLACEHOLDER - PART 1: PARSER
-const APP_VERSION = '2026_10_30_02'
+const APP_VERSION = '2026_10_30_03'
 const MACHINE_KEYS = new Set(['async_io_limit','build_version','clocksource.current_clocksource','cpu_clock','cpu_cores','cpu_flags','cpu_manufacturer','cpu_model','cpu_sockets','cpu_summary','cpu_threads','hw_manufacturer','hw_model','kernel.numa_balancing','kernel.shmall','kernel.shmmax','kernel.shmmni','kernel.transparent_hugepage.enabled','mem_phys','mem_swap','memory_map_area_limit','open_file_limit','os_cpe_name','os_kernel_version','os_name','os_ppms_name','os_rlimit_nofile','os_user','platform','sap_retrieval_path','sap_retrieval_path_shared','sid','sapsystem','start_time','timezone_base_name','timezone_dst_name','timezone_name','timezone_offset','timezone_tz_name','topology_mem_info','topology_mem_type'])
 const NETWORK_KEYS = new Set(['net_domain','net_hostnames','net_ip_addresses','net_nameserver_bindings','net_port_ephemeral_max_count','net_port_ranges','net_port_unreserved_ranges','net_publicname','net_publicports','net_realhostname','net.core.somaxconn','net.ipv4.tcp_max_syn_backlog','net.ipv4.tcp_rmem','net.ipv4.tcp_syn_retries','net.ipv4.tcp_timestamps','net.ipv4.tcp_tw_recycle','net.ipv4.tcp_tw_reuse','net.ipv4.tcp_window_scaling','net.ipv4.tcp_wmem'])
 
@@ -1765,7 +1765,8 @@ const HANA_INI_FILES=['global.ini','indexserver.ini','nameserver.ini','daemon.in
   'backint.ini','traceanalyzer.ini','hdbalert.ini','auditlog.ini','inifile_checker.ini']
 let activeFsidId = null     // id of the currently viewed session
 let activePanel  = null     // 'topology' | 'versionhistory' | ... for the active session
-window._hanaLensSettings = { navColorGroups: [], recentPaths: [], bookmarkPaths: [], customFilters: [], filesystemReference: '' }
+window._hanaLensSettings = { navColorGroups: [], recentPaths: [], bookmarkPaths: [], customFilters: [], filesystemReference: '', reports: [] }
+window._hsiNavCounts = {}
 let traceExplState = null   // {sid, serverIdx, stack:[{name,handle}], entries:[...]}
 let _lastPickedHandle = null  // last FileSystemHandle used in any picker — passed as startIn
 let _traceCopyPath = ''       // full path of the currently open trace file, for breadcrumb copy btn
@@ -2187,6 +2188,43 @@ function renderNavSettingsPanel(){
     renderNavSettingsPanel()
   }
   panel.appendChild(addBkBtn)
+
+  // ── Reports section ──
+  const rptTitle=document.createElement('div')
+  rptTitle.style.cssText='font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#605E5C;padding:6px 10px 6px;border-top:1px solid #EDEBE9;border-bottom:1px solid #EDEBE9;margin-bottom:6px;'
+  rptTitle.textContent='Reports'
+  panel.appendChild(rptTitle)
+
+  const reports=window._hanaLensSettings.reports||[]
+  const rptList=document.createElement('div')
+  rptList.style.cssText='max-height:180px;overflow-y:auto;padding:0 8px;'
+  panel.appendChild(rptList)
+  reports.forEach((rpt,ri)=>{
+    const row=document.createElement('div')
+    row.style.cssText='display:flex;gap:4px;align-items:center;margin-bottom:4px;'
+    const titleIn=document.createElement('input')
+    titleIn.type='text';titleIn.value=rpt.title||'';titleIn.placeholder='Titel'
+    titleIn.style.cssText='width:90px;height:22px;padding:0 4px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;'
+    titleIn.oninput=e=>rpt.title=e.target.value
+    const secIn=document.createElement('input')
+    secIn.type='text';secIn.value=(rpt.configSections||[]).join(', ');secIn.placeholder='Sections (kommasepariert)'
+    secIn.style.cssText='flex:1;height:22px;padding:0 4px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;'
+    secIn.oninput=e=>{ rpt.configSections=e.target.value.split(',').map(s=>s.trim()).filter(Boolean) }
+    const delBtn=document.createElement('button')
+    delBtn.textContent='✕';delBtn.style.cssText='background:none;border:none;cursor:pointer;font-size:12px;color:#A19F9D;padding:0 2px;'
+    delBtn.onclick=()=>{ window._hanaLensSettings.reports.splice(ri,1); renderNavSettingsPanel() }
+    row.appendChild(titleIn);row.appendChild(secIn);row.appendChild(delBtn)
+    rptList.appendChild(row)
+  })
+  const addRptBtn=document.createElement('button')
+  addRptBtn.textContent='+ Add Report'
+  addRptBtn.style.cssText='display:block;width:calc(100% - 16px);margin:4px 8px 6px;height:26px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;cursor:pointer;'
+  addRptBtn.onclick=()=>{
+    if(!window._hanaLensSettings.reports) window._hanaLensSettings.reports=[]
+    window._hanaLensSettings.reports.push({id:'rpt-'+Date.now(),title:'',configSections:[]})
+    renderNavSettingsPanel()
+  }
+  panel.appendChild(addRptBtn)
 
   // ── Settings file path info ──
   const pathInfo=document.createElement('div')
@@ -5439,7 +5477,14 @@ function renderMarkdown(md){
       const codeLines=[];i++
       while(i<lines.length&&!/^```/.test(lines[i].trim())){codeLines.push(lines[i]);i++}
       i++
-      const codeHtml=codeLines.map(l=>{let s=escHtml(l);return s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" style="color:#0078D4;text-decoration:none;" target="_blank">$1</a>')}).join('\n')
+      const codeHtml=codeLines.map(l=>{
+        let s=escHtml(l)
+        s=s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" style="color:#0078D4;text-decoration:none;" target="_blank">$1</a>')
+        if(/WARNING:/.test(l)) return `<span class="hsi-line-warn">${s}</span>`
+        if(/PASSED:/.test(l)) return `<span class="hsi-line-pass">${s}</span>`
+        if(/FAILED:/.test(l)) return `<span style="display:block;color:#721c24;">${s}</span>`
+        return s
+      }).join('\n')
       html+=`<pre style="background:#F3F2F1;border:1px solid #EDEBE9;border-radius:3px;padding:10px 12px;white-space:pre-wrap;word-break:break-word;font-family:Consolas,monospace;font-size:11px;line-height:1.5;margin:8px 0;"><code>${codeHtml}</code></pre>`
       continue
     }
@@ -5496,8 +5541,13 @@ function renderMarkdown(md){
     while(i<lines.length&&lines[i].trim()!==''&&!/^#{1,6}\s/.test(lines[i])&&!/^[-*+]\s/.test(lines[i])&&!/^\d+\.\s/.test(lines[i])&&!/^```/.test(lines[i].trim())&&!/^[-*_]{3,}\s*$/.test(lines[i])&&!/^>\s/.test(lines[i])&&!lines[i].includes('|')){
       paraLines.push(lines[i]);i++
     }
-    if(paraLines.length)html+=`<p style="margin:6px 0;line-height:1.6;">${paraLines.map(l=>mdInline(l)).join('<br>')}</p>`
-    else i++ // safety: skip unrecognized line to prevent infinite loop
+    if(paraLines.length){
+      const _pWarn = /^\*\*WARNING:\*\*/.test(paraLines[0].trimStart())
+      const _pPass = /^\*\*PASSED:\*\*/.test(paraLines[0].trimStart())
+      const _pFail = /^\*\*FAILED:\*\*/.test(paraLines[0].trimStart())
+      const _lineCol = _pWarn ? 'color:#A4262C;' : _pPass ? 'color:#107C10;' : _pFail ? 'color:#721c24;' : ''
+      html+=`<p style="margin:6px 0;line-height:1.6;${_lineCol}">${paraLines.map(l=>mdInline(l)).join('<br>')}</p>`
+    } else i++ // safety: skip unrecognized line to prevent infinite loop
   }
   return html
 }
@@ -6019,6 +6069,23 @@ function buildHsiNavGroup(s){
     }
   }
 
+  // ── Reports block (between tabs and FSIDs) ───────────────────────────────
+  const _reports = window._hanaLensSettings?.reports||[]
+  if(_reports.length > 0){
+    const rptSep = document.createElement('div')
+    rptSep.style.cssText = 'margin:4px 10px 2px 10px;border-top:1px solid #EDEBE9;font-size:10px;font-weight:600;color:#A19F9D;text-transform:uppercase;letter-spacing:0.5px;padding-top:4px;'
+    rptSep.textContent = 'Reports'
+    children.appendChild(rptSep)
+    for(const rpt of _reports){
+      if(!rpt.title) continue
+      const rptItem = document.createElement('div')
+      rptItem.className = 'fsid-sub-item'
+      rptItem.innerHTML = `<span style="font-size:11px;">📊</span>${escHtml(rpt.title)}`
+      rptItem.onclick = () => activateHsiReport(s.id, rpt.id)
+      children.appendChild(rptItem)
+    }
+  }
+
   // ── Child FSID sessions (from FSIDs/ subfolder) ──────────────────────────
   const childFsids = fsidSessions.filter(cs => cs.hsiParentId === s.id)
   const zipFsids = s.hsiZipFsids || []
@@ -6078,7 +6145,153 @@ function buildHsiNavGroup(s){
   }
 
   grp.appendChild(children)
+  // Async background scan for WARNING/PASSED counts → updates nav badges
+  ;(async()=>{ try{ await _scanAndBadgeHsi(s) }catch(e){} })()
   return grp
+}
+
+// Scan all HSI tabs for WARNING/PASSED counts and append nav badges
+async function _scanAndBadgeHsi(s){
+  async function _readText(handle){ try{ const f=await handle.getFile(); return await f.text() }catch(e){ return '' } }
+  function _count(text){ return { w:(text.match(/WARNING:/g)||[]).length, p:(text.match(/PASSED:/g)||[]).length } }
+
+  const counts = {}
+  for(const tab of hsiGetTabList(s)){
+    let w=0, p=0
+    try{
+      if(tab.type==='dyn-group' && tab.tabs){
+        for(const st of tab.tabs){
+          if(st.handle && (st.type==='dyn-perm'||st.type==='dyn-md')){
+            const c=_count(await _readText(st.handle)); w+=c.w; p+=c.p
+          }
+        }
+      } else if((tab.type==='dyn-perm'||tab.type==='dyn-md') && tab.handle){
+        const c=_count(await _readText(tab.handle)); w=c.w; p=c.p
+      } else if(tab.type==='file'){
+        const r=hsiResolveFile(s,tab.file)
+        if(r?.handle){ const c=_count(await _readText(r.handle)); w=c.w; p=c.p }
+      } else if(tab.type==='group' && tab.subfiles){
+        for(const sf of tab.subfiles){
+          const r=hsiResolveFile(s,sf)
+          if(r?.handle){ const c=_count(await _readText(r.handle)); w+=c.w; p+=c.p }
+        }
+      }
+    }catch(e){}
+    counts[tab.id]={w,p}
+    if(w>0||p>0){
+      const el=document.querySelector(`.fsid-group[data-sid="${s.id}"] .fsid-sub-item[data-hsi-tab="${tab.id}"]`)
+      if(el){
+        if(w>0){ const b=document.createElement('span'); b.className='nav-w-badge'; b.textContent=`⚠${w}`; el.appendChild(b) }
+        if(p>0){ const b=document.createElement('span'); b.className='nav-p-badge'; b.textContent=`✓${p}`; el.appendChild(b) }
+      }
+    }
+  }
+  window._hsiNavCounts[s.id]=counts
+}
+
+// ── Report activation and rendering ──────────────────────────────────────
+function activateHsiReport(sid, reportId){
+  const s = sess(sid)
+  if(!s) return
+  const report = (window._hanaLensSettings?.reports||[]).find(r=>r.id===reportId)
+  if(!report) return
+
+  document.getElementById('empty').style.display = 'none'
+  document.querySelectorAll('.content-panel').forEach(p=>{ p.classList.remove('active'); p.style.display='' })
+  const panel = document.getElementById('panel-hsi')
+  panel.classList.add('active')
+  panel.style.display = 'flex'
+  panel.innerHTML = ''
+
+  document.getElementById('navTreeBody').querySelectorAll('.fsid-sub-item').forEach(i=>i.classList.remove('active'))
+
+  const wrap = document.createElement('div')
+  wrap.style.cssText = 'flex:1;overflow-y:auto;padding:14px 18px;'
+  panel.appendChild(wrap)
+  renderHsiReport(wrap, report, s)
+}
+
+async function renderHsiReport(container, report, s){
+  container.innerHTML = '<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
+  const sections = (report.configSections||[]).map(x=>x.trim().toLowerCase()).filter(Boolean)
+
+  // Parse INI text into sections map: {sectionName: [{key, value}]}
+  function parseIniSections(text){
+    const map = {}
+    let cur = null
+    for(const raw of text.split('\n')){
+      const line = raw.replace(/\r$/,'').trimEnd()
+      const secM = line.match(/^\[(.+)\]$/)
+      if(secM){ cur = secM[1].toLowerCase(); map[cur]=[]; continue }
+      if(!cur) continue
+      const kv = line.match(/^([^=]+?)\s*=\s*(.*)$/)
+      if(kv) map[cur].push({key:kv[1].trim(), value:kv[2].trim()})
+    }
+    return map
+  }
+
+  const parts = []
+  parts.push(`<div style="font-size:16px;font-weight:700;color:#323130;margin-bottom:2px;">📊 ${escHtml(report.title)}</div>`)
+  if(sections.length){
+    parts.push(`<div style="font-size:11px;color:#A19F9D;margin-bottom:14px;">Configuration — Sections: ${sections.map(s=>`<code style="background:#F3F2F1;padding:0 4px;border-radius:2px;">${escHtml(s)}</code>`).join(' ')}</div>`)
+  }
+
+  const configData = s.hsiConfigData
+  if(!configData || !configData.databases?.length){
+    container.innerHTML = parts.join('')+'<div style="color:#A19F9D;padding:20px;border:1px solid #EDEBE9;border-radius:4px;margin-top:8px;">No configuration data available for this HSI.</div>'
+    return
+  }
+
+  // Build DB tab bar
+  const dbs = configData.databases // already sorted SYSTEMDB first
+  let activeDbIdx = 0
+
+  async function showDb(dbIdx){
+    activeDbIdx = dbIdx
+    const db = dbs[dbIdx]
+    tabBar.querySelectorAll('button').forEach((b,i)=>b.classList.toggle('active',i===dbIdx))
+
+    rptContent.innerHTML = '<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
+    const rowsHtml = []
+    for(const {name, handle, content} of db.iniHandles){
+      let text
+      try{ text = content!==undefined ? content : await (await handle.getFile()).text() }catch(e){ continue }
+      const parsed = parseIniSections(text)
+      const matchSections = sections.length
+        ? Object.entries(parsed).filter(([sec])=>sections.includes(sec))
+        : Object.entries(parsed)
+      if(!matchSections.length) continue
+      rowsHtml.push(`<div style="font-size:11px;color:#605E5C;font-weight:600;margin:10px 0 4px;">📄 ${escHtml(name)}</div>`)
+      for(const [sec, kvs] of matchSections){
+        if(!kvs.length) continue
+        rowsHtml.push(`<div style="font-size:12px;font-weight:700;color:#0078D4;background:#EFF6FF;border-left:3px solid #0078D4;padding:3px 8px;margin:6px 0 2px;">[${escHtml(sec)}]</div>`)
+        rowsHtml.push(`<table style="width:100%;border-collapse:collapse;font-size:11px;font-family:Consolas,monospace;">`)
+        for(const {key,value} of kvs){
+          rowsHtml.push(`<tr style="border-bottom:1px solid #F3F2F1;"><td style="padding:2px 8px;color:#323130;white-space:nowrap;">${escHtml(key)}</td><td style="padding:2px 8px;color:#107C10;word-break:break-all;">${escHtml(value)}</td></tr>`)
+        }
+        rowsHtml.push(`</table>`)
+      }
+    }
+    rptContent.innerHTML = rowsHtml.length ? rowsHtml.join('') : '<div style="color:#A19F9D;padding:12px;">No matching sections found in this database.</div>'
+  }
+
+  container.innerHTML = parts.join('')
+
+  const tabBar = document.createElement('div')
+  tabBar.style.cssText = 'display:flex;gap:2px;border-bottom:1px solid #EDEBE9;margin-bottom:10px;'
+  dbs.forEach((db,i)=>{
+    const b = document.createElement('button')
+    b.className = 'hsi-subtab-btn'+(i===0?' active':'')
+    b.textContent = db.name
+    b.onclick = ()=>showDb(i)
+    tabBar.appendChild(b)
+  })
+  container.appendChild(tabBar)
+
+  const rptContent = document.createElement('div')
+  container.appendChild(rptContent)
+
+  await showDb(0)
 }
 
 // Render availability content inside the HANA DB sub-tab panel
@@ -7377,14 +7590,20 @@ function renderHsiFile(text, filename){
 
     if(isBlock){
       if(inPre){ contentParts.push('</pre>'); inPre = false }
-      contentParts.push(html)
+      if(rendered.isWarn) contentParts.push(`<div class="hsi-line-warn">${html}</div>`)
+      else if(rendered.isPass) contentParts.push(`<div class="hsi-line-pass">${html}</div>`)
+      else contentParts.push(html)
     } else {
       const stripped = rawLine.trim()
       if(!inPre && stripped){
         contentParts.push('<pre class="hsi-pre">')
         inPre = true
       }
-      if(inPre) contentParts.push(html)
+      if(inPre){
+        if(rendered.isWarn) contentParts.push(`<span class="hsi-line-warn">${html}</span>`)
+        else if(rendered.isPass) contentParts.push(`<span class="hsi-line-pass">${html}</span>`)
+        else contentParts.push(html)
+      }
     }
   }
   if(inPre) contentParts.push('</pre>')
@@ -7500,6 +7719,8 @@ function hsiTransformLine(line){
   s = s.replace(/WARNING:/g, '§WARN§')
   // FAILED:
   s = s.replace(/FAILED:/g, '§FAIL§')
+  const _hasWarn = s.includes('§WARN§')
+  const _hasPass = s.includes('§PASS§')
 
   // Detect block-level markers before escaping
   const isLogBlock = s.includes('<div class="log-block"') || s.includes("<div class='log-block'")
@@ -7536,7 +7757,7 @@ function hsiTransformLine(line){
     html = html.replace(/§PASS§/g, '<span class="hsi-badge-pass">✓ PASSED:</span>')
     html = html.replace(/§WARN§/g, '<span class="hsi-badge-warn">WARNING:</span>')
     html = html.replace(/§FAIL§/g, '<span class="hsi-badge-fail">✗ FAILED:</span>')
-    return { isBlock: true, html }
+    return { isBlock: true, html, isWarn: _hasWarn, isPass: _hasPass }
   }
 
   // Regular line: HTML-escape then inline transforms
@@ -7559,7 +7780,7 @@ function hsiTransformLine(line){
   esc = esc.replace(/§WARN§/g, '<span class="hsi-badge-warn">WARNING:</span>')
   esc = esc.replace(/§FAIL§/g, '<span class="hsi-badge-fail">✗ FAILED:</span>')
 
-  return { isBlock: false, html: esc }
+  return { isBlock: false, html: esc, isWarn: _hasWarn, isPass: _hasPass }
 }
 
 // (activateNav already handles HSI panel hide inline)

@@ -158,6 +158,12 @@ a.sap-note:hover { color: #0078D4; text-decoration: underline; }
 .hsi-badge-pass { display: inline; background: #d4edda; color: #155724; border: 1px solid #c3e6cb; border-radius: 4px; padding: 1px 7px; font-weight: 600; font-size: 0.83em; }
 .hsi-badge-warn { display: inline; background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; border-radius: 4px; padding: 1px 7px; font-weight: 600; font-size: 0.83em; }
 .hsi-badge-fail { display: inline; background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 4px; padding: 1px 7px; font-weight: 600; font-size: 0.83em; }
+.hsi-line-warn { display: block; color: #A4262C; }
+.hsi-line-pass { display: block; color: #107C10; }
+.hsi-pre .hsi-line-warn { display: block; color: #A4262C; }
+.hsi-pre .hsi-line-pass { display: block; color: #107C10; }
+.nav-w-badge { font-size: 10px; color: #A4262C; background: #FDE7E9; border-radius: 3px; padding: 0 4px; margin-left: 3px; font-weight: 600; }
+.nav-p-badge { font-size: 10px; color: #107C10; background: #DFF6DD; border-radius: 3px; padding: 0 4px; margin-left: 3px; font-weight: 600; }
 .hsi-perm-split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
 .hsi-perm-col { min-width: 0; }
 .hsi-perm-col-header { font-size: 0.83em; font-weight: 700; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px; padding: 5px 0 7px 0; border-bottom: 2px solid #dee2e6; margin-bottom: 7px; display: flex; justify-content: space-between; align-items: center; }
