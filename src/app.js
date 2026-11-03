@@ -1,5 +1,5 @@
 // PLACEHOLDER - PART 1: PARSER
-const APP_VERSION = '2026_10_30_03'
+const APP_VERSION = '2026_11_03_20'
 const MACHINE_KEYS = new Set(['async_io_limit','build_version','clocksource.current_clocksource','cpu_clock','cpu_cores','cpu_flags','cpu_manufacturer','cpu_model','cpu_sockets','cpu_summary','cpu_threads','hw_manufacturer','hw_model','kernel.numa_balancing','kernel.shmall','kernel.shmmax','kernel.shmmni','kernel.transparent_hugepage.enabled','mem_phys','mem_swap','memory_map_area_limit','open_file_limit','os_cpe_name','os_kernel_version','os_name','os_ppms_name','os_rlimit_nofile','os_user','platform','sap_retrieval_path','sap_retrieval_path_shared','sid','sapsystem','start_time','timezone_base_name','timezone_dst_name','timezone_name','timezone_offset','timezone_tz_name','topology_mem_info','topology_mem_type'])
 const NETWORK_KEYS = new Set(['net_domain','net_hostnames','net_ip_addresses','net_nameserver_bindings','net_port_ephemeral_max_count','net_port_ranges','net_port_unreserved_ranges','net_publicname','net_publicports','net_realhostname','net.core.somaxconn','net.ipv4.tcp_max_syn_backlog','net.ipv4.tcp_rmem','net.ipv4.tcp_syn_retries','net.ipv4.tcp_timestamps','net.ipv4.tcp_tw_recycle','net.ipv4.tcp_tw_reuse','net.ipv4.tcp_window_scaling','net.ipv4.tcp_wmem'])
 
@@ -2203,13 +2203,13 @@ function renderNavSettingsPanel(){
     const row=document.createElement('div')
     row.style.cssText='display:flex;gap:4px;align-items:center;margin-bottom:4px;'
     const titleIn=document.createElement('input')
-    titleIn.type='text';titleIn.value=rpt.title||'';titleIn.placeholder='Titel'
+    titleIn.type='text';titleIn.value=rpt.title||'';titleIn.placeholder='Title'
     titleIn.style.cssText='width:90px;height:22px;padding:0 4px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;'
     titleIn.oninput=e=>rpt.title=e.target.value
     const secIn=document.createElement('input')
-    secIn.type='text';secIn.value=(rpt.configSections||[]).join(', ');secIn.placeholder='Sections (kommasepariert)'
+    secIn.type='text';secIn.value=(rpt.configSections||[]).join(' ; ');secIn.placeholder='Sections (comma or semicolon separated)'
     secIn.style.cssText='flex:1;height:22px;padding:0 4px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;'
-    secIn.oninput=e=>{ rpt.configSections=e.target.value.split(',').map(s=>s.trim()).filter(Boolean) }
+    secIn.oninput=e=>{ rpt.configSections=e.target.value.split(/[;,]/).map(s=>s.trim()).filter(Boolean) }
     const delBtn=document.createElement('button')
     delBtn.textContent='✕';delBtn.style.cssText='background:none;border:none;cursor:pointer;font-size:12px;color:#A19F9D;padding:0 2px;'
     delBtn.onclick=()=>{ window._hanaLensSettings.reports.splice(ri,1); renderNavSettingsPanel() }
@@ -2221,7 +2221,7 @@ function renderNavSettingsPanel(){
   addRptBtn.style.cssText='display:block;width:calc(100% - 16px);margin:4px 8px 6px;height:26px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;cursor:pointer;'
   addRptBtn.onclick=()=>{
     if(!window._hanaLensSettings.reports) window._hanaLensSettings.reports=[]
-    window._hanaLensSettings.reports.push({id:'rpt-'+Date.now(),title:'',configSections:[]})
+    window._hanaLensSettings.reports.push({id:'rpt-'+Date.now(),title:'',configSections:[],traceGroups:[]})
     renderNavSettingsPanel()
   }
   panel.appendChild(addRptBtn)
@@ -2401,24 +2401,66 @@ async function saveSettingsFull(statusEl){
   }
 }
 
-function showSettingsPanel(){
+function showSettingsPanel(activeSection){
   document.getElementById('empty').style.display='none'
   document.querySelectorAll('.content-panel').forEach(p=>{p.classList.remove('active');p.style.display=''})
   const panel=document.getElementById('panel-settings')
   panel.classList.add('active')
-  panel.style.display='block'
-  panel.style.overflowY='auto'
-  panel.style.padding='24px 32px'
+  panel.style.cssText='display:flex;flex-direction:row;overflow:hidden;'
 
   const s=window._hanaLensSettings
-  const groups=s.navColorGroups||[]
-  const bookmarks=s.bookmarkPaths||[]
+  if(!activeSection) activeSection=panel.dataset.settingsSection||'color-groups'
+  panel.dataset.settingsSection=activeSection
+  panel.innerHTML=''
 
-  panel.innerHTML=`<h2 style="font-size:16px;font-weight:600;color:#323130;margin-bottom:20px;padding-bottom:10px;border-bottom:1px solid #EDEBE9;">⚙ Settings</h2>`
+  // ── Left sidebar ──────────────────────────────────────────────────────────
+  const sidebar=document.createElement('div')
+  sidebar.style.cssText='width:168px;flex-shrink:0;background:#F8F7F6;border-right:1px solid #EDEBE9;padding:12px 0 12px;display:flex;flex-direction:column;'
+  const sideTitle=document.createElement('div')
+  sideTitle.style.cssText='padding:0 14px 10px;font-size:14px;font-weight:600;color:#323130;'
+  sideTitle.textContent='⚙ Settings'
+  sidebar.appendChild(sideTitle)
+
+  // ── Right content ─────────────────────────────────────────────────────────
+  const content=document.createElement('div')
+  content.style.cssText='flex:1;overflow-y:auto;padding:20px 28px 24px;min-width:0;'
+
+  const sectionEls={}
+  const navItems=[
+    ['color-groups','Nav Color Groups'],
+    ['bookmarks','Bookmark Paths'],
+    ['filter-presets','Filter Presets'],
+    ['filesystem','Filesystem Reference'],
+    ['reports','Reports'],
+  ]
+  const showSec=(key)=>{
+    activeSection=key
+    panel.dataset.settingsSection=key
+    Object.entries(sectionEls).forEach(([k,el])=>{ el.style.display=k===key?'':'none' })
+    sidebar.querySelectorAll('.sp-nav').forEach(b=>{
+      const active=b.dataset.sec===key
+      b.style.background=active?'#EFF6FC':''
+      b.style.color=active?'#0078D4':'#323130'
+      b.style.fontWeight=active?'600':'400'
+      b.style.borderLeft=active?'3px solid #0078D4':'3px solid transparent'
+    })
+  }
+  for(const [key,label] of navItems){
+    const item=document.createElement('div')
+    item.className='sp-nav'
+    item.dataset.sec=key
+    item.textContent=label
+    item.style.cssText='padding:7px 14px 7px 11px;font-size:12px;cursor:pointer;border-left:3px solid transparent;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+    item.onclick=()=>showSec(key)
+    item.onmouseenter=()=>{ if(activeSection!==key) item.style.background='#EDEBE9' }
+    item.onmouseleave=()=>{ if(activeSection!==key) item.style.background='' }
+    sidebar.appendChild(item)
+  }
+  panel.appendChild(sidebar)
+  panel.appendChild(content)
 
   // ── Color Groups ──────────────────────────────────────────────────────────
   const cgSec=document.createElement('div')
-  cgSec.style.cssText='max-width:700px;margin-bottom:28px;'
   cgSec.innerHTML='<div style="font-size:13px;font-weight:600;color:#323130;margin-bottom:10px;">Nav Color Groups</div>'
   const cgList=document.createElement('div')
   cgList.id='settings-panel-cg-list'
@@ -2433,11 +2475,11 @@ function showSettingsPanel(){
   addCgBtn.style.cssText='margin-top:6px;height:28px;padding:0 14px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;'
   addCgBtn.onclick=()=>{ if(!s.navColorGroups)s.navColorGroups=[]; s.navColorGroups.push({name:'New Group',color:'#EFF6FC',items:[]}); rebuildCg(); _autoSaveSettings() }
   cgSec.appendChild(addCgBtn)
-  panel.appendChild(cgSec)
+  sectionEls['color-groups']=cgSec
+  content.appendChild(cgSec)
 
   // ── Bookmark Paths ────────────────────────────────────────────────────────
   const bkSec=document.createElement('div')
-  bkSec.style.cssText='max-width:700px;margin-bottom:28px;'
   bkSec.innerHTML='<div style="font-size:13px;font-weight:600;color:#323130;margin-bottom:10px;">Bookmark Paths</div>'
   const bkList=document.createElement('div')
   bkList.id='settings-panel-bk-list'
@@ -2484,11 +2526,11 @@ function showSettingsPanel(){
   addBkBtn.style.cssText='margin-top:6px;height:28px;padding:0 14px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;'
   addBkBtn.onclick=()=>{ if(!s.bookmarkPaths)s.bookmarkPaths=[]; s.bookmarkPaths.push({name:'',path:''}); rebuildBk(); _autoSaveSettings() }
   bkSec.appendChild(addBkBtn)
-  panel.appendChild(bkSec)
+  sectionEls['bookmarks']=bkSec
+  content.appendChild(bkSec)
 
   // ── Filter Presets ────────────────────────────────────────────────────────
   const fpSec=document.createElement('div')
-  fpSec.style.cssText='max-width:700px;margin-bottom:28px;'
   fpSec.innerHTML='<div style="font-size:13px;font-weight:600;color:#323130;margin-bottom:10px;">Filter Presets</div>'
   const fpList=document.createElement('div')
   fpList.id='settings-panel-fp-list'
@@ -2523,11 +2565,11 @@ function showSettingsPanel(){
   addFpBtn.style.cssText='margin-top:6px;height:28px;padding:0 14px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;'
   addFpBtn.onclick=()=>{ if(!s.customFilters)s.customFilters=[]; s.customFilters.push({name:'',content:''}); rebuildFp(); _autoSaveSettings() }
   fpSec.appendChild(addFpBtn)
-  panel.appendChild(fpSec)
+  sectionEls['filter-presets']=fpSec
+  content.appendChild(fpSec)
 
   // ── Filesystem Reference ──────────────────────────────────────────────────
   const fsrSec=document.createElement('div')
-  fsrSec.style.cssText='max-width:700px;margin-bottom:28px;'
   fsrSec.innerHTML='<div style="font-size:13px;font-weight:600;color:#323130;margin-bottom:4px;">Filesystem Reference</div>'+
     '<div style="font-size:11px;color:#A19F9D;margin-bottom:8px;">Used for the Permissions comparison column. Paste the content of filesystem_reference.txt here.</div>'
   const fsrArea=document.createElement('textarea')
@@ -2537,11 +2579,169 @@ function showSettingsPanel(){
   fsrArea.oninput=e=>{ s.filesystemReference=e.target.value; window.BUNDLED_FS_REFERENCE=e.target.value||'' }
   fsrArea.onchange=()=>_autoSaveSettings()
   fsrSec.appendChild(fsrArea)
-  panel.appendChild(fsrSec)
+  sectionEls['filesystem']=fsrSec
+  content.appendChild(fsrSec)
 
-  // ── Save · Export · Import + status + path info ──────────────────────────
+  // ── Reports ───────────────────────────────────────────────────────────────
+  const rptSec=document.createElement('div')
+  rptSec.style.cssText='max-width:760px;'
+  rptSec.innerHTML='<div style="font-size:13px;font-weight:600;color:#323130;margin-bottom:4px;">Reports</div>'+
+    '<div style="font-size:11px;color:#A19F9D;margin-bottom:10px;">Predefined reports in the HSI nav. <b>Configuration</b>: comma- or semicolon-separated INI sections. <b>Trace Searches</b>: file pattern with <code style="background:#F3F2F1;padding:0 3px;border-radius:2px;">&lt;host&gt;</code>, <code style="background:#F3F2F1;padding:0 3px;border-radius:2px;">&lt;serviceport&gt;</code>, <code style="background:#F3F2F1;padding:0 3px;border-radius:2px;">&lt;instance&gt;</code> placeholders and <code style="background:#F3F2F1;padding:0 3px;border-radius:2px;">*</code> wildcard (semicolon = OR); searches below with title + search term (semicolon = OR).</div>'
+  const rptList2=document.createElement('div')
+  rptList2.id='settings-panel-rpt-list'
+  const rebuildRpt=()=>{
+    rptList2.innerHTML=''
+    ;(s.reports||[]).forEach((rpt,ri)=>{
+      if(!rpt.traceGroups) rpt.traceGroups=[]
+      const card=document.createElement('div')
+      card.style.cssText='border:1px solid #EDEBE9;border-radius:4px;padding:10px 12px;margin-bottom:10px;background:#FAFAF9;'
+      const topRow=document.createElement('div')
+      topRow.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:8px;'
+      const titleIn=document.createElement('input')
+      titleIn.type='text';titleIn.value=rpt.title||'';titleIn.placeholder='Report title (= menu name)'
+      titleIn.style.cssText='flex:1;height:26px;padding:0 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:inherit;font-weight:600;'
+      titleIn.oninput=e=>{ rpt.title=e.target.value }
+      titleIn.onchange=()=>_autoSaveSettings()
+      const rptBtnStyle='background:none;border:1px solid #EDEBE9;border-radius:2px;cursor:pointer;font-size:11px;color:#A19F9D;padding:0 6px;height:26px;'
+      const rptUpBtn=document.createElement('button');rptUpBtn.textContent='▲';rptUpBtn.style.cssText=rptBtnStyle
+      rptUpBtn.title='Move up';rptUpBtn.disabled=ri===0
+      rptUpBtn.onclick=()=>{ if(ri>0){const a=s.reports;[a[ri-1],a[ri]]=[a[ri],a[ri-1]];rebuildRpt();_autoSaveSettings()} }
+      const rptDnBtn=document.createElement('button');rptDnBtn.textContent='▼';rptDnBtn.style.cssText=rptBtnStyle
+      rptDnBtn.title='Move down';rptDnBtn.disabled=ri===s.reports.length-1
+      rptDnBtn.onclick=()=>{ const a=s.reports;if(ri<a.length-1){[a[ri],a[ri+1]]=[a[ri+1],a[ri]];rebuildRpt();_autoSaveSettings()} }
+      const delRptBtn=document.createElement('button')
+      delRptBtn.textContent='✕ Report';delRptBtn.style.cssText='background:none;border:1px solid #EDEBE9;border-radius:2px;cursor:pointer;font-size:11px;color:#A19F9D;padding:0 8px;height:26px;white-space:nowrap;'
+      delRptBtn.onclick=()=>{ s.reports.splice(ri,1); rebuildRpt(); _autoSaveSettings() }
+      topRow.appendChild(titleIn);topRow.appendChild(rptUpBtn);topRow.appendChild(rptDnBtn);topRow.appendChild(delRptBtn);card.appendChild(topRow)
+      const cfgRow=document.createElement('div')
+      cfgRow.style.cssText='margin-bottom:8px;'
+      const cfgLbl=document.createElement('div')
+      cfgLbl.style.cssText='font-size:11px;font-weight:600;color:#605E5C;margin-bottom:3px;'
+      cfgLbl.textContent='Configuration (INI Sections):'
+      const secIn=document.createElement('input')
+      secIn.type='text';secIn.value=(rpt.configSections||[]).join(' ; ');secIn.placeholder='e.g. system_replication ; system_replication_communication'
+      secIn.style.cssText='width:100%;box-sizing:border-box;height:26px;padding:0 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:Consolas,monospace;'
+      secIn.oninput=e=>{ rpt.configSections=e.target.value.split(/[;,]/).map(x=>x.trim()).filter(Boolean) }
+      secIn.onchange=()=>_autoSaveSettings()
+      cfgRow.appendChild(cfgLbl);cfgRow.appendChild(secIn);card.appendChild(cfgRow)
+      const tgLbl=document.createElement('div')
+      tgLbl.style.cssText='font-size:11px;font-weight:600;color:#605E5C;margin-bottom:4px;margin-top:2px;'
+      tgLbl.textContent='Trace Searches:'
+      card.appendChild(tgLbl)
+      const tgCon=document.createElement('div')
+      const rebuildTg=()=>{
+        tgCon.innerHTML=''
+        ;(rpt.traceGroups||[]).forEach((tg,tgi)=>{
+          if(!tg.searches) tg.searches=[]
+          const tgCard=document.createElement('div')
+          tgCard.style.cssText='border:1px solid #EDEBE9;border-radius:3px;padding:7px 9px;margin-bottom:6px;background:#F8F8F7;'
+          const fpRow=document.createElement('div')
+          fpRow.style.cssText='display:flex;gap:4px;align-items:center;margin-bottom:5px;'
+          const fpLbl=document.createElement('span')
+          fpLbl.style.cssText='font-size:11px;color:#605E5C;white-space:nowrap;'
+          fpLbl.textContent='File:'
+          const fpIn=document.createElement('input')
+          fpIn.type='text';fpIn.value=tg.filePattern||'';fpIn.placeholder='nameserver_<host>.<serviceport>.* ; indexserver_<host>.<serviceport>.*'
+          fpIn.style.cssText='flex:1;height:24px;padding:0 5px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;font-family:Consolas,monospace;'
+          fpIn.oninput=e=>{ tg.filePattern=e.target.value }
+          fpIn.onchange=()=>_autoSaveSettings()
+          const btnStyle='background:none;border:1px solid #EDEBE9;border-radius:2px;cursor:pointer;font-size:10px;color:#A19F9D;padding:0 4px;height:20px;line-height:1;'
+          const tgUpBtn=document.createElement('button');tgUpBtn.textContent='▲';tgUpBtn.style.cssText=btnStyle
+          tgUpBtn.title='Move up';tgUpBtn.disabled=tgi===0
+          tgUpBtn.onclick=()=>{ if(tgi>0){const a=rpt.traceGroups;[a[tgi-1],a[tgi]]=[a[tgi],a[tgi-1]];rebuildTg();_autoSaveSettings()} }
+          const tgDnBtn=document.createElement('button');tgDnBtn.textContent='▼';tgDnBtn.style.cssText=btnStyle
+          tgDnBtn.title='Move down';tgDnBtn.disabled=tgi===rpt.traceGroups.length-1
+          tgDnBtn.onclick=()=>{ const a=rpt.traceGroups;if(tgi<a.length-1){[a[tgi],a[tgi+1]]=[a[tgi+1],a[tgi]];rebuildTg();_autoSaveSettings()} }
+          const delTgBtn=document.createElement('button')
+          delTgBtn.textContent='✕';delTgBtn.style.cssText='background:none;border:none;cursor:pointer;font-size:12px;color:#A19F9D;padding:0 4px;'
+          delTgBtn.onclick=()=>{ rpt.traceGroups.splice(tgi,1); rebuildTg(); _autoSaveSettings() }
+          fpRow.appendChild(fpLbl);fpRow.appendChild(fpIn);fpRow.appendChild(tgUpBtn);fpRow.appendChild(tgDnBtn);fpRow.appendChild(delTgBtn)
+          tgCard.appendChild(fpRow)
+          const scopeRow=document.createElement('div')
+          scopeRow.style.cssText='display:flex;gap:4px;align-items:center;margin-bottom:5px;'
+          const scopeLbl=document.createElement('span')
+          scopeLbl.style.cssText='font-size:11px;color:#605E5C;white-space:nowrap;'
+          scopeLbl.textContent='DB Scope:'
+          const scopeSel=document.createElement('select')
+          scopeSel.style.cssText='height:24px;padding:0 4px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;background:#fff;'
+          ;[['all','All DBs'],['systemdb','SYSTEMDB only'],['tenant','Tenant only']].forEach(([v,l])=>{
+            const o=document.createElement('option');o.value=v;o.textContent=l
+            if((tg.dbScope||'all')===v)o.selected=true
+            scopeSel.appendChild(o)
+          })
+          scopeSel.onchange=e=>{ tg.dbScope=e.target.value; _autoSaveSettings() }
+          scopeRow.appendChild(scopeLbl);scopeRow.appendChild(scopeSel)
+          tgCard.appendChild(scopeRow)
+          const exRow=document.createElement('div')
+          exRow.style.cssText='display:flex;gap:4px;align-items:center;margin-bottom:5px;'
+          const exLbl=document.createElement('span')
+          exLbl.style.cssText='font-size:11px;color:#605E5C;white-space:nowrap;'
+          exLbl.textContent='Exclude:'
+          const exIn=document.createElement('input')
+          exIn.type='text';exIn.value=tg.exclude||'';exIn.placeholder='e.g. component_history ; hdbcons ; executed_statements'
+          exIn.style.cssText='flex:1;height:24px;padding:0 5px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;font-family:Consolas,monospace;'
+          exIn.oninput=e=>{ tg.exclude=e.target.value }
+          exIn.onchange=()=>_autoSaveSettings()
+          exRow.appendChild(exLbl);exRow.appendChild(exIn)
+          tgCard.appendChild(exRow)
+          const srCon=document.createElement('div')
+          srCon.style.cssText='padding-left:8px;'
+          const rebuildSr=()=>{
+            srCon.innerHTML=''
+            ;(tg.searches||[]).forEach((sr,sri)=>{
+              const srRow=document.createElement('div')
+              srRow.style.cssText='display:flex;gap:4px;align-items:center;margin-bottom:3px;'
+              const stIn=document.createElement('input')
+              stIn.type='text';stIn.value=sr.title||'';stIn.placeholder='Title'
+              stIn.style.cssText='width:130px;height:22px;padding:0 4px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;'
+              stIn.oninput=e=>{ sr.title=e.target.value }
+              stIn.onchange=()=>_autoSaveSettings()
+              const sfIn=document.createElement('input')
+              sfIn.type='text';sfIn.value=sr.searchFor||'';sfIn.placeholder='search for...'
+              sfIn.style.cssText='flex:1;height:22px;padding:0 4px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;font-family:Consolas,monospace;'
+              sfIn.oninput=e=>{ sr.searchFor=e.target.value }
+              sfIn.onchange=()=>_autoSaveSettings()
+              const delSrBtn=document.createElement('button')
+              delSrBtn.textContent='✕';delSrBtn.style.cssText='background:none;border:none;cursor:pointer;font-size:11px;color:#A19F9D;padding:0 2px;'
+              delSrBtn.onclick=()=>{ tg.searches.splice(sri,1); rebuildSr(); _autoSaveSettings() }
+              const srBtnStyle='background:none;border:1px solid #EDEBE9;border-radius:2px;cursor:pointer;font-size:9px;color:#A19F9D;padding:0 3px;height:18px;line-height:1;'
+              const srUpBtn=document.createElement('button');srUpBtn.textContent='▲';srUpBtn.style.cssText=srBtnStyle
+              srUpBtn.title='Move up';srUpBtn.disabled=sri===0
+              srUpBtn.onclick=()=>{ if(sri>0){const a=tg.searches;[a[sri-1],a[sri]]=[a[sri],a[sri-1]];rebuildSr();_autoSaveSettings()} }
+              const srDnBtn=document.createElement('button');srDnBtn.textContent='▼';srDnBtn.style.cssText=srBtnStyle
+              srDnBtn.title='Move down';srDnBtn.disabled=sri===tg.searches.length-1
+              srDnBtn.onclick=()=>{ const a=tg.searches;if(sri<a.length-1){[a[sri],a[sri+1]]=[a[sri+1],a[sri]];rebuildSr();_autoSaveSettings()} }
+              srRow.appendChild(stIn);srRow.appendChild(sfIn);srRow.appendChild(srUpBtn);srRow.appendChild(srDnBtn);srRow.appendChild(delSrBtn)
+              srCon.appendChild(srRow)
+            })
+            const addSrBtn=document.createElement('button')
+            addSrBtn.textContent='+ Search';addSrBtn.style.cssText='height:22px;padding:0 8px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;cursor:pointer;margin-top:2px;'
+            addSrBtn.onclick=()=>{ if(!tg.searches)tg.searches=[]; tg.searches.push({title:'',searchFor:''}); rebuildSr() }
+            srCon.appendChild(addSrBtn)
+          }
+          rebuildSr();tgCard.appendChild(srCon);tgCon.appendChild(tgCard)
+        })
+        const addTgBtn=document.createElement('button')
+        addTgBtn.textContent='+ Add File Group';addTgBtn.style.cssText='height:24px;padding:0 10px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;cursor:pointer;'
+        addTgBtn.onclick=()=>{ if(!rpt.traceGroups)rpt.traceGroups=[]; rpt.traceGroups.push({filePattern:'',searches:[]}); rebuildTg() }
+        tgCon.appendChild(addTgBtn)
+      }
+      rebuildTg();card.appendChild(tgCon);rptList2.appendChild(card)
+    })
+  }
+  rebuildRpt()
+  rptSec.appendChild(rptList2)
+  const addRptBtn2=document.createElement('button')
+  addRptBtn2.textContent='+ Add Report'
+  addRptBtn2.style.cssText='margin-top:6px;height:28px;padding:0 14px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;'
+  addRptBtn2.onclick=()=>{ if(!s.reports)s.reports=[]; s.reports.push({id:'rpt-'+Date.now(),title:'',configSections:[],traceGroups:[]}); rebuildRpt(); _autoSaveSettings() }
+  rptSec.appendChild(addRptBtn2)
+  sectionEls['reports']=rptSec
+  content.appendChild(rptSec)
+
+  // ── Footer: Save · Export · Import ───────────────────────────────────────
   const footer=document.createElement('div')
-  footer.style.cssText='max-width:700px;display:flex;align-items:center;gap:8px;padding-top:16px;border-top:1px solid #EDEBE9;flex-wrap:wrap;'
+  footer.style.cssText='display:flex;align-items:center;gap:8px;padding-top:16px;margin-top:20px;border-top:1px solid #EDEBE9;flex-wrap:wrap;'
   const saveBtn=document.createElement('button')
   saveBtn.textContent='💾 Save'
   saveBtn.style.cssText='height:32px;padding:0 16px;background:#107C10;color:#fff;border:none;border-radius:2px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;'
@@ -2565,16 +2765,13 @@ function showSettingsPanel(){
   openFolderBtn.style.cssText='font-size:12px;background:none;border:none;cursor:pointer;padding:0 2px;line-height:1;opacity:0.6;'
   openFolderBtn.onmouseenter=()=>{openFolderBtn.style.opacity='1'}
   openFolderBtn.onmouseleave=()=>{openFolderBtn.style.opacity='0.6'}
-  pathEl.appendChild(pathText)
-  pathEl.appendChild(openFolderBtn)
+  pathEl.appendChild(pathText);pathEl.appendChild(openFolderBtn)
   invoke('get_settings_path').then(p=>{
     pathText.textContent='Settings file: '+p
     const folder=p.replace(/[/\\][^/\\]+$/,'')
     openFolderBtn.onclick=()=>invoke('open_folder',{path:folder}).catch(()=>{})
   }).catch(()=>{})
-
   saveBtn.onclick=()=>saveSettingsFull(statusEl)
-
   exportBtn.onclick=async()=>{
     try{
       const jsonStr=JSON.stringify(window._hanaLensSettings,null,2)
@@ -2591,7 +2788,6 @@ function showSettingsPanel(){
       statusEl.textContent='✓ Exported';statusEl.style.color='#107C10';setTimeout(()=>{statusEl.textContent=''},3000)
     }catch(e){statusEl.textContent='✗ Export failed: '+e;statusEl.style.color='#C50F1F'}
   }
-
   importBtn.onclick=async()=>{
     try{
       if(window.__TAURI__?.dialog){
@@ -2622,9 +2818,10 @@ function showSettingsPanel(){
       }
     }catch(e){statusEl.textContent='✗ Import failed: '+e;statusEl.style.color='#C50F1F'}
   }
-
   footer.appendChild(saveBtn);footer.appendChild(exportBtn);footer.appendChild(importBtn);footer.appendChild(statusEl);footer.appendChild(pathEl)
-  panel.appendChild(footer)
+  content.appendChild(footer)
+
+  showSec(activeSection)
 }
 
 function showLoadDropdown(evt, mode){
@@ -2996,7 +3193,7 @@ async function activateNav(clickedItem,panelKey){
       wrap.innerHTML='<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No <strong>config</strong> directory found at <code>SYS/global/hdb/custom/config/</code>.</span></div>'
       return
     }
-    if(!s.configViewMode) s.configViewMode='explained'
+    if(!s.configViewMode) s.configViewMode='pure'
     // If already loaded, render directly
     if(s.configFileHandles.length){
       wrap.innerHTML='<div style="color:#A19F9D;font-size:12px;">Loading…</div>'
@@ -3249,10 +3446,13 @@ function traceGroupCombinedFiles(entries){
     const totalSize=parts.reduce((s,p)=>s+(p.entry.size||0),0)
     const lastMod=Math.max(...parts.map(p=>p.entry.lastModified||0))
     const combinedName=base+'.combined.'+ext
+    const _firstPath=parts[0].entry._path||parts[0].entry.handle?._path||''
+    const _dirPath=_firstPath.replace(/\\/g,'/').replace(/\/[^/]+$/,'')
+    const _combinedPath=_dirPath?_dirPath+'/'+combinedName:''
     const combinedHandle=window.CombinedFileHandle
       ?new window.CombinedFileHandle(combinedName,handles)
       :handles[0]
-    result.push({name:combinedName,isDir:false,isCombined:true,
+    result.push({name:combinedName,_path:_combinedPath,isDir:false,isCombined:true,
       handle:combinedHandle,size:totalSize,lastModified:lastMod,partCount:parts.length})
   }
   return result
@@ -3353,8 +3553,8 @@ async function traceLoadDir(){
   const dirs=[], files=[]
   try{
     for await(const[name,h]of handle.entries()){
-      if(h.kind==='directory')dirs.push({name,handle:h,isDir:true,size:null,lastModified:null})
-      else files.push({name,handle:h,isDir:false,size:null,lastModified:null})
+      if(h.kind==='directory')dirs.push({name,handle:h,_path:h._path||'',isDir:true,size:null,lastModified:null})
+      else files.push({name,handle:h,_path:h._path||'',isDir:false,size:null,lastModified:null})
     }
   }catch(e){
     document.getElementById('trace-list').innerHTML=`<div style="padding:16px;color:#A19F9D;font-size:12px;">Error: ${escHtml(String(e))}</div>`
@@ -3503,7 +3703,7 @@ async function traceOpenFile(idx){
 
 async function traceOpenFileEntry(e){
   if(!traceExplState||!e||e.isDir)return
-  traceExplState.viewingFile={name:e.name,handle:e.handle,offset:0,fileSize:0}
+  traceExplState.viewingFile={name:e.name,handle:e.handle,_path:e._path||e.handle?._path||'',offset:0,fileSize:0}
   await traceLoadDir()
 }
 
@@ -3570,7 +3770,7 @@ async function traceShowCsvView(s){
     })
     html+=`<span class="trace-crumb-sep">/</span>`
     html+=`<span class="trace-crumb-cur" style="user-select:text;cursor:text;">${escHtml(vf.name)}</span>`
-    _traceCopyPath=vf.handle?._path||vf.name
+    _traceCopyPath=vf._path||vf.handle?._path||vf.name
     html+=`<button onclick="traceCopyBreadcrumbPath(this)" title="Copy full path to clipboard" style="margin-left:6px;background:none;border:none;cursor:pointer;font-size:12px;padding:1px 4px;color:#A19F9D;border-radius:2px;line-height:1;" onmouseenter="this.style.color='#323130'" onmouseleave="this.style.color='#A19F9D'">📋</button>`
     bc.innerHTML=html
   }
@@ -3616,7 +3816,7 @@ async function traceShowFileView(s){
     })
     html+=`<span class="trace-crumb-sep">/</span>`
     html+=`<span class="trace-crumb-cur" style="user-select:text;cursor:text;" title="Click to select">${escHtml(vf.name)}</span>`
-    _traceCopyPath=vf.handle?._path||vf.name
+    _traceCopyPath=vf._path||vf.handle?._path||vf.name
     html+=`<button onclick="traceCopyBreadcrumbPath(this)" title="Copy full path to clipboard" style="margin-left:6px;background:none;border:none;cursor:pointer;font-size:12px;padding:1px 4px;color:#A19F9D;border-radius:2px;line-height:1;" onmouseenter="this.style.color='#323130'" onmouseleave="this.style.color='#A19F9D'">📋</button>`
     bc.innerHTML=html
   }
@@ -4584,7 +4784,7 @@ async function configPickRefFolder(){
     if(handle.kind==='file'&&name.endsWith('.ini')) s.configRefHandles[name]=handle
   }
   s._configRefLoaded=false
-  s.configViewMode='explained'
+  s.configViewMode='pure'
   const wrap=document.querySelector('#panel-configuration > div')
   if(!wrap) return
   wrap.innerHTML='<div style="color:#A19F9D;font-size:12px;">Loading…</div>'
@@ -4602,7 +4802,7 @@ async function hsiConfigPickRefFolder(sid,tabId,dbName){
   try{for await(const[n,h]of dirHandle.entries()){if(h.kind==='file'&&n.endsWith('.ini'))refs[n]=h}}catch(e){}
   s.hsiConfigData.refHandles=refs
   s.hsiConfigData.parsedRef=null
-  if(!s.configViewMode)s.configViewMode='explained'
+  if(!s.configViewMode)s.configViewMode='pure'
   await activateHsiTab(sid,tabId,dbName)
 }
 
@@ -4627,7 +4827,7 @@ async function configPickFolder(){
     wrap.innerHTML='<div class="not-found-msg"><span class="nf-icon">⚠️</span><span>No <strong>.ini files</strong> found in the selected folder.</span></div>'
     return
   }
-  if(!s.configViewMode) s.configViewMode='explained'
+  if(!s.configViewMode) s.configViewMode='pure'
   await renderConfigContent(s,wrap)
 }
 
@@ -6016,8 +6216,7 @@ function buildHsiNavGroup(s){
   grp.dataset.sid = s.id
 
   const hdr = document.createElement('div')
-  hdr.className = 'fsid-group-header'
-  hdr.style.borderLeftColor = s.color
+  hdr.className = 'fsid-group-header hsi-session-header'
   hdr.innerHTML = `<span class="fsid-group-arrow">▶</span><span class="fsid-group-label" title="${escHtml(s.label)}">&#128202; ${escHtml(s.label)}<span class="fsid-group-subtitle">${escHtml(s.captureInfo)}</span></span>`
   hdr.onclick = () => { grp.classList.toggle('open'); hdr.classList.toggle('active-group', grp.classList.contains('open')) }
   hdr.oncontextmenu = (e) => { e.preventDefault(); showFsidCtxMenu(s.id, e.clientX, e.clientY) }
@@ -6070,19 +6269,27 @@ function buildHsiNavGroup(s){
   }
 
   // ── Reports block (between tabs and FSIDs) ───────────────────────────────
-  const _reports = window._hanaLensSettings?.reports||[]
-  if(_reports.length > 0){
+  const _isNettest = /nettest/i.test(s.label||'')
+  if(!_isNettest){
+    const _reports = window._hanaLensSettings?.reports||[]
     const rptSep = document.createElement('div')
     rptSep.style.cssText = 'margin:4px 10px 2px 10px;border-top:1px solid #EDEBE9;font-size:10px;font-weight:600;color:#A19F9D;text-transform:uppercase;letter-spacing:0.5px;padding-top:4px;'
     rptSep.textContent = 'Reports'
     children.appendChild(rptSep)
-    for(const rpt of _reports){
-      if(!rpt.title) continue
-      const rptItem = document.createElement('div')
-      rptItem.className = 'fsid-sub-item'
-      rptItem.innerHTML = `<span style="font-size:11px;">📊</span>${escHtml(rpt.title)}`
-      rptItem.onclick = () => activateHsiReport(s.id, rpt.id)
-      children.appendChild(rptItem)
+    if(_reports.filter(r=>r.title).length === 0){
+      const ph = document.createElement('div')
+      ph.style.cssText = 'padding:3px 14px;font-size:11px;color:#C8C6C4;font-style:italic;'
+      ph.textContent = 'Define in Settings…'
+      children.appendChild(ph)
+    } else {
+      for(const rpt of _reports){
+        if(!rpt.title) continue
+        const rptItem = document.createElement('div')
+        rptItem.className = 'fsid-sub-item'
+        rptItem.innerHTML = `<span style="font-size:11px;">📊</span>${escHtml(rpt.title)}`
+        rptItem.onclick = () => activateHsiReport(s.id, rpt.id)
+        children.appendChild(rptItem)
+      }
     }
   }
 
@@ -6214,6 +6421,7 @@ function activateHsiReport(sid, reportId){
 async function renderHsiReport(container, report, s){
   container.innerHTML = '<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
   const sections = (report.configSections||[]).map(x=>x.trim().toLowerCase()).filter(Boolean)
+  const traceGroups = (report.traceGroups||[]).filter(tg=>tg.filePattern||tg.searches?.length)
 
   // Parse INI text into sections map: {sectionName: [{key, value}]}
   function parseIniSections(text){
@@ -6230,11 +6438,56 @@ async function renderHsiReport(container, report, s){
     return map
   }
 
+  // Convert file pattern (with <host>, <serviceport>, <instance> placeholders and * wildcards) to RegExp
+  function patternToRe(pat, host, serviceport){
+    const H='\x00H\x00', P='\x00P\x00', W='\x00W\x00', S='\x00S\x00'
+    let s = pat.replace(/<host>/gi, H).replace(/<serviceport>/gi, P).replace(/<sqlport>/gi, P).replace(/<[^>]+>/g, W).replace(/\*/g, S)
+    s = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    s = s.replace(/\x00H\x00/g, host.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'))
+    s = s.replace(/\x00P\x00/g, serviceport ? String(serviceport) : '\\d+')
+    s = s.replace(/\x00W\x00/g, '\\d+')
+    s = s.replace(/\x00S\x00/g, '.*')
+    try{ return new RegExp('^'+s+'$','i') }catch(e){ return null }
+  }
+
+  // Highlight all occurrences of searchFor in a raw line, return HTML
+  function hlLine(raw, searchFor){
+    const lower = raw.toLowerCase()
+    const sfLower = searchFor.toLowerCase()
+    let result='', pos=0, idx=lower.indexOf(sfLower)
+    while(idx!==-1){
+      result+=escHtml(raw.slice(pos,idx))
+      result+=`<mark style="background:#FFF4CE;border-radius:1px;">${escHtml(raw.slice(idx,idx+searchFor.length))}</mark>`
+      pos=idx+searchFor.length
+      idx=lower.indexOf(sfLower,pos)
+    }
+    return result+escHtml(raw.slice(pos))
+  }
+  // Multi-term highlight: build sorted hit list, apply marks left to right
+  function hlLineMulti(raw, terms){
+    const lower = raw.toLowerCase()
+    const hits = []
+    for(const t of terms){
+      const tl=t.toLowerCase(); let i=lower.indexOf(tl)
+      while(i!==-1){ hits.push({s:i,e:i+t.length}); i=lower.indexOf(tl,i+1) }
+    }
+    hits.sort((a,b)=>a.s-b.s)
+    let result='', pos=0
+    for(const h of hits){
+      if(h.s<pos) continue
+      result+=escHtml(raw.slice(pos,h.s))
+      result+=`<mark style="background:#FFF4CE;border-radius:1px;">${escHtml(raw.slice(h.s,h.e))}</mark>`
+      pos=h.e
+    }
+    return result+escHtml(raw.slice(pos))
+  }
+
   const parts = []
   parts.push(`<div style="font-size:16px;font-weight:700;color:#323130;margin-bottom:2px;">📊 ${escHtml(report.title)}</div>`)
-  if(sections.length){
-    parts.push(`<div style="font-size:11px;color:#A19F9D;margin-bottom:14px;">Configuration — Sections: ${sections.map(s=>`<code style="background:#F3F2F1;padding:0 4px;border-radius:2px;">${escHtml(s)}</code>`).join(' ')}</div>`)
-  }
+  const subtitles=[]
+  if(sections.length) subtitles.push(`Configuration — Sections: ${sections.map(x=>`<code style="background:#F3F2F1;padding:0 4px;border-radius:2px;">${escHtml(x)}</code>`).join(' ')}`)
+  if(traceGroups.length) subtitles.push(`Trace Searches: ${traceGroups.length} file group(s)`)
+  if(subtitles.length) parts.push(`<div style="font-size:11px;color:#A19F9D;margin-bottom:14px;">${subtitles.join(' &nbsp;|&nbsp; ')}</div>`)
 
   const configData = s.hsiConfigData
   if(!configData || !configData.databases?.length){
@@ -6246,6 +6499,16 @@ async function renderHsiReport(container, report, s){
   const dbs = configData.databases // already sorted SYSTEMDB first
   let activeDbIdx = 0
 
+  // Map db.name → child FSID session (for trace searches)
+  const _hsiChildFsids = fsidSessions.filter(cs => cs.hsiParentId === s.id)
+  function _findChildFsid(dbName){
+    const dn = dbName.toLowerCase()
+    return _hsiChildFsids.find(cs=>{
+      const ln = (cs.loadedFolderName||'').toLowerCase()
+      return ln===dn || dn==='db_'+ln || ln===dn.replace(/^db_/,'')
+    }) || (_hsiChildFsids.length===1 ? _hsiChildFsids[0] : null)
+  }
+
   async function showDb(dbIdx){
     activeDbIdx = dbIdx
     const db = dbs[dbIdx]
@@ -6253,32 +6516,242 @@ async function renderHsiReport(container, report, s){
 
     rptContent.innerHTML = '<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
     const rowsHtml = []
-    for(const {name, handle, content} of db.iniHandles){
-      let text
-      try{ text = content!==undefined ? content : await (await handle.getFile()).text() }catch(e){ continue }
-      const parsed = parseIniSections(text)
-      const matchSections = sections.length
-        ? Object.entries(parsed).filter(([sec])=>sections.includes(sec))
-        : Object.entries(parsed)
-      if(!matchSections.length) continue
-      rowsHtml.push(`<div style="font-size:11px;color:#605E5C;font-weight:600;margin:10px 0 4px;">📄 ${escHtml(name)}</div>`)
-      for(const [sec, kvs] of matchSections){
-        if(!kvs.length) continue
-        rowsHtml.push(`<div style="font-size:12px;font-weight:700;color:#0078D4;background:#EFF6FF;border-left:3px solid #0078D4;padding:3px 8px;margin:6px 0 2px;">[${escHtml(sec)}]</div>`)
-        rowsHtml.push(`<table style="width:100%;border-collapse:collapse;font-size:11px;font-family:Consolas,monospace;">`)
-        for(const {key,value} of kvs){
-          rowsHtml.push(`<tr style="border-bottom:1px solid #F3F2F1;"><td style="padding:2px 8px;color:#323130;white-space:nowrap;">${escHtml(key)}</td><td style="padding:2px 8px;color:#107C10;word-break:break-all;">${escHtml(value)}</td></tr>`)
+    _copyConfigParts = []; _copyTraceParts = []
+    const isSystemDb = db.name.toLowerCase() === 'systemdb'
+    const activeTg = traceGroups.filter(tg=>{ const sc=tg.dbScope||'all'; return sc==='all'||(sc==='systemdb'&&isSystemDb)||(sc==='tenant'&&!isSystemDb) })
+
+    // ── Config sections ──
+    if(sections.length){
+      let anySection = false
+      for(const {name, handle, content} of db.iniHandles){
+        let text
+        try{ text = content!==undefined ? content : await (await handle.getFile()).text() }catch(e){ continue }
+        const parsed = parseIniSections(text)
+        const matchSections = Object.entries(parsed).filter(([sec])=>sections.includes(sec))
+        if(!matchSections.length) continue
+        anySection = true
+        rowsHtml.push(`<div data-copy-sep data-copy-text="${escHtml(name)}" style="font-size:11px;color:#605E5C;font-weight:600;margin:10px 0 4px;">📄 ${escHtml(name)}</div>`)
+        if(_copyConfigParts.length>0) _copyConfigParts.push('')
+        _copyConfigParts.push(name)
+        for(const [sec, kvs] of matchSections){
+          if(!kvs.length) continue
+          rowsHtml.push(`<div data-copy-text="${escHtml('['+sec+']')}" style="font-size:12px;font-weight:700;color:#0078D4;background:#EFF6FF;border-left:3px solid #0078D4;padding:3px 8px;margin:6px 0 0;">[${escHtml(sec)}]</div>`)
+          _copyConfigParts.push('['+sec+']')
+          rowsHtml.push(`<table style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:11px;font-family:Consolas,monospace;margin-bottom:4px;">`)
+          for(const {key,value} of kvs){
+            rowsHtml.push(`<tr data-copy-text="${escHtml('  '+key.padEnd(42)+'  '+value)}" style="border-bottom:1px solid #F3F2F1;"><td style="width:280px;padding:3px 12px 3px 8px;color:#323130;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(key)}</td><td style="padding:3px 8px;color:#107C10;word-break:break-all;">${escHtml(value)}</td></tr>`)
+            _copyConfigParts.push('  '+key.padEnd(42)+'  '+value)
+          }
+          rowsHtml.push(`</table>`)
         }
-        rowsHtml.push(`</table>`)
+      }
+      if(!anySection){
+        rowsHtml.push(`<div style="font-size:11px;color:#A19F9D;padding:4px 0;">No matching sections (${sections.map(s=>`<code style="background:#F3F2F1;padding:0 3px;border-radius:2px;">${escHtml(s)}</code>`).join(', ')}) found in ${escHtml(db.name)} configuration.</div>`)
       }
     }
-    rptContent.innerHTML = rowsHtml.length ? rowsHtml.join('') : '<div style="color:#A19F9D;padding:12px;">No matching sections found in this database.</div>'
+
+    // ── Trace Searches ──
+    if(activeTg.length){
+      const childFsid = _findChildFsid(db.name)
+      const servers = childFsid?.traceExplorerData?.servers || []
+      if(servers.length){
+        if(rowsHtml.length) rowsHtml.push(`<div style="height:1px;background:#EDEBE9;margin:14px 0 10px;"></div>`)
+        rptContent.innerHTML = rowsHtml.join('')
+        rowsHtml.length = 0
+
+        const traceWrap = document.createElement('div')
+        rptContent.appendChild(traceWrap)
+
+        const traceHdr = document.createElement('div')
+        traceHdr.style.cssText = 'font-size:12px;font-weight:700;color:#323130;margin-bottom:6px;'
+        traceWrap.appendChild(traceHdr)
+
+        // host tab bar — only shown when >1 server
+        const hostTabBar = document.createElement('div')
+        hostTabBar.style.cssText = 'display:flex;gap:2px;margin-bottom:8px;flex-wrap:wrap;'
+        hostTabBar.dataset.nocopy = 'true'
+        if(servers.length > 1) traceWrap.appendChild(hostTabBar)
+
+        const traceResultArea = document.createElement('div')
+        traceWrap.appendChild(traceResultArea)
+
+        async function showHostTraces(srvIdx){
+          if(_copyBtn){_copyBtn.disabled=true;_copyBtn.style.cursor='not-allowed';_copyBtn.style.opacity='0.6';_copyBtn.textContent='⌛ Loading…'}
+          hostTabBar.querySelectorAll('button').forEach((b,i)=>b.classList.toggle('active',i===srvIdx))
+          const srv = servers[srvIdx]
+          const host = srv.name
+          // derive serviceport from topology
+          const topoHost = s.topoData?.hosts?.find(h=>h.name===host)
+          let serviceport = null
+          if(topoHost){
+            if(isSystemDb){
+              // SYSTEMDB: use nameserver service port (database field may be empty in topology)
+              serviceport = topoHost.services.find(svc=>svc.name==='nameserver')?.port ?? null
+            } else {
+              // Tenant: find by database field match, fallback to first indexserver
+              const tn = db.name.toLowerCase().replace(/^db_/,'')
+              serviceport = (topoHost.services.find(svc=>svc.database.toLowerCase()===tn)
+                          || topoHost.services.find(svc=>svc.name==='indexserver'))?.port ?? null
+            }
+          }
+          const svcPortLabel = serviceport ? ` · service port: <code style="background:#EFF6FF;padding:0 4px;border-radius:2px;color:#0078D4;font-size:10px;">${serviceport}</code>` : ''
+          traceHdr.innerHTML = `🔍 Trace Searches <span style="font-weight:400;font-size:11px;color:#A19F9D;">host: ${escHtml(host)}${svcPortLabel}</span>`
+          traceResultArea.innerHTML = ''
+          _copyTraceParts = []
+
+          for(const tg of activeTg){
+            if(!tg.filePattern) continue
+            let traceDir = null
+            try{
+              const baseTrace = await srv.handle.getDirectoryHandle('trace')
+              if(!isSystemDb){
+                // Tenant: try trace/DB_CEP/ first (combined FSID), fall back to trace/ (separate FSID)
+                try{ traceDir = await baseTrace.getDirectoryHandle(db.name) }catch(e){
+                  traceDir = baseTrace
+                }
+              } else {
+                traceDir = baseTrace
+              }
+            }catch(e){ continue }
+            const traceFiles = []
+            try{ for await(const[fn,fh] of traceDir.entries()){ if(fh.kind==='file') traceFiles.push({name:fn,handle:fh}) } }catch(e){ continue }
+            const pats = tg.filePattern.split(';').map(p=>p.trim()).filter(Boolean)
+            const excTerms = (tg.exclude||'').split(';').map(p=>p.trim().toLowerCase()).filter(Boolean)
+            const matched = traceFiles.filter(f=>{
+              if(!pats.some(p=>{ const re=patternToRe(p,host,serviceport); return re&&re.test(f.name) })) return false
+              if(excTerms.some(ex=>f.name.toLowerCase().includes(ex))) return false
+              return true
+            })
+            const splitPat=/^(.+)\.(\d{3,})\.(trc|csv)$/i
+            const splitGroups=new Map()
+            const groupedFiles=[]
+            for(const f of matched){
+              const m=f.name.match(splitPat)
+              if(!m){groupedFiles.push(f);continue}
+              const key=m[1]+'.'+m[3].toLowerCase()
+              if(!splitGroups.has(key))splitGroups.set(key,{name:m[1]+'.combined.'+m[3].toLowerCase(),parts:[],isCombined:true})
+              splitGroups.get(key).parts.push(f)
+            }
+            for(const g of splitGroups.values()){
+              if(g.parts.length<2)groupedFiles.push(g.parts[0]); else groupedFiles.push(g)
+            }
+
+            const grpDiv = document.createElement('div')
+            grpDiv.style.cssText = 'border:1px solid #EDEBE9;border-radius:3px;padding:8px 10px;margin-bottom:10px;'
+            grpDiv.dataset.rptGroup = 'true'
+            grpDiv.dataset.copySep = 'true'
+            const _grpHdrCopy = 'File: '+tg.filePattern+(excTerms.length ? '  excl: '+excTerms.join(' ; ') : '')
+            _copyTraceParts.push(''); _copyTraceParts.push(_grpHdrCopy)
+            grpDiv.innerHTML = `<div data-copy-text="${escHtml(_grpHdrCopy)}" style="font-size:11px;color:#605E5C;font-weight:600;margin-bottom:4px;font-family:Consolas,monospace;">📁 ${escHtml(tg.filePattern)}${excTerms.length?` <span style="font-weight:400;color:#A19F9D;">excl: ${excTerms.map(e=>`<code style="background:#F3F2F1;padding:0 3px;border-radius:2px;">${escHtml(e)}</code>`).join(' ')}</span>`:''}</div>`
+            if(!groupedFiles.length){
+              grpDiv.innerHTML += `<div data-copy-text="${escHtml('No matching trace files found for host '+host+'.')}" style="font-size:11px;color:#A19F9D;padding:2px 0;">No matching trace files found for host <b>${escHtml(host)}</b>.</div>`
+              _copyTraceParts.push('  No matching trace files found for host '+host+'.')
+              traceResultArea.appendChild(grpDiv)
+              continue
+            }
+            const _fileListCopy = groupedFiles.map(f=>f.name+(f.isCombined?' ('+f.parts.length+' parts)':'')).join(', ')
+            _copyTraceParts.push('  '+_fileListCopy)
+            grpDiv.innerHTML += `<div data-copy-text="${escHtml(_fileListCopy)}" style="font-size:10px;color:#A19F9D;margin-bottom:6px;">${groupedFiles.map(f=>`<span style="background:#F3F2F1;padding:0 4px;border-radius:2px;margin-right:3px;">${escHtml(f.name)}${f.isCombined?` <span style="color:#0078D4;">(${f.parts.length} parts)</span>`:''}</span>`).join('')}</div>`
+            traceResultArea.appendChild(grpDiv)
+
+            for(const sr of (tg.searches||[])){
+              if(!sr.searchFor) continue
+              const srTerms = sr.searchFor.split(';').map(t=>t.trim()).filter(Boolean)
+              const srDiv = document.createElement('div')
+              srDiv.style.cssText = 'margin-bottom:8px;'
+              srDiv.dataset.copySep = 'true'
+              srDiv.innerHTML = `<div data-copy-text="${escHtml(sr.title||sr.searchFor)}" style="font-size:11px;font-weight:700;color:#0078D4;margin-bottom:3px;">🔍 ${escHtml(sr.title||sr.searchFor)}</div>`
+              srDiv.innerHTML += `<div data-copy-text="${escHtml('searching for: '+srTerms.join(' OR '))}" style="font-size:10px;color:#A19F9D;margin-bottom:3px;">searching for: ${srTerms.map(t=>`<code style="background:#F3F2F1;padding:0 4px;border-radius:2px;">${escHtml(t)}</code>`).join(' <span style="color:#C8C6C4;">OR</span> ')}</div>`
+              _copyTraceParts.push(''); _copyTraceParts.push(sr.title||sr.searchFor); _copyTraceParts.push('searching for: '+srTerms.join(' OR '))
+              const resultDiv = document.createElement('div')
+              resultDiv.style.cssText = 'color:#A19F9D;font-size:11px;'
+              resultDiv.textContent = 'Searching…'
+              srDiv.appendChild(resultDiv)
+              grpDiv.appendChild(srDiv)
+              await (async()=>{
+                const allLines = []
+                const MAX_FILE_BYTES = 30 * 1024 * 1024
+                const srTermsLower = srTerms.map(t=>t.toLowerCase())
+                for(const f of groupedFiles){
+                  const filesToRead = f.isCombined ? f.parts : [f]
+                  const combinedHits = []
+                  for(const part of filesToRead){
+                    try{
+                      const fileObj = await part.handle.getFile()
+                      if(fileObj.size > MAX_FILE_BYTES){
+                        combinedHits.push(`⚠ ${part.name} skipped (${Math.round(fileObj.size/1024/1024)} MB > 30 MB limit)`)
+                        continue
+                      }
+                      const text = await fileObj.text()
+                      text.split('\n').filter(l=>{ const ll=l.toLowerCase(); return srTermsLower.some(t=>ll.includes(t)) }).forEach(l=>combinedHits.push(l))
+                    }catch(e){}
+                  }
+                  if(combinedHits.length){
+                    _copyTraceParts.push('  '+f.name+' — '+combinedHits.length+' match'+(combinedHits.length===1?'':'es'))
+                    for(const l of combinedHits) _copyTraceParts.push(l)
+                    allLines.push(`<div data-copy-text="${escHtml('  '+f.name+' — '+combinedHits.length+' match'+(combinedHits.length===1?'':'es'))}" style="font-size:10px;color:#605E5C;font-weight:600;margin:4px 0 2px;">📄 ${escHtml(f.name)} — ${combinedHits.length} match${combinedHits.length===1?'':'es'}</div>`)
+                    allLines.push(`<div data-nocopy="true" style="font-family:Consolas,monospace;font-size:10px;background:#F3F2F1;border-radius:2px;padding:4px 8px;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;">${combinedHits.map(l=>hlLineMulti(l,srTerms)).join('\n')}</div>`)
+                  }
+                }
+                if(!allLines.length) _copyTraceParts.push('  No matches found.')
+                resultDiv.innerHTML = allLines.length ? allLines.join('') : `<span data-copy-text="  No matches found." style="color:#A19F9D;">No matches found.</span>`
+              })()
+            }
+          }
+          if(_copyBtn){_copyBtn.disabled=false;_copyBtn.style.cursor='pointer';_copyBtn.style.opacity='';_copyBtn.textContent='📋 Copy'}
+        }
+
+        servers.forEach((srv, i) => {
+          const b = document.createElement('button')
+          b.className = 'hsi-subtab-btn' + (i===0?' active':'')
+          b.style.cssText += 'font-size:11px;padding:2px 10px;height:24px;'
+          b.textContent = srv.name
+          b.onclick = () => showHostTraces(i)
+          hostTabBar.appendChild(b)
+        })
+        await showHostTraces(0)
+      } else {
+        const noTrace = document.createElement('div')
+        noTrace.style.cssText = 'color:#A19F9D;font-size:11px;padding:8px;border:1px solid #EDEBE9;border-radius:3px;margin-top:8px;'
+        noTrace.textContent = `Trace Searches: no trace data available for ${db.name} (FSID not loaded or no HDB directory found).`
+        rptContent.appendChild(noTrace)
+      }
+    }
+
+    if(!activeTg.length){
+      rptContent.innerHTML = rowsHtml.length ? rowsHtml.join('') : '<div style="color:#A19F9D;padding:12px;">No matching sections found in this database.</div>'
+    } else if(rowsHtml.length){
+      rptContent.insertAdjacentHTML('afterbegin', rowsHtml.join(''))
+    }
   }
 
   container.innerHTML = parts.join('')
+  // ── Copy button ───────────────────────────────────────────────────────────
+  let _copyBtn = null
+  let _copyConfigParts = [], _copyTraceParts = []
+  const _titleDiv = container.firstElementChild
+  if(_titleDiv){
+    _titleDiv.dataset.nocopy='true'
+    _titleDiv.style.display='flex';_titleDiv.style.alignItems='center';_titleDiv.style.justifyContent='space-between'
+    _copyBtn=document.createElement('button')
+    _copyBtn.textContent='⌛ Loading…'
+    _copyBtn.disabled=true
+    _copyBtn.style.cssText='height:24px;padding:0 10px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;cursor:not-allowed;font-family:inherit;flex-shrink:0;opacity:0.6;'
+    _copyBtn.onclick=()=>{
+      const text=`=== ${report.title} ===\nDB: ${dbs[activeDbIdx]?.name||''}\n\n`+[..._copyConfigParts,..._copyTraceParts].join('\n')
+      navigator.clipboard.writeText(text).catch(()=>{
+        const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select()
+        try{document.execCommand('copy')}catch(e){}
+        ta.remove()
+      })
+      _copyBtn.textContent='✓ Copied';setTimeout(()=>{_copyBtn.textContent='📋 Copy'},2000)
+    }
+    _titleDiv.appendChild(_copyBtn)
+  }
 
   const tabBar = document.createElement('div')
   tabBar.style.cssText = 'display:flex;gap:2px;border-bottom:1px solid #EDEBE9;margin-bottom:10px;'
+  tabBar.dataset.nocopy = 'true'
   dbs.forEach((db,i)=>{
     const b = document.createElement('button')
     b.className = 'hsi-subtab-btn'+(i===0?' active':'')
@@ -6530,7 +7003,7 @@ async function activateHsiTab(sid, tabId, subTabFile){
     }
     s.configRefData = s.hsiConfigData.parsedRef
     const hasRef = Object.keys(s.hsiConfigData.parsedRef).length > 0
-    if(!s.configViewMode) s.configViewMode='explained'
+    if(!s.configViewMode) s.configViewMode='pure'
     const mode = s.configViewMode
     const btnStyle=(active)=>`padding:5px 14px;border:none;background:${active?'#0078D4':'#fff'};color:${active?'#fff':'#323130'};cursor:pointer;font-family:inherit;font-size:12px;`
     const parts=[]
@@ -6883,7 +7356,7 @@ async function _hsiRenderIniViewerTab(contentArea, s){
   }
   s.configRefData=s.hsiConfigData.parsedRef
   const hasRef=Object.keys(s.hsiConfigData.parsedRef||{}).length>0
-  if(!s.configViewMode) s.configViewMode='explained'
+  if(!s.configViewMode) s.configViewMode='pure'
   contentArea.innerHTML='<div style="color:#A19F9D;font-size:12px;padding:8px;">Loading…</div>'
   const parts=[]
   for(const db of s.hsiConfigData.databases){
