@@ -123,6 +123,10 @@ public class HanaLensServer {
             case "open_in_dump_analyzer":
                 Commands.openInDumpAnalyzer(Json.str(a, "dumpPath", "dump_path"));
                 return "null";
+            case "check_for_updates": {
+                String tag = Commands.checkForUpdates();
+                return tag != null ? "\"" + tag + "\"" : "null";
+            }
 
             // ── Filter presets / reference ────────────────────────────────────
             case "read_filter_files":

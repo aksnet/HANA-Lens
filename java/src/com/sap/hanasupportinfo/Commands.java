@@ -2,7 +2,7 @@ package com.sap.hanasupportinfo;
 
 import java.awt.Desktop;
 import java.io.*;
-import java.net.URI;
+import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
@@ -224,6 +224,33 @@ public class Commands {
 
     public static void writeTextFile(String path, String content) throws IOException {
         Files.write(Paths.get(path), content.getBytes(StandardCharsets.UTF_8));
+    }
+
+    // ── Update check ─────────────────────────────────────────────────────────
+
+    /** Returns the latest release tag from GitHub, or null on failure. */
+    public static String checkForUpdates() {
+        try {
+            URL url = new URL("https://api.github.com/repos/aksnet/HANA-Lens/releases/latest");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+            conn.setRequestProperty("Accept", "application/vnd.github+json");
+            conn.setRequestProperty("User-Agent", "HANA-Lens");
+            if (conn.getResponseCode() != 200) return null;
+            try (InputStream is = conn.getInputStream();
+                 java.util.Scanner sc = new java.util.Scanner(is, "UTF-8")) {
+                String body = sc.useDelimiter("\\A").next();
+                int idx = body.indexOf("\"tag_name\"");
+                if (idx < 0) return null;
+                int q1 = body.indexOf('"', idx + 10) + 1;
+                int q2 = body.indexOf('"', q1);
+                return q1 > 0 && q2 > q1 ? body.substring(q1, q2) : null;
+            }
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     // ── HanaDumpAnalyzer ──────────────────────────────────────────────────────
