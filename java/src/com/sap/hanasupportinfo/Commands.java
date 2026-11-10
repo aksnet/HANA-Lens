@@ -228,10 +228,10 @@ public class Commands {
 
     // ── Update check ─────────────────────────────────────────────────────────
 
-    /** Returns the latest release tag from GitHub, or null on failure. */
+    /** Returns the latest tag from GitHub, or null on failure. */
     public static String checkForUpdates() {
         try {
-            URL url = new URL("https://api.github.com/repos/aksnet/HANA-Lens/releases/latest");
+            URL url = new URL("https://api.github.com/repos/aksnet/HANA-Lens/tags");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(5000);
@@ -242,9 +242,10 @@ public class Commands {
             try (InputStream is = conn.getInputStream();
                  java.util.Scanner sc = new java.util.Scanner(is, "UTF-8")) {
                 String body = sc.useDelimiter("\\A").next();
-                int idx = body.indexOf("\"tag_name\"");
+                // Tags API returns array; first element = latest tag
+                int idx = body.indexOf("\"name\"");
                 if (idx < 0) return null;
-                int q1 = body.indexOf('"', idx + 10) + 1;
+                int q1 = body.indexOf('"', idx + 6) + 1;
                 int q2 = body.indexOf('"', q1);
                 return q1 > 0 && q2 > q1 ? body.substring(q1, q2) : null;
             }

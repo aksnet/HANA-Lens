@@ -8,6 +8,8 @@ public class Main {
     public static void main(String[] args) {
         // Ensure Swing file dialogs work on headless-configured JVMs
         System.setProperty("java.awt.headless", "false");
+        // Use OS-configured proxy (SAP corporate network)
+        System.setProperty("java.net.useSystemProxies", "true");
 
         int port = 7321;
         try {

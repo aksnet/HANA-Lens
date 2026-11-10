@@ -1,5 +1,5 @@
 // PLACEHOLDER - PART 1: PARSER
-const APP_VERSION = '2026_11_03_22'
+const APP_VERSION = '2026_11_10_02'
 const MACHINE_KEYS = new Set(['async_io_limit','build_version','clocksource.current_clocksource','cpu_clock','cpu_cores','cpu_flags','cpu_manufacturer','cpu_model','cpu_sockets','cpu_summary','cpu_threads','hw_manufacturer','hw_model','kernel.numa_balancing','kernel.shmall','kernel.shmmax','kernel.shmmni','kernel.transparent_hugepage.enabled','mem_phys','mem_swap','memory_map_area_limit','open_file_limit','os_cpe_name','os_kernel_version','os_name','os_ppms_name','os_rlimit_nofile','os_user','platform','sap_retrieval_path','sap_retrieval_path_shared','sid','sapsystem','start_time','timezone_base_name','timezone_dst_name','timezone_name','timezone_offset','timezone_tz_name','topology_mem_info','topology_mem_type'])
 const NETWORK_KEYS = new Set(['net_domain','net_hostnames','net_ip_addresses','net_nameserver_bindings','net_port_ephemeral_max_count','net_port_ranges','net_port_unreserved_ranges','net_publicname','net_publicports','net_realhostname','net.core.somaxconn','net.ipv4.tcp_max_syn_backlog','net.ipv4.tcp_rmem','net.ipv4.tcp_syn_retries','net.ipv4.tcp_timestamps','net.ipv4.tcp_tw_recycle','net.ipv4.tcp_tw_reuse','net.ipv4.tcp_window_scaling','net.ipv4.tcp_wmem'])
 
@@ -1443,9 +1443,153 @@ function parseRteSemiCsvLine(line){
   return result
 }
 
+// ── AI Analysis Prompts for STATISTICS sections ───────────────────────────
+if(!window._rteAiPromptData) window._rteAiPromptData = {}
+
+function showRteAiPrompts(uid, event){
+  event.stopPropagation()
+  const existing = document.getElementById('rte-ai-menu')
+  if(existing){ existing.remove(); return }
+  const idx = window._rteAiDumpIndex?.[uid] || {}
+  const menu = document.createElement('div')
+  menu.id = 'rte-ai-menu'
+  menu.style.cssText = 'position:fixed;z-index:9999;background:#fff;border:1px solid #EDEBE9;border-radius:4px;box-shadow:0 4px 20px rgba(0,0,0,0.18);padding:12px;min-width:480px;'
+  const rect = event.target.getBoundingClientRect()
+  const top = Math.min(rect.bottom + 4, window.innerHeight - 120)
+  const left = Math.min(rect.left, window.innerWidth - 500)
+  menu.style.top = top + 'px'
+  menu.style.left = left + 'px'
+  const rows = [
+    { issue:'LogShippingTimeout', view:'M_SYSTEM_REPLICATION_PRIMARY_STATISTICS', sbid: idx.mSrpStat }
+  ]
+  const rowsHtml = rows.map(r => {
+    const hasData = !!r.sbid
+    const copyBtn = hasData
+      ? `<button id="rte-ai-copy-btn-${r.sbid}" onclick="window._copyRteAiPrompt('${r.sbid}')" style="font-size:10px;padding:2px 10px;background:#0078D4;color:#fff;border:none;border-radius:2px;cursor:pointer;white-space:nowrap;">Copy Prompt and Data</button>`
+      : `<button disabled style="font-size:10px;padding:2px 10px;background:#F3F2F1;color:#A19F9D;border:none;border-radius:2px;cursor:default;white-space:nowrap;" title="View not found in this dump">Copy Prompt and Data</button>`
+    return `<tr>
+      <td style="padding:5px 10px;border:1px solid #EDEBE9;white-space:nowrap;">${r.issue}</td>
+      <td style="padding:5px 10px;border:1px solid #EDEBE9;white-space:nowrap;font-family:'Consolas',monospace;font-size:10px;">${r.view}</td>
+      <td style="padding:5px 10px;border:1px solid #EDEBE9;">${copyBtn}</td>
+    </tr>`
+  }).join('')
+  menu.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <span style="font-size:12px;font-weight:700;color:#323130;">🤖 AI Analysis Prompts</span>
+      <button onclick="document.getElementById('rte-ai-menu').remove()" style="background:transparent;border:none;cursor:pointer;font-size:14px;color:#A19F9D;padding:0 2px;line-height:1;">✕</button>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;">
+      <thead><tr style="background:#F3F2F1;">
+        <th style="padding:4px 10px;text-align:left;border:1px solid #EDEBE9;font-weight:600;">Issue</th>
+        <th style="padding:4px 10px;text-align:left;border:1px solid #EDEBE9;font-weight:600;">View</th>
+        <th style="padding:4px 10px;text-align:left;border:1px solid #EDEBE9;font-weight:600;">Prompt</th>
+      </tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>`
+  document.body.appendChild(menu)
+  setTimeout(()=>{
+    function _closeAiMenu(e){ if(!menu.contains(e.target)){ menu.remove(); document.removeEventListener('mousedown',_closeAiMenu) } }
+    document.addEventListener('mousedown', _closeAiMenu)
+  }, 0)
+}
+
+window._copyRteAiPrompt = function(sbid){
+  const data = window._rteAiPromptData?.[sbid]
+  if(!data){ alert('Data not available for this section.'); return }
+  const headers = data.cols.map(c => c.replace(/\s*\[.*?\]/,'').trim())
+  let tableText = headers.join('\t') + '\n'
+  for(const row of data.parsedRows) tableText += headers.map((_,i) => row[i]??'').join('\t') + '\n'
+  const contextBlock = [
+    data.filename ? `File: ${data.filename}` : '',
+    data.headerText || ''
+  ].filter(Boolean).join('\n\n')
+  const PROMPT = `You are a Senior SAP HANA Support Engineer specializing in System Replication. Analyze the following output from \`M_SYSTEM_REPLICATION_PRIMARY_STATISTICS\` and produce a structured technical report in English.
+
+**Format the output exactly as follows:**
+
+---
+
+**0. Context block** — reproduce the following information verbatim at the very top of the output, formatted as a fenced code block:
+
+File name
+The full ===...=== runtime dump header (PID, Rundirectory, Process start time, Runtime dump times, SectionTimeout, KillTimeout, Runtime Dump Filter)
+
+**1. Header block:**
+- Title: \`M_SYSTEM_REPLICATION_PRIMARY_STATISTICS — Deep Dive\`
+- One-sentence description of what this view is and what it represents.
+
+**2. "At a Glance" summary table** with one column per secondary site, showing:
+- Mode (SYNC / ASYNC)
+- Status with text-based status light indicator:
+  - \`[● RED]    ERROR\`
+  - \`[● AMBER]  INITIALIZING\`
+  - \`[● GREEN]  ACTIVE\`
+- Problem (short phrase)
+- Severity (Critical / Moderate / OK)
+
+**3. Warning-only detail tables**, grouped by the following sections (only include a section if it contains at least one warning row):
+- Identity & Basic Configuration
+- Connection Stability
+- Log Sending
+- Log Shipping
+- Log Replay
+- Full Replica Statistics
+- Current Transfer in Progress
+- Async Log Shipping Buffer
+- Backup Consistency
+
+Each table has four columns: \`Column\` | \`Site X\` (one per secondary) | \`What it means\`
+
+Rules for the detail tables:
+- **Only include rows that have a warning.** Skip all rows without issues.
+- Mark each warning with \`[!]\` at the start of the "What it means" cell.
+- For critical warnings use \`[!! CRITICAL]\` instead.
+- Convert all raw byte values to human-readable units (MB / GB / TB).
+- Convert all microsecond values to human-readable durations (seconds / minutes / hours / days).
+- In the "What it means" column: explain the column's purpose, what the value indicates, and why it is a problem. If a value is abnormal, state what a normal value looks like for comparison.
+
+**4. Summary section** titled \`Summary — What You're Looking At\`:
+- For each secondary site: one bold lead sentence stating the site ID, mode, status,
+  and the single most important problem. Then 3–5 tight bullet points covering:
+  root cause, key metrics (use converted units), and immediate risk (bold).
+- One final short paragraph on the common root cause across all sites, if applicable.
+- No prose paragraphs. Bullets only, except for the common root cause line.
+
+**5. Known Limitations section** titled \`Known Limitations of This View\`:
+- 4–6 short bullet points maximum.
+- Use \`inline code\` formatting for all column and view names.
+- Each bullet: one or two sentences. No nested lists.
+- Cover: timestamp locality, cumulative counters, point-in-time snapshot,
+  primary-only visibility, BACKUP_HISTORY_COMPLETE semantics.
+
+---
+
+**Tone and style:**
+- Technical but accessible — assume the reader understands HANA concepts but not every column name.
+- No filler phrases, no pleasantries.
+- Use bold for critical values.
+- All output in English.
+
+---
+
+Here is the context:
+
+${contextBlock}
+
+Here is the data:
+
+${tableText}`
+  navigator.clipboard.writeText(PROMPT).then(()=>{
+    const btn = document.getElementById('rte-ai-copy-btn-'+sbid)
+    if(btn){ btn.textContent='✓ Copied!'; btn.style.background='#107C10'; setTimeout(()=>{ btn.textContent='Copy Prompt and Data'; btn.style.background='#0078D4' }, 2000) }
+  }).catch(()=>{ alert('Copy to clipboard failed.') })
+}
+
 function renderRteDumpFileContent(text,filename){
   // unique prefix per render call to avoid ID collisions across tabs
   const uid='r'+Math.random().toString(36).slice(2,8)
+  if(!window._rteAiDumpIndex)window._rteAiDumpIndex={}
+  window._rteAiDumpIndex[uid]={}
   const rawLines=text.split('\n').map(l=>l.replace(/\r$/,''))
 
   // Real top-level section header: starts at col 0 with [UPPERCASE_NAME]
@@ -1470,6 +1614,12 @@ function renderRteDumpFileContent(text,filename){
     }
   }
   if(curSec)sections.push(curSec)
+
+  // store dump context for AI prompts
+  window._rteAiDumpIndex[uid].filename = filename || ''
+  const _tocIdx = preLines.findIndex(l => l.trim().startsWith('Table of contents'))
+  const _headerLines = _tocIdx >= 0 ? preLines.slice(0, _tocIdx) : preLines
+  window._rteAiDumpIndex[uid].headerText = _headerLines.filter(l=>l.trim()).join('\n')
 
   let html=''
 
@@ -1576,6 +1726,8 @@ function renderRteDumpFileContent(text,filename){
         const rowBadge=fmatch&&parseInt(fmatch[1])>0
           ?`<span style="margin-left:8px;font-size:10px;background:#EFF6FF;color:#0078D4;border:1px solid #BAD7FF;border-radius:2px;padding:1px 6px;">${fmatch[1]} rows</span>`
           :`<span style="margin-left:8px;font-size:10px;color:#A19F9D;">0 rows</span>`
+        const isAiView=/^M_SYSTEM_REPLICATION_PRIMARY_STATISTICS/.test(tableName)
+        if(isAiView){ if(!window._rteAiPromptData)window._rteAiPromptData={}; window._rteAiPromptData[sbid]={cols,parsedRows,tableName,filename:window._rteAiDumpIndex[uid].filename,headerText:window._rteAiDumpIndex[uid].headerText}; window._rteAiDumpIndex[uid].mSrpStat=sbid }
         statsToc.push({id:sbid,name:tableName,rows:fmatch?parseInt(fmatch[1]):0})
         statsDivs.push(`<div class="collapse-panel" id="${sbid}">
           <div class="collapse-header" onclick="toggleCollapse('${sbid}')" style="font-family:'Consolas','Courier New',monospace;font-size:11px;">
@@ -1611,15 +1763,18 @@ function renderRteDumpFileContent(text,filename){
     }
   }
 
-  // ── search bar (per-tab, searches within this dump's rendered content) ──
+  // ── search bar + AI Prompts button ──────────────────────────────────────
   const searchBarId=`rte-ts-${uid}`
   const searchResId=`rte-tr-${uid}`
-  const searchBar=`<div style="padding:8px 8px 4px 8px;position:relative;">
-    <input id="${searchBarId}" type="text" placeholder="🔍 Search in this dump… (double-click result to jump)"
-      oninput="rteDumpTabSearch('${uid}',this.value,'${searchResId}')"
-      style="width:100%;height:26px;padding:0 8px;border:1px solid #EDEBE9;border-radius:2px;font-family:'Consolas','Courier New',monospace;font-size:11px;outline:none;"
-      onfocus="this.style.borderColor='#0078D4'" onblur="this.style.borderColor='#EDEBE9'">
-    <div id="${searchResId}" style="position:absolute;left:8px;right:8px;z-index:50;"></div>
+  const searchBar=`<div style="padding:8px 8px 4px 8px;display:flex;align-items:center;gap:8px;">
+    <div style="flex:1;position:relative;">
+      <input id="${searchBarId}" type="text" placeholder="🔍 Search in this dump… (double-click result to jump)"
+        oninput="rteDumpTabSearch('${uid}',this.value,'${searchResId}')"
+        style="width:100%;height:26px;padding:0 8px;box-sizing:border-box;border:1px solid #EDEBE9;border-radius:2px;font-family:'Consolas','Courier New',monospace;font-size:11px;outline:none;"
+        onfocus="this.style.borderColor='#0078D4'" onblur="this.style.borderColor='#EDEBE9'">
+      <div id="${searchResId}" style="position:absolute;left:0;right:0;z-index:50;"></div>
+    </div>
+    <button onclick="showRteAiPrompts('${uid}',event)" style="flex-shrink:0;font-size:11px;padding:0 10px;background:transparent;border:1px solid #0078D4;border-radius:2px;cursor:pointer;color:#0078D4;height:26px;white-space:nowrap;">🤖 AI Prompts</button>
   </div>`
 
   html=searchBar+html
@@ -2387,7 +2542,10 @@ function toggleAppMenu(btn){
   d.innerHTML=
     `<div class="ctx-item" id="_amSettings">&#9881; Settings</div>`+
     `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
-    `<div class="ctx-item" id="_amKba">&#128203; KBA 3771222</div>`
+    `<div class="ctx-item" id="_amKba">&#128203; KBA 3771222</div>`+
+    `<div style="border-top:1px solid #EDEBE9;margin:4px 0;"></div>`+
+    `<div class="ctx-item" id="_amBug">&#128027; Report a Bug</div>`+
+    `<div class="ctx-item" id="_amFeature">&#128161; Feature Request</div>`
   document.getElementById('_amSettings').onclick=(e)=>{
     e.stopPropagation()
     hideAppMenu()
@@ -2397,6 +2555,16 @@ function toggleAppMenu(btn){
     e.stopPropagation()
     hideAppMenu()
     invoke('open_external_url',{url:'https://me.sap.com/notes/3771222'}).catch(()=>{})
+  }
+  document.getElementById('_amBug').onclick=(e)=>{
+    e.stopPropagation()
+    hideAppMenu()
+    invoke('open_external_url',{url:'https://github.tools.sap/D055116/HANA-Lens/issues/new?labels=bug&title=Bug+(v'+APP_VERSION+'):+'}).catch(()=>{})
+  }
+  document.getElementById('_amFeature').onclick=(e)=>{
+    e.stopPropagation()
+    hideAppMenu()
+    invoke('open_external_url',{url:'https://github.tools.sap/D055116/HANA-Lens/issues/new?labels=enhancement&title=Feature+Request:+'}).catch(()=>{})
   }
   d.style.right=(window.innerWidth-rect.right)+'px'
   d.style.left='auto'
@@ -2422,7 +2590,8 @@ function showSettingsPanel(activeSection){
   panel.classList.add('active')
   panel.style.cssText='display:flex;flex-direction:row;overflow:hidden;'
 
-  const s=window._hanaLensSettings
+  const s=JSON.parse(JSON.stringify(window._hanaLensSettings||{}))
+  const _autoSaveSettings=()=>{}
   if(!activeSection) activeSection=panel.dataset.settingsSection||'color-groups'
   panel.dataset.settingsSection=activeSection
   panel.innerHTML=''
@@ -2603,30 +2772,51 @@ function showSettingsPanel(activeSection){
     '<div style="font-size:11px;color:#A19F9D;margin-bottom:10px;">Predefined reports in the HSI nav. <b>Configuration</b>: comma- or semicolon-separated INI sections. <b>Trace Searches</b>: file pattern with <code style="background:#F3F2F1;padding:0 3px;border-radius:2px;">&lt;host&gt;</code>, <code style="background:#F3F2F1;padding:0 3px;border-radius:2px;">&lt;serviceport&gt;</code>, <code style="background:#F3F2F1;padding:0 3px;border-radius:2px;">&lt;instance&gt;</code> placeholders and <code style="background:#F3F2F1;padding:0 3px;border-radius:2px;">*</code> wildcard (semicolon = OR); searches below with title + search term (semicolon = OR).</div>'
   const rptList2=document.createElement('div')
   rptList2.id='settings-panel-rpt-list'
+  const expandedRpts=new Set()
   const rebuildRpt=()=>{
     rptList2.innerHTML=''
     ;(s.reports||[]).forEach((rpt,ri)=>{
       if(!rpt.traceGroups) rpt.traceGroups=[]
+      const isExpanded=expandedRpts.has(ri)
       const card=document.createElement('div')
-      card.style.cssText='border:1px solid #EDEBE9;border-radius:4px;padding:10px 12px;margin-bottom:10px;background:#FAFAF9;'
-      const topRow=document.createElement('div')
-      topRow.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:8px;'
-      const titleIn=document.createElement('input')
-      titleIn.type='text';titleIn.value=rpt.title||'';titleIn.placeholder='Report title (= menu name)'
-      titleIn.style.cssText='flex:1;height:26px;padding:0 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:inherit;font-weight:600;'
-      titleIn.oninput=e=>{ rpt.title=e.target.value }
-      titleIn.onchange=()=>_autoSaveSettings()
-      const rptBtnStyle='background:none;border:1px solid #EDEBE9;border-radius:2px;cursor:pointer;font-size:11px;color:#A19F9D;padding:0 6px;height:26px;'
+      card.style.cssText='border:1px solid #EDEBE9;border-radius:4px;margin-bottom:6px;background:#FAFAF9;overflow:hidden;'
+      const header=document.createElement('div')
+      header.style.cssText='display:flex;gap:4px;align-items:center;padding:6px 10px;cursor:pointer;user-select:none;background:'+(isExpanded?'#EFF6FC':'#FAFAF9')+';transition:background 0.1s;'
+      header.onmouseenter=()=>{ if(!expandedRpts.has(ri)) header.style.background='#F3F2F1' }
+      header.onmouseleave=()=>{ header.style.background=expandedRpts.has(ri)?'#EFF6FC':'#FAFAF9' }
+      const toggleBtn=document.createElement('button')
+      toggleBtn.textContent=isExpanded?'▼':'▶'
+      toggleBtn.style.cssText='background:none;border:none;cursor:pointer;font-size:11px;color:#0078D4;padding:0 2px;width:18px;flex-shrink:0;font-weight:700;'
+      toggleBtn.title=isExpanded?'Collapse':'Expand'
+      toggleBtn.onclick=e=>{ e.stopPropagation();if(expandedRpts.has(ri))expandedRpts.delete(ri);else expandedRpts.add(ri);rebuildRpt() }
+      const titleLbl=document.createElement('div')
+      titleLbl.textContent=rpt.title||'(untitled report)'
+      titleLbl.style.cssText='flex:1;font-size:12px;font-weight:600;color:#323130;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+      const rptBtnStyle='background:none;border:1px solid #EDEBE9;border-radius:2px;cursor:pointer;font-size:11px;color:#A19F9D;padding:0 6px;height:24px;'
       const rptUpBtn=document.createElement('button');rptUpBtn.textContent='▲';rptUpBtn.style.cssText=rptBtnStyle
       rptUpBtn.title='Move up';rptUpBtn.disabled=ri===0
-      rptUpBtn.onclick=()=>{ if(ri>0){const a=s.reports;[a[ri-1],a[ri]]=[a[ri],a[ri-1]];rebuildRpt();_autoSaveSettings()} }
+      rptUpBtn.onclick=e=>{ e.stopPropagation();if(ri>0){const a=s.reports;[a[ri-1],a[ri]]=[a[ri],a[ri-1]];rebuildRpt()} }
       const rptDnBtn=document.createElement('button');rptDnBtn.textContent='▼';rptDnBtn.style.cssText=rptBtnStyle
       rptDnBtn.title='Move down';rptDnBtn.disabled=ri===s.reports.length-1
-      rptDnBtn.onclick=()=>{ const a=s.reports;if(ri<a.length-1){[a[ri],a[ri+1]]=[a[ri+1],a[ri]];rebuildRpt();_autoSaveSettings()} }
+      rptDnBtn.onclick=e=>{ e.stopPropagation();const a=s.reports;if(ri<a.length-1){[a[ri],a[ri+1]]=[a[ri+1],a[ri]];rebuildRpt()} }
       const delRptBtn=document.createElement('button')
-      delRptBtn.textContent='✕ Report';delRptBtn.style.cssText='background:none;border:1px solid #EDEBE9;border-radius:2px;cursor:pointer;font-size:11px;color:#A19F9D;padding:0 8px;height:26px;white-space:nowrap;'
-      delRptBtn.onclick=()=>{ s.reports.splice(ri,1); rebuildRpt(); _autoSaveSettings() }
-      topRow.appendChild(titleIn);topRow.appendChild(rptUpBtn);topRow.appendChild(rptDnBtn);topRow.appendChild(delRptBtn);card.appendChild(topRow)
+      delRptBtn.textContent='✕ Report';delRptBtn.style.cssText='background:none;border:1px solid #EDEBE9;border-radius:2px;cursor:pointer;font-size:11px;color:#A19F9D;padding:0 8px;height:24px;white-space:nowrap;'
+      delRptBtn.onclick=e=>{ e.stopPropagation();if(!window.confirm('Delete report "'+rpt.title+'"?\nThis cannot be undone.'))return;s.reports.splice(ri,1);rebuildRpt() }
+      header.appendChild(toggleBtn);header.appendChild(titleLbl);header.appendChild(rptUpBtn);header.appendChild(rptDnBtn);header.appendChild(delRptBtn)
+      header.onclick=()=>{ if(expandedRpts.has(ri))expandedRpts.delete(ri);else expandedRpts.add(ri);rebuildRpt() }
+      card.appendChild(header)
+      const body=document.createElement('div')
+      body.style.cssText='padding:10px 12px;border-top:1px solid #EDEBE9;'+(isExpanded?'':'display:none;')
+      const titleRow=document.createElement('div')
+      titleRow.style.cssText='margin-bottom:8px;'
+      const titleLblF=document.createElement('div')
+      titleLblF.style.cssText='font-size:11px;font-weight:600;color:#605E5C;margin-bottom:3px;'
+      titleLblF.textContent='Report Title (= menu name):'
+      const titleIn=document.createElement('input')
+      titleIn.type='text';titleIn.value=rpt.title||'';titleIn.placeholder='e.g. Replication Report'
+      titleIn.style.cssText='width:100%;box-sizing:border-box;height:26px;padding:0 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:inherit;font-weight:600;'
+      titleIn.oninput=e=>{ rpt.title=e.target.value;titleLbl.textContent=e.target.value||'(untitled report)' }
+      titleRow.appendChild(titleLblF);titleRow.appendChild(titleIn);body.appendChild(titleRow)
       const cfgRow=document.createElement('div')
       cfgRow.style.cssText='margin-bottom:8px;'
       const cfgLbl=document.createElement('div')
@@ -2637,11 +2827,11 @@ function showSettingsPanel(activeSection){
       secIn.style.cssText='width:100%;box-sizing:border-box;height:26px;padding:0 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:Consolas,monospace;'
       secIn.oninput=e=>{ rpt.configSections=e.target.value.split(/[;,]/).map(x=>x.trim()).filter(Boolean) }
       secIn.onchange=()=>_autoSaveSettings()
-      cfgRow.appendChild(cfgLbl);cfgRow.appendChild(secIn);card.appendChild(cfgRow)
+      cfgRow.appendChild(cfgLbl);cfgRow.appendChild(secIn);body.appendChild(cfgRow)
       const tgLbl=document.createElement('div')
       tgLbl.style.cssText='font-size:11px;font-weight:600;color:#605E5C;margin-bottom:4px;margin-top:2px;'
       tgLbl.textContent='Trace Searches:'
-      card.appendChild(tgLbl)
+      body.appendChild(tgLbl)
       const tgCon=document.createElement('div')
       const rebuildTg=()=>{
         tgCon.innerHTML=''
@@ -2740,7 +2930,7 @@ function showSettingsPanel(activeSection){
         addTgBtn.onclick=()=>{ if(!rpt.traceGroups)rpt.traceGroups=[]; rpt.traceGroups.push({filePattern:'',searches:[]}); rebuildTg() }
         tgCon.appendChild(addTgBtn)
       }
-      rebuildTg();card.appendChild(tgCon);rptList2.appendChild(card)
+      rebuildTg();body.appendChild(tgCon);card.appendChild(body);rptList2.appendChild(card)
     })
   }
   rebuildRpt()
@@ -2748,7 +2938,7 @@ function showSettingsPanel(activeSection){
   const addRptBtn2=document.createElement('button')
   addRptBtn2.textContent='+ Add Report'
   addRptBtn2.style.cssText='margin-top:6px;height:28px;padding:0 14px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;'
-  addRptBtn2.onclick=()=>{ if(!s.reports)s.reports=[]; s.reports.push({id:'rpt-'+Date.now(),title:'',configSections:[],traceGroups:[]}); rebuildRpt(); _autoSaveSettings() }
+  addRptBtn2.onclick=()=>{ if(!s.reports)s.reports=[]; s.reports.push({id:'rpt-'+Date.now(),title:'New Report',configSections:[],traceGroups:[]}); expandedRpts.add(s.reports.length-1); rebuildRpt() }
   rptSec.appendChild(addRptBtn2)
   sectionEls['reports']=rptSec
   content.appendChild(rptSec)
@@ -2785,7 +2975,12 @@ function showSettingsPanel(activeSection){
     const folder=p.replace(/[/\\][^/\\]+$/,'')
     openFolderBtn.onclick=()=>invoke('open_folder',{path:folder}).catch(()=>{})
   }).catch(()=>{})
-  saveBtn.onclick=()=>saveSettingsFull(statusEl)
+  saveBtn.onclick=()=>{ window._hanaLensSettings=s; saveSettingsFull(statusEl) }
+  const cancelBtn=document.createElement('button')
+  cancelBtn.textContent='✕ Cancel'
+  cancelBtn.style.cssText='height:32px;padding:0 14px;background:#fff;color:#323130;border:1px solid #C8C6C4;border-radius:2px;font-size:13px;cursor:pointer;font-family:inherit;'
+  cancelBtn.title='Discard changes and close settings'
+  cancelBtn.onclick=()=>{ const p=document.getElementById('panel-settings');p.classList.remove('active');p.style.display='';document.getElementById('empty').style.display='' }
   exportBtn.onclick=async()=>{
     try{
       const jsonStr=JSON.stringify(window._hanaLensSettings,null,2)
@@ -2832,7 +3027,7 @@ function showSettingsPanel(activeSection){
       }
     }catch(e){statusEl.textContent='✗ Import failed: '+e;statusEl.style.color='#C50F1F'}
   }
-  footer.appendChild(saveBtn);footer.appendChild(exportBtn);footer.appendChild(importBtn);footer.appendChild(statusEl);footer.appendChild(pathEl)
+  footer.appendChild(saveBtn);footer.appendChild(cancelBtn);footer.appendChild(exportBtn);footer.appendChild(importBtn);footer.appendChild(statusEl);footer.appendChild(pathEl)
   content.appendChild(footer)
 
   showSec(activeSection)
@@ -6689,11 +6884,12 @@ async function renderHsiReport(container, report, s){
                 for(const f of groupedFiles){
                   const filesToRead = f.isCombined ? f.parts : [f]
                   const combinedHits = []
+                  const skippedParts = []
                   for(const part of filesToRead){
                     try{
                       const fileObj = await part.handle.getFile()
                       if(fileObj.size > MAX_FILE_BYTES){
-                        combinedHits.push(`⚠ ${part.name} skipped (${Math.round(fileObj.size/1024/1024)} MB > 30 MB limit)`)
+                        skippedParts.push({part, sizeMB: Math.round(fileObj.size/1024/1024)})
                         continue
                       }
                       const text = await fileObj.text()
@@ -6705,6 +6901,29 @@ async function renderHsiReport(container, report, s){
                     for(const l of combinedHits) _copyTraceParts.push(l)
                     allLines.push(`<div data-copy-text="${escHtml('  '+f.name+' — '+combinedHits.length+' match'+(combinedHits.length===1?'':'es'))}" style="font-size:10px;color:#605E5C;font-weight:600;margin:4px 0 2px;">📄 ${escHtml(f.name)} — ${combinedHits.length} match${combinedHits.length===1?'':'es'}</div>`)
                     allLines.push(`<div data-nocopy="true" style="font-family:Consolas,monospace;font-size:10px;background:#F3F2F1;border-radius:2px;padding:4px 8px;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;">${combinedHits.map(l=>hlLineMulti(l,srTerms)).join('\n')}</div>`)
+                  }
+                  for(const {part, sizeMB} of skippedParts){
+                    _copyTraceParts.push(`  ⚠ ${part.name} skipped (${sizeMB} MB > 30 MB limit)`)
+                    const ocKey = `_oc_${Math.random().toString(36).slice(2)}`
+                    if(!window._hlOvercomeHandlers) window._hlOvercomeHandlers = {}
+                    window._hlOvercomeHandlers[ocKey] = async () => {
+                      const wrapEl = document.getElementById(ocKey)
+                      if(!wrapEl) return
+                      const ok = window.confirm(`${part.name} is ${sizeMB} MB.\nProcessing large files may take longer.\n\nContinue?`)
+                      if(!ok) return
+                      wrapEl.innerHTML = '<span style="color:#A19F9D;font-size:10px;">Processing…</span>'
+                      try{
+                        const fObj2 = await part.handle.getFile()
+                        const txt2 = await fObj2.text()
+                        const hits2 = txt2.split('\n').filter(l=>{ const ll=l.toLowerCase(); return srTermsLower.some(t=>ll.includes(t)) })
+                        if(hits2.length){
+                          wrapEl.innerHTML = `<div style="font-size:10px;color:#605E5C;font-weight:600;margin:4px 0 2px;">📄 ${escHtml(part.name)} — ${hits2.length} match${hits2.length===1?'':'es'}</div><div style="font-family:Consolas,monospace;font-size:10px;background:#F3F2F1;border-radius:2px;padding:4px 8px;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;">${hits2.map(l=>hlLineMulti(l,srTerms)).join('\n')}</div>`
+                        }else{
+                          wrapEl.innerHTML = `<span style="color:#A19F9D;font-size:10px;">📄 ${escHtml(part.name)} — No matches found.</span>`
+                        }
+                      }catch(e){ wrapEl.innerHTML = `<span style="color:#A4262C;font-size:10px;">Error reading ${escHtml(part.name)}</span>` }
+                    }
+                    allLines.push(`<div id="${ocKey}" style="display:flex;align-items:center;gap:6px;font-size:10px;color:#A19F9D;padding:2px 0;flex-wrap:wrap;">⚠ <b>${escHtml(part.name)}</b> skipped (${sizeMB} MB > 30 MB limit) <button onclick="window._hlOvercomeHandlers['${ocKey}']()" style="font-size:10px;padding:1px 8px;background:transparent;border:1px solid #C8C6C4;border-radius:2px;cursor:pointer;color:#605E5C;line-height:1.5;">Overcome limit</button></div>`)
                   }
                 }
                 if(!allLines.length) _copyTraceParts.push('  No matches found.')
