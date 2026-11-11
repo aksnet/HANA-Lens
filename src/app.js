@@ -1,5 +1,5 @@
 // PLACEHOLDER - PART 1: PARSER
-const APP_VERSION = '2026_11_11_06'
+const APP_VERSION = '2026_11_11_07'
 const MACHINE_KEYS = new Set(['async_io_limit','build_version','clocksource.current_clocksource','cpu_clock','cpu_cores','cpu_flags','cpu_manufacturer','cpu_model','cpu_sockets','cpu_summary','cpu_threads','hw_manufacturer','hw_model','kernel.numa_balancing','kernel.shmall','kernel.shmmax','kernel.shmmni','kernel.transparent_hugepage.enabled','mem_phys','mem_swap','memory_map_area_limit','open_file_limit','os_cpe_name','os_kernel_version','os_name','os_ppms_name','os_rlimit_nofile','os_user','platform','sap_retrieval_path','sap_retrieval_path_shared','sid','sapsystem','start_time','timezone_base_name','timezone_dst_name','timezone_name','timezone_offset','timezone_tz_name','topology_mem_info','topology_mem_type'])
 const NETWORK_KEYS = new Set(['net_domain','net_hostnames','net_ip_addresses','net_nameserver_bindings','net_port_ephemeral_max_count','net_port_ranges','net_port_unreserved_ranges','net_publicname','net_publicports','net_realhostname','net.core.somaxconn','net.ipv4.tcp_max_syn_backlog','net.ipv4.tcp_rmem','net.ipv4.tcp_syn_retries','net.ipv4.tcp_timestamps','net.ipv4.tcp_tw_recycle','net.ipv4.tcp_tw_reuse','net.ipv4.tcp_window_scaling','net.ipv4.tcp_wmem'])
 
@@ -6821,10 +6821,46 @@ async function renderHsiReport(container, report, s){
         hostTabBar.dataset.nocopy = 'true'
         if(servers.length > 1) traceWrap.appendChild(hostTabBar)
 
+        // ── Time filter row ──
+        const _filterRow = document.createElement('div')
+        _filterRow.dataset.nocopy = 'true'
+        _filterRow.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 0 8px;flex-wrap:wrap;'
+        const _filterFromIn = document.createElement('input')
+        _filterFromIn.type = 'datetime-local'; _filterFromIn.step = '1'
+        _filterFromIn.style.cssText = 'font-size:10px;padding:2px 4px;border:1px solid #C8C6C4;border-radius:2px;color:#323130;'
+        const _filterToIn = document.createElement('input')
+        _filterToIn.type = 'datetime-local'; _filterToIn.step = '1'
+        _filterToIn.style.cssText = 'font-size:10px;padding:2px 4px;border:1px solid #C8C6C4;border-radius:2px;color:#323130;'
+        const _filterHint = document.createElement('span')
+        _filterHint.style.cssText = 'font-size:10px;color:#A19F9D;'
+        _filterHint.textContent = 'start · end of trace · both editable'
+        ;[
+          Object.assign(document.createElement('span'),{textContent:'⏱ Filter', style:'font-size:11px;font-weight:600;color:#605E5C;flex-shrink:0;'}),
+          Object.assign(document.createElement('span'),{textContent:'From', style:'font-size:10px;color:#605E5C;'}),
+          _filterFromIn,
+          Object.assign(document.createElement('span'),{textContent:'To', style:'font-size:10px;color:#605E5C;'}),
+          _filterToIn,
+          _filterHint
+        ].forEach(el=>_filterRow.appendChild(el))
+        traceWrap.appendChild(_filterRow)
+
         const traceResultArea = document.createElement('div')
         traceWrap.appendChild(traceResultArea)
 
+        let _traceFilterFrom = '', _traceFilterTo = ''
+        let _traceRangeMin = null, _traceRangeMax = null
+        let _curSrvIdx = 0
+        const _traceCache = new Map() // key → {skipped,sizeMB?,lines:[{ts,text}]}
+        const _applyFilter = ()=>{
+          _traceFilterFrom = _filterFromIn.value ? _filterFromIn.value.replace('T',' ') : ''
+          _traceFilterTo = _filterToIn.value ? _filterToIn.value.replace('T',' ') : ''
+          showHostTraces(_curSrvIdx)
+        }
+        _filterFromIn.onchange = _applyFilter
+        _filterToIn.onchange = _applyFilter
+
         async function showHostTraces(srvIdx){
+          _curSrvIdx = srvIdx
           if(_copyBtn){_copyBtn.disabled=true;_copyBtn.style.cursor='not-allowed';_copyBtn.style.opacity='0.6';_copyBtn.textContent='⌛ Loading…'}
           hostTabBar.querySelectorAll('button').forEach((b,i)=>b.classList.toggle('active',i===srvIdx))
           const srv = servers[srvIdx]
@@ -6947,16 +6983,40 @@ async function renderHsiReport(container, report, s){
                   const filesToRead = f.isCombined ? f.parts : [f]
                   const combinedHits = []
                   const skippedParts = []
+                  const _TS_RE = /(?:^\[.*?\] |^)(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})/
                   for(const part of filesToRead){
-                    try{
-                      const fileObj = await part.handle.getFile()
-                      if(fileObj.size > MAX_FILE_BYTES){
-                        skippedParts.push({part, sizeMB: Math.round(fileObj.size/1024/1024)})
-                        continue
+                    const _ck = (tg.filePattern||'')+'§'+(sr.searchFor||'')+'§'+part.name
+                    let _pd = _traceCache.get(_ck)
+                    if(!_pd){
+                      try{
+                        const fileObj = await part.handle.getFile()
+                        if(fileObj.size > MAX_FILE_BYTES){
+                          _pd = {skipped:true, sizeMB:Math.round(fileObj.size/1024/1024)}
+                        } else {
+                          const text = await fileObj.text()
+                          const _raw = text.split('\n').filter(l=>{ const ll=l.toLowerCase(); return srTermsLower.some(t=>ll.includes(t)) })
+                          _pd = {skipped:false, lines:_raw.map(l=>{ const m=l.match(_TS_RE); return {ts:m?m[1]+' '+m[2]:null,text:l} })}
+                        }
+                        _traceCache.set(_ck, _pd)
+                      }catch(e){ continue }
+                    }
+                    if(_pd.skipped){ skippedParts.push({part, sizeMB:_pd.sizeMB}); continue }
+                    // Update auto-detected time range and auto-populate filter inputs
+                    for(const {ts} of _pd.lines){
+                      if(ts){
+                        if(!_traceRangeMin||ts<_traceRangeMin) _traceRangeMin=ts
+                        if(!_traceRangeMax||ts>_traceRangeMax) _traceRangeMax=ts
                       }
-                      const text = await fileObj.text()
-                      text.split('\n').filter(l=>{ const ll=l.toLowerCase(); return srTermsLower.some(t=>ll.includes(t)) }).forEach(l=>combinedHits.push(l))
-                    }catch(e){}
+                    }
+                    if(_traceRangeMin && !_filterFromIn.value) _filterFromIn.value = _traceRangeMin.replace(' ','T')
+                    if(_traceRangeMax && !_filterToIn.value) _filterToIn.value = _traceRangeMax.replace(' ','T')
+                    // Apply time filter
+                    _pd.lines.filter(({ts})=>{
+                      if(!ts) return true
+                      if(_traceFilterFrom && ts<_traceFilterFrom) return false
+                      if(_traceFilterTo && ts>_traceFilterTo) return false
+                      return true
+                    }).forEach(({text})=>combinedHits.push(text))
                   }
                   if(combinedHits.length){
                     _copyTraceParts.push('  '+f.name+' — '+combinedHits.length+' match'+(combinedHits.length===1?'':'es'))
