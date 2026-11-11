@@ -1,5 +1,5 @@
 // PLACEHOLDER - PART 1: PARSER
-const APP_VERSION = '2026_11_10_02'
+const APP_VERSION = '2026_11_11_05'
 const MACHINE_KEYS = new Set(['async_io_limit','build_version','clocksource.current_clocksource','cpu_clock','cpu_cores','cpu_flags','cpu_manufacturer','cpu_model','cpu_sockets','cpu_summary','cpu_threads','hw_manufacturer','hw_model','kernel.numa_balancing','kernel.shmall','kernel.shmmax','kernel.shmmni','kernel.transparent_hugepage.enabled','mem_phys','mem_swap','memory_map_area_limit','open_file_limit','os_cpe_name','os_kernel_version','os_name','os_ppms_name','os_rlimit_nofile','os_user','platform','sap_retrieval_path','sap_retrieval_path_shared','sid','sapsystem','start_time','timezone_base_name','timezone_dst_name','timezone_name','timezone_offset','timezone_tz_name','topology_mem_info','topology_mem_type'])
 const NETWORK_KEYS = new Set(['net_domain','net_hostnames','net_ip_addresses','net_nameserver_bindings','net_port_ephemeral_max_count','net_port_ranges','net_port_unreserved_ranges','net_publicname','net_publicports','net_realhostname','net.core.somaxconn','net.ipv4.tcp_max_syn_backlog','net.ipv4.tcp_rmem','net.ipv4.tcp_syn_retries','net.ipv4.tcp_timestamps','net.ipv4.tcp_tw_recycle','net.ipv4.tcp_tw_reuse','net.ipv4.tcp_window_scaling','net.ipv4.tcp_wmem'])
 
@@ -3172,6 +3172,30 @@ function buildFsidGroup(s){
     const col=navItemColor(it.label);if(col)sub.style.background=col
     if(!it.disabled) sub.onclick=()=>activateNavItem(s.id,it.panel)
     children.appendChild(sub)
+  }
+  // ── Reports block ──
+  const _isNettest=/nettest/i.test(s.label||'')
+  if(!_isNettest && s.type!=='rtedump-single'){
+    const _reports=window._hanaLensSettings?.reports||[]
+    const rptSep=document.createElement('div')
+    rptSep.style.cssText='margin:4px 10px 2px 10px;border-top:1px solid #EDEBE9;font-size:10px;font-weight:600;color:#A19F9D;text-transform:uppercase;letter-spacing:0.5px;padding-top:4px;'
+    rptSep.textContent='Reports'
+    children.appendChild(rptSep)
+    if(_reports.filter(r=>r.title).length===0){
+      const ph=document.createElement('div')
+      ph.style.cssText='padding:3px 14px;font-size:11px;color:#C8C6C4;font-style:italic;'
+      ph.textContent='Define in Settings…'
+      children.appendChild(ph)
+    } else {
+      for(const rpt of _reports){
+        if(!rpt.title) continue
+        const rptItem=document.createElement('div')
+        rptItem.className='fsid-sub-item'
+        rptItem.innerHTML=`<span style="font-size:11px;">📊</span>${escHtml(rpt.title)}`
+        rptItem.onclick=()=>activateHsiReport(s.id, rpt.id)
+        children.appendChild(rptItem)
+      }
+    }
   }
   grp.appendChild(children)
   return grp
@@ -6698,9 +6722,23 @@ async function renderHsiReport(container, report, s){
   if(traceGroups.length) subtitles.push(`Trace Searches: ${traceGroups.length} file group(s)`)
   if(subtitles.length) parts.push(`<div style="font-size:11px;color:#A19F9D;margin-bottom:14px;">${subtitles.join(' &nbsp;|&nbsp; ')}</div>`)
 
-  const configData = s.hsiConfigData
+  let configData = s.hsiConfigData
+
+  // Standalone FSID fallback: build synthetic configData from configFileHandles
+  if(!configData && s.configDirHandle){
+    if(!s._configScanned && !s.configFileHandles?.length){
+      await scanConfigDir(s)
+      s._configScanned = true
+    }
+    if(s.configFileHandles?.length){
+      configData = {
+        databases: [{name: s.label||'FSID', iniHandles: s.configFileHandles.map(fh=>({name:fh.name, handle:fh.handle}))}]
+      }
+    }
+  }
+
   if(!configData || !configData.databases?.length){
-    container.innerHTML = parts.join('')+'<div style="color:#A19F9D;padding:20px;border:1px solid #EDEBE9;border-radius:4px;margin-top:8px;">No configuration data available for this HSI.</div>'
+    container.innerHTML = parts.join('')+'<div style="color:#A19F9D;padding:20px;border:1px solid #EDEBE9;border-radius:4px;margin-top:8px;">No configuration data available.</div>'
     return
   }
 
@@ -6709,13 +6747,14 @@ async function renderHsiReport(container, report, s){
   let activeDbIdx = 0
 
   // Map db.name → child FSID session (for trace searches)
+  // For standalone FSIDs (no child FSIDs), fall back to s itself (s.traceExplorerData is the source)
   const _hsiChildFsids = fsidSessions.filter(cs => cs.hsiParentId === s.id)
   function _findChildFsid(dbName){
     const dn = dbName.toLowerCase()
     return _hsiChildFsids.find(cs=>{
       const ln = (cs.loadedFolderName||'').toLowerCase()
       return ln===dn || dn==='db_'+ln || ln===dn.replace(/^db_/,'')
-    }) || (_hsiChildFsids.length===1 ? _hsiChildFsids[0] : null)
+    }) || (_hsiChildFsids.length===1 ? _hsiChildFsids[0] : _hsiChildFsids.length===0 ? s : null)
   }
 
   async function showDb(dbIdx){
@@ -6727,6 +6766,7 @@ async function renderHsiReport(container, report, s){
     const rowsHtml = []
     _copyConfigParts = []; _copyTraceParts = []
     const isSystemDb = db.name.toLowerCase() === 'systemdb'
+               || (!s.hsiConfigData && db.name.toLowerCase().includes('systemdb'))
     const activeTg = traceGroups.filter(tg=>{ const sc=tg.dbScope||'all'; return sc==='all'||(sc==='systemdb'&&isSystemDb)||(sc==='tenant'&&!isSystemDb) })
 
     // ── Config sections ──
@@ -6803,6 +6843,23 @@ async function renderHsiReport(container, report, s){
                           || topoHost.services.find(svc=>svc.name==='indexserver'))?.port ?? null
             }
           }
+          // When topology is unavailable (standalone tenant FSID), infer serviceport from trace filenames
+          // e.g. nameserver_c5mihmp1.30001.009.trc → port 30001 (SYSTEMDB)
+          //      indexserver_hana11virtual.37703.003.trc → port 37703 (tenant)
+          if(!serviceport){
+            try{
+              const _infBase = await srv.handle.getDirectoryHandle('trace')
+              let _infDir = _infBase
+              const _svcName = isSystemDb ? 'nameserver' : 'indexserver'
+              if(!isSystemDb) try{ _infDir = await _infBase.getDirectoryHandle('DB_'+db.name) }catch(e){}
+              const _hEsc = host.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')
+              const _portRe = new RegExp('^'+_svcName+'_'+_hEsc+'\\.(\\d{5})\\.','i')
+              for await(const[_fn] of _infDir.entries()){
+                const _m = _fn.match(_portRe)
+                if(_m){ serviceport = parseInt(_m[1]); break }
+              }
+            }catch(e){}
+          }
           const svcPortLabel = serviceport ? ` · service port: <code style="background:#EFF6FF;padding:0 4px;border-radius:2px;color:#0078D4;font-size:10px;">${serviceport}</code>` : ''
           traceHdr.innerHTML = `🔍 Trace Searches <span style="font-weight:400;font-size:11px;color:#A19F9D;">host: ${escHtml(host)}${svcPortLabel}</span>`
           traceResultArea.innerHTML = ''
@@ -6814,8 +6871,8 @@ async function renderHsiReport(container, report, s){
             try{
               const baseTrace = await srv.handle.getDirectoryHandle('trace')
               if(!isSystemDb){
-                // Tenant: try trace/DB_CEP/ first (combined FSID), fall back to trace/ (separate FSID)
-                try{ traceDir = await baseTrace.getDirectoryHandle(db.name) }catch(e){
+                // Tenant: HANA always uses trace/DB_<NAME>/ for tenant trace files
+                try{ traceDir = await baseTrace.getDirectoryHandle('DB_'+db.name) }catch(e){
                   traceDir = baseTrace
                 }
               } else {
