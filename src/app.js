@@ -1,5 +1,5 @@
 // PLACEHOLDER - PART 1: PARSER
-const APP_VERSION = '2026_11_11_05'
+const APP_VERSION = '2026_11_11_06'
 const MACHINE_KEYS = new Set(['async_io_limit','build_version','clocksource.current_clocksource','cpu_clock','cpu_cores','cpu_flags','cpu_manufacturer','cpu_model','cpu_sockets','cpu_summary','cpu_threads','hw_manufacturer','hw_model','kernel.numa_balancing','kernel.shmall','kernel.shmmax','kernel.shmmni','kernel.transparent_hugepage.enabled','mem_phys','mem_swap','memory_map_area_limit','open_file_limit','os_cpe_name','os_kernel_version','os_name','os_ppms_name','os_rlimit_nofile','os_user','platform','sap_retrieval_path','sap_retrieval_path_shared','sid','sapsystem','start_time','timezone_base_name','timezone_dst_name','timezone_name','timezone_offset','timezone_tz_name','topology_mem_info','topology_mem_type'])
 const NETWORK_KEYS = new Set(['net_domain','net_hostnames','net_ip_addresses','net_nameserver_bindings','net_port_ephemeral_max_count','net_port_ranges','net_port_unreserved_ranges','net_publicname','net_publicports','net_realhostname','net.core.somaxconn','net.ipv4.tcp_max_syn_backlog','net.ipv4.tcp_rmem','net.ipv4.tcp_syn_retries','net.ipv4.tcp_timestamps','net.ipv4.tcp_tw_recycle','net.ipv4.tcp_tw_reuse','net.ipv4.tcp_window_scaling','net.ipv4.tcp_wmem'])
 
@@ -6843,23 +6843,30 @@ async function renderHsiReport(container, report, s){
                           || topoHost.services.find(svc=>svc.name==='indexserver'))?.port ?? null
             }
           }
-          // When topology is unavailable (standalone tenant FSID), infer serviceport from trace filenames
-          // e.g. nameserver_c5mihmp1.30001.009.trc → port 30001 (SYSTEMDB)
-          //      indexserver_hana11virtual.37703.003.trc → port 37703 (tenant)
-          if(!serviceport){
-            try{
-              const _infBase = await srv.handle.getDirectoryHandle('trace')
-              let _infDir = _infBase
+          // Pre-scan: find tenant trace dir (DB_<NAME>/) and infer serviceport from filenames.
+          // db.name = folder label for standalone FSIDs (e.g. "fullsysteminfodump_HMP_HBP_c5mihmp1...")
+          // so we scan trace/ for the first DB_* subdirectory instead of using db.name directly.
+          let _tenantTraceDir = null
+          try{
+            const _infBase = await srv.handle.getDirectoryHandle('trace')
+            if(!isSystemDb){
+              for await(const[_n,_h] of _infBase.entries()){
+                if(_h.kind==='directory' && _n.toUpperCase().startsWith('DB_')){
+                  _tenantTraceDir = await _infBase.getDirectoryHandle(_n); break
+                }
+              }
+            }
+            if(!serviceport){
               const _svcName = isSystemDb ? 'nameserver' : 'indexserver'
-              if(!isSystemDb) try{ _infDir = await _infBase.getDirectoryHandle('DB_'+db.name) }catch(e){}
               const _hEsc = host.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')
               const _portRe = new RegExp('^'+_svcName+'_'+_hEsc+'\\.(\\d{5})\\.','i')
-              for await(const[_fn] of _infDir.entries()){
+              const _scanDir = _tenantTraceDir || _infBase
+              for await(const[_fn] of _scanDir.entries()){
                 const _m = _fn.match(_portRe)
                 if(_m){ serviceport = parseInt(_m[1]); break }
               }
-            }catch(e){}
-          }
+            }
+          }catch(e){}
           const svcPortLabel = serviceport ? ` · service port: <code style="background:#EFF6FF;padding:0 4px;border-radius:2px;color:#0078D4;font-size:10px;">${serviceport}</code>` : ''
           traceHdr.innerHTML = `🔍 Trace Searches <span style="font-weight:400;font-size:11px;color:#A19F9D;">host: ${escHtml(host)}${svcPortLabel}</span>`
           traceResultArea.innerHTML = ''
@@ -6871,10 +6878,8 @@ async function renderHsiReport(container, report, s){
             try{
               const baseTrace = await srv.handle.getDirectoryHandle('trace')
               if(!isSystemDb){
-                // Tenant: HANA always uses trace/DB_<NAME>/ for tenant trace files
-                try{ traceDir = await baseTrace.getDirectoryHandle('DB_'+db.name) }catch(e){
-                  traceDir = baseTrace
-                }
+                // Use cached DB_<NAME>/ dir from pre-scan (avoids re-scanning with wrong db.name)
+                traceDir = _tenantTraceDir || baseTrace
               } else {
                 traceDir = baseTrace
               }
