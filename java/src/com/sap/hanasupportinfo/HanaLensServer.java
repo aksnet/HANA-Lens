@@ -146,6 +146,22 @@ public class HanaLensServer {
                 return "null";
             case "get_settings_path":
                 return Json.stringify(Commands.getSettingsPath());
+            case "list_report_files":
+                return Json.stringify(Commands.listReportFiles());
+            case "write_report_file":
+                Commands.writeReportFile(Json.str(a, "filename"), Json.str(a, "content"));
+                return "null";
+            case "delete_report_file":
+                Commands.deleteReportFile(Json.str(a, "filename"));
+                return "null";
+            case "list_filter_files":
+                return Json.stringify(Commands.listFilterFiles());
+            case "write_filter_file":
+                Commands.writeFilterFile(Json.str(a, "filename"), Json.str(a, "content"));
+                return "null";
+            case "delete_filter_file":
+                Commands.deleteFilterFile(Json.str(a, "filename"));
+                return "null";
 
             // ── Trace ────────────────────────────────────────────────────────
             case "trace_open":

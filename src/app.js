@@ -1,5 +1,5 @@
 // PLACEHOLDER - PART 1: PARSER
-const APP_VERSION = '2026_11_12_01'
+const APP_VERSION = '2026_11_12_02'
 const MACHINE_KEYS = new Set(['async_io_limit','build_version','clocksource.current_clocksource','cpu_clock','cpu_cores','cpu_flags','cpu_manufacturer','cpu_model','cpu_sockets','cpu_summary','cpu_threads','hw_manufacturer','hw_model','kernel.numa_balancing','kernel.shmall','kernel.shmmax','kernel.shmmni','kernel.transparent_hugepage.enabled','mem_phys','mem_swap','memory_map_area_limit','open_file_limit','os_cpe_name','os_kernel_version','os_name','os_ppms_name','os_rlimit_nofile','os_user','platform','sap_retrieval_path','sap_retrieval_path_shared','sid','sapsystem','start_time','timezone_base_name','timezone_dst_name','timezone_name','timezone_offset','timezone_tz_name','topology_mem_info','topology_mem_type'])
 const NETWORK_KEYS = new Set(['net_domain','net_hostnames','net_ip_addresses','net_nameserver_bindings','net_port_ephemeral_max_count','net_port_ranges','net_port_unreserved_ranges','net_publicname','net_publicports','net_realhostname','net.core.somaxconn','net.ipv4.tcp_max_syn_backlog','net.ipv4.tcp_rmem','net.ipv4.tcp_syn_retries','net.ipv4.tcp_timestamps','net.ipv4.tcp_tw_recycle','net.ipv4.tcp_tw_reuse','net.ipv4.tcp_window_scaling','net.ipv4.tcp_wmem'])
 
@@ -2250,6 +2250,20 @@ document.addEventListener('DOMContentLoaded',()=>{
         }
       }
     }catch(e){}
+    // Load individual filter files (primary source of truth); migrate from settings.json if none exist
+    try{
+      const _filterFiles=await invoke('list_filter_files')
+      if(_filterFiles&&_filterFiles.length>0){
+        s.customFilters=_filterFiles.map(f=>{try{const r=JSON.parse(f.content);r._filename=f.filename;return r}catch(e){return null}}).filter(Boolean)
+      } else if(s.customFilters&&s.customFilters.length>0){
+        for(const flt of s.customFilters){
+          const slug=_rptSlug(flt.name);if(!slug)continue
+          const fn='hana-lens-filter-'+slug+'.json'
+          flt._filename=fn
+          await invoke('write_filter_file',{filename:fn,content:JSON.stringify({...flt,_filename:undefined},null,2)}).catch(()=>{})
+        }
+      }
+    }catch(e){}
     window.BUNDLED_FS_REFERENCE=s.filesystemReference||''
     if(needsSave)invoke('write_settings',{content:JSON.stringify(s,null,2)}).catch(()=>{})
     initNavSettingsUI()
@@ -2612,6 +2626,24 @@ async function saveSettingsFull(statusEl){
     for(const f of existingFiles){
       if(!writtenFiles.has(f))await invoke('delete_report_file',{filename:f}).catch(()=>{})
     }
+    // Write individual file for each filter preset
+    const filters=window._hanaLensSettings.customFilters||[]
+    let existingFilterFiles=[]
+    try{existingFilterFiles=(await invoke('list_filter_files')||[]).map(f=>f.filename)}catch(e){}
+    const writtenFilterFiles=new Set()
+    for(const flt of filters){
+      if(!flt.name)continue
+      const slug=_rptSlug(flt.name);if(!slug)continue
+      let fn='hana-lens-filter-'+slug+'.json'
+      let n=2
+      while(writtenFilterFiles.has(fn)){fn='hana-lens-filter-'+slug+n+'.json';n++}
+      writtenFilterFiles.add(fn)
+      flt._filename=fn
+      await invoke('write_filter_file',{filename:fn,content:JSON.stringify({...flt,_filename:undefined},null,2)})
+    }
+    for(const f of existingFilterFiles){
+      if(!writtenFilterFiles.has(f))await invoke('delete_filter_file',{filename:f}).catch(()=>{})
+    }
     await invoke('write_settings',{content:JSON.stringify(window._hanaLensSettings,null,2)})
     if(statusEl){statusEl.textContent='✓ Saved';statusEl.style.color='#107C10';setTimeout(()=>{statusEl.textContent=''},2000)}
     renderNavTree()
@@ -2752,40 +2784,127 @@ function showSettingsPanel(activeSection){
 
   // ── Filter Presets ────────────────────────────────────────────────────────
   const fpSec=document.createElement('div')
-  fpSec.innerHTML='<div style="font-size:13px;font-weight:600;color:#323130;margin-bottom:10px;">Filter Presets</div>'
+  fpSec.style.cssText='max-width:760px;'
+  fpSec.innerHTML='<div style="font-size:13px;font-weight:600;color:#323130;margin-bottom:4px;">Filter Presets</div>'+
+    '<div style="font-size:11px;color:#A19F9D;margin-bottom:10px;">Presets for the Trace Explorer filter bar. Each preset appears as a dropdown entry — name is the label, content is loaded into the search field.</div>'
   const fpList=document.createElement('div')
   fpList.id='settings-panel-fp-list'
+  const expandedFps=new Set()
   const rebuildFp=()=>{
     fpList.innerHTML=''
-    ;(s.customFilters||[]).forEach((f,fi)=>{
-      const row=document.createElement('div')
-      row.style.cssText='display:flex;gap:6px;align-items:flex-start;margin-bottom:8px;'
+    const _fps=s.customFilters||[]
+    if(_fps.length===0){
+      const ph=document.createElement('div')
+      ph.style.cssText='padding:20px 16px;font-size:12px;color:#A19F9D;font-style:italic;text-align:center;'
+      ph.textContent='No filter presets configured yet. Use "+ Add Filter" or "+ Import" below.'
+      fpList.appendChild(ph)
+      return
+    }
+    _fps.forEach((flt,fi)=>{
+      const isExpanded=expandedFps.has(fi)
+      const card=document.createElement('div')
+      card.style.cssText='border:1px solid #EDEBE9;border-radius:4px;margin-bottom:6px;background:#FAFAF9;overflow:hidden;'
+      const header=document.createElement('div')
+      header.style.cssText='display:flex;gap:4px;align-items:center;padding:6px 10px;cursor:pointer;user-select:none;background:'+(isExpanded?'#EFF6FC':'#FAFAF9')+';transition:background 0.1s;'
+      header.onmouseenter=()=>{ if(!expandedFps.has(fi)) header.style.background='#F3F2F1' }
+      header.onmouseleave=()=>{ header.style.background=expandedFps.has(fi)?'#EFF6FC':'#FAFAF9' }
+      const toggleBtn=document.createElement('button')
+      toggleBtn.textContent=isExpanded?'▼':'▶'
+      toggleBtn.style.cssText='background:none;border:none;cursor:pointer;font-size:11px;color:#0078D4;padding:0 2px;width:18px;flex-shrink:0;font-weight:700;'
+      toggleBtn.onclick=e=>{ e.stopPropagation();if(expandedFps.has(fi))expandedFps.delete(fi);else expandedFps.add(fi);rebuildFp() }
+      const nameLbl=document.createElement('div')
+      nameLbl.textContent=flt.name||'(untitled filter)'
+      nameLbl.style.cssText='flex:1;font-size:12px;font-weight:600;color:#323130;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+      const fpBtnStyle='background:none;border:1px solid #EDEBE9;border-radius:2px;cursor:pointer;font-size:11px;color:#A19F9D;padding:0 6px;height:24px;'
+      const fpUpBtn=document.createElement('button');fpUpBtn.textContent='▲';fpUpBtn.style.cssText=fpBtnStyle
+      fpUpBtn.title='Move up';fpUpBtn.disabled=fi===0
+      fpUpBtn.onclick=e=>{ e.stopPropagation();if(fi>0){const a=s.customFilters;[a[fi-1],a[fi]]=[a[fi],a[fi-1]];rebuildFp()} }
+      const fpDnBtn=document.createElement('button');fpDnBtn.textContent='▼';fpDnBtn.style.cssText=fpBtnStyle
+      fpDnBtn.title='Move down';fpDnBtn.disabled=fi===_fps.length-1
+      fpDnBtn.onclick=e=>{ e.stopPropagation();const a=s.customFilters;if(fi<a.length-1){[a[fi],a[fi+1]]=[a[fi+1],a[fi]];rebuildFp()} }
+      const exportFpBtn=document.createElement('button')
+      exportFpBtn.textContent='⬇ Export'
+      exportFpBtn.title='Download this filter as a JSON file'
+      exportFpBtn.style.cssText='background:none;border:1px solid #EDEBE9;border-radius:2px;cursor:pointer;font-size:11px;color:#0078D4;padding:0 8px;height:24px;white-space:nowrap;'
+      exportFpBtn.onclick=e=>{
+        e.stopPropagation()
+        const slug=_rptSlug(flt.name)||'filter'
+        const fn='hana-lens-filter-'+slug+'.json'
+        const data=JSON.stringify({...flt,_filename:undefined},null,2)
+        const a=document.createElement('a')
+        a.href='data:application/json;charset=utf-8,'+encodeURIComponent(data)
+        a.download=fn;a.click()
+      }
+      const delFpBtn=document.createElement('button')
+      delFpBtn.textContent='🗑 Delete Filter'
+      delFpBtn.style.cssText='background:none;border:1px solid #EDEBE9;border-radius:2px;cursor:pointer;font-size:11px;color:#A19F9D;padding:0 8px;height:24px;white-space:nowrap;'
+      delFpBtn.onclick=e=>{ e.stopPropagation();s.customFilters.splice(fi,1);rebuildFp() }
+      header.appendChild(toggleBtn);header.appendChild(nameLbl);header.appendChild(fpUpBtn);header.appendChild(fpDnBtn);header.appendChild(exportFpBtn);header.appendChild(delFpBtn)
+      header.onclick=()=>{ if(expandedFps.has(fi))expandedFps.delete(fi);else expandedFps.add(fi);rebuildFp() }
+      card.appendChild(header)
+      const body=document.createElement('div')
+      body.style.cssText='padding:10px 12px;border-top:1px solid #EDEBE9;'+(isExpanded?'':'display:none;')
+      const nameRow=document.createElement('div');nameRow.style.cssText='margin-bottom:8px;'
+      const nameLblF=document.createElement('div')
+      nameLblF.style.cssText='font-size:11px;font-weight:600;color:#605E5C;margin-bottom:3px;'
+      nameLblF.textContent='Filter Name (= dropdown label):'
       const nameIn=document.createElement('input')
-      nameIn.type='text';nameIn.value=f.name||'';nameIn.placeholder='Name'
-      nameIn.style.cssText='width:130px;height:26px;padding:0 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:inherit;flex-shrink:0;'
-      nameIn.oninput=e=>f.name=e.target.value
-      nameIn.onchange=()=>_autoSaveSettings()
+      nameIn.type='text';nameIn.value=flt.name||'';nameIn.placeholder='e.g. Replication'
+      nameIn.style.cssText='width:100%;box-sizing:border-box;height:26px;padding:0 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:inherit;font-weight:600;'
+      nameIn.oninput=e=>{
+        flt.name=e.target.value;nameLbl.textContent=e.target.value||'(untitled filter)'
+        const isDup=(s.customFilters||[]).some((f,i)=>i!==fi&&f.name&&f.name.toLowerCase()===e.target.value.trim().toLowerCase())
+        nameIn.style.borderColor=isDup?'#C50F1F':'#C8C6C4'
+        nameIn.title=isDup?'Duplicate name — each filter must have a unique name':''
+      }
+      nameRow.appendChild(nameLblF);nameRow.appendChild(nameIn);body.appendChild(nameRow)
+      const contentRow=document.createElement('div')
+      const contentLbl=document.createElement('div')
+      contentLbl.style.cssText='font-size:11px;font-weight:600;color:#605E5C;margin-bottom:3px;'
+      contentLbl.textContent='Filter Terms (comma- or line-separated):'
       const contentIn=document.createElement('textarea')
-      contentIn.value=f.content||''
-      contentIn.placeholder='Filter terms (one per line or comma-separated)'
-      contentIn.style.cssText='flex:1;min-height:52px;padding:4px 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;font-family:monospace;resize:vertical;'
-      contentIn.oninput=e=>f.content=e.target.value
-      contentIn.onchange=()=>_autoSaveSettings()
-      const delBtn=document.createElement('button')
-      delBtn.textContent='✕'
-      delBtn.style.cssText='background:none;border:none;cursor:pointer;font-size:13px;color:#A19F9D;padding:0 4px;flex-shrink:0;margin-top:4px;'
-      delBtn.onclick=()=>{ s.customFilters.splice(fi,1); rebuildFp(); _autoSaveSettings() }
-      row.appendChild(nameIn);row.appendChild(contentIn);row.appendChild(delBtn)
-      fpList.appendChild(row)
+      contentIn.value=flt.content||''
+      contentIn.placeholder='e.g. SAPHanaReplication, replication error, log shipping'
+      contentIn.style.cssText='width:100%;box-sizing:border-box;min-height:64px;padding:4px 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:11px;font-family:Consolas,monospace;resize:vertical;'
+      contentIn.oninput=e=>flt.content=e.target.value
+      contentRow.appendChild(contentLbl);contentRow.appendChild(contentIn);body.appendChild(contentRow)
+      card.appendChild(body);fpList.appendChild(card)
     })
   }
   rebuildFp()
   fpSec.appendChild(fpList)
+  const _fpBtnRow=document.createElement('div')
+  _fpBtnRow.style.cssText='display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;'
   const addFpBtn=document.createElement('button')
   addFpBtn.textContent='+ Add Filter'
-  addFpBtn.style.cssText='margin-top:6px;height:28px;padding:0 14px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;'
-  addFpBtn.onclick=()=>{ if(!s.customFilters)s.customFilters=[]; s.customFilters.push({name:'',content:''}); rebuildFp(); _autoSaveSettings() }
-  fpSec.appendChild(addFpBtn)
+  addFpBtn.style.cssText='height:28px;padding:0 14px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;'
+  addFpBtn.onclick=()=>{ if(!s.customFilters)s.customFilters=[]; s.customFilters.push({name:'New Filter',content:''}); expandedFps.add(s.customFilters.length-1); rebuildFp() }
+  const importFpBtn=document.createElement('button')
+  importFpBtn.textContent='⬆ Import'
+  importFpBtn.title='Import a filter from a hana-lens-filter-*.json file'
+  importFpBtn.style.cssText='height:28px;padding:0 14px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;'
+  importFpBtn.onclick=()=>{
+    const fi2=document.createElement('input')
+    fi2.type='file';fi2.accept='.json,application/json'
+    fi2.onchange=async()=>{
+      const file=fi2.files[0];if(!file)return
+      try{
+        const txt=await file.text()
+        const flt=JSON.parse(txt)
+        if(!flt||typeof flt.name!=='string'||!flt.name.trim()) throw new Error('Invalid filter file — missing name')
+        const existingNames=(s.customFilters||[]).map(f=>(f.name||'').toLowerCase())
+        let name=flt.name.trim()
+        let n=2
+        while(existingNames.includes(name.toLowerCase())){name=flt.name.trim()+' '+n;n++}
+        flt.name=name;delete flt._filename
+        if(!s.customFilters)s.customFilters=[]
+        s.customFilters.push(flt);expandedFps.add(s.customFilters.length-1);rebuildFp()
+      }catch(err){alert('Import failed: '+err.message)}
+    }
+    fi2.click()
+  }
+  _fpBtnRow.appendChild(addFpBtn);_fpBtnRow.appendChild(importFpBtn)
+  fpSec.appendChild(_fpBtnRow)
   sectionEls['filter-presets']=fpSec
   content.appendChild(fpSec)
 

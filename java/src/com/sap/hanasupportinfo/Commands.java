@@ -220,6 +220,70 @@ public class Commands {
         return getSettingsFile().getAbsolutePath();
     }
 
+    public static List<Map<String,Object>> listReportFiles() {
+        File dir = getSettingsDir();
+        List<Map<String,Object>> result = new ArrayList<>();
+        if (!dir.isDirectory()) return result;
+        File[] files = dir.listFiles((d, n) -> n.startsWith("hana-lens-report-") && n.endsWith(".json"));
+        if (files == null) return result;
+        Arrays.sort(files);
+        for (File f : files) {
+            try {
+                Map<String,Object> entry = new LinkedHashMap<>();
+                entry.put("filename", f.getName());
+                entry.put("content", new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8));
+                result.add(entry);
+            } catch (IOException ignored) {}
+        }
+        return result;
+    }
+
+    public static void writeReportFile(String filename, String content) throws IOException {
+        if (!filename.startsWith("hana-lens-report-") || !filename.endsWith(".json"))
+            throw new IllegalArgumentException("Invalid report filename: " + filename);
+        File dir = getSettingsDir();
+        if (!dir.exists() && !dir.mkdirs())
+            throw new IOException("Cannot create settings directory: " + dir);
+        Files.write(new File(dir, filename).toPath(), content.getBytes(StandardCharsets.UTF_8));
+    }
+
+    public static void deleteReportFile(String filename) {
+        if (!filename.startsWith("hana-lens-report-") || !filename.endsWith(".json")) return;
+        new File(getSettingsDir(), filename).delete();
+    }
+
+    public static List<Map<String,Object>> listFilterFiles() {
+        File dir = getSettingsDir();
+        List<Map<String,Object>> result = new ArrayList<>();
+        if (!dir.isDirectory()) return result;
+        File[] files = dir.listFiles((d, n) -> n.startsWith("hana-lens-filter-") && n.endsWith(".json"));
+        if (files == null) return result;
+        Arrays.sort(files);
+        for (File f : files) {
+            try {
+                Map<String,Object> entry = new LinkedHashMap<>();
+                entry.put("filename", f.getName());
+                entry.put("content", new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8));
+                result.add(entry);
+            } catch (IOException ignored) {}
+        }
+        return result;
+    }
+
+    public static void writeFilterFile(String filename, String content) throws IOException {
+        if (!filename.startsWith("hana-lens-filter-") || !filename.endsWith(".json"))
+            throw new IllegalArgumentException("Invalid filter filename: " + filename);
+        File dir = getSettingsDir();
+        if (!dir.exists() && !dir.mkdirs())
+            throw new IOException("Cannot create settings directory: " + dir);
+        Files.write(new File(dir, filename).toPath(), content.getBytes(StandardCharsets.UTF_8));
+    }
+
+    public static void deleteFilterFile(String filename) {
+        if (!filename.startsWith("hana-lens-filter-") || !filename.endsWith(".json")) return;
+        new File(getSettingsDir(), filename).delete();
+    }
+
     // ── Misc file ─────────────────────────────────────────────────────────────
 
     public static void writeTextFile(String path, String content) throws IOException {
