@@ -1,8 +1,22 @@
 # HANA-Lens
 
-A native desktop diagnostic tool for SAP HANA support engineers. Analyzes Full System Info Dumps (FSID) and HANA Support Info (HSI) packages — including topology, configuration, trace files, runtime dumps, and network tests — without requiring a running HANA system or internet access.
+## What is it?
 
-Built with [Tauri](https://tauri.app) (Rust + WebView2/WebKit). Runs on Windows and macOS (Apple Silicon).
+HANA-Lens is a standalone Java desktop tool for analyzing SAP HANA support packages. It runs a local HTTP server and opens automatically in the browser, providing structured navigation and analysis of topology, configuration, version history, availability data, runtime dumps, and trace files — no installation, no external dependencies, just `java -jar HANA-Lens.jar`.
+
+It works with **Full System Info Dumps (FSID)** and **HANA Support Info (HSI)** packages without requiring a running HANA system or internet access.
+
+---
+
+## How to start
+
+1. Go to [github.tools.sap/D055116/HANA-Lens/releases](https://github.tools.sap/D055116/HANA-Lens/releases) and download the latest release ZIP
+2. Extract the ZIP to a local folder
+3. Run `start.bat` (Windows) or `start.sh` (macOS/Linux)
+4. The app opens automatically in your default browser at `http://localhost:7321`
+5. Open **Settings** and import the sample configuration file `hana-lens-settings.json` included in the ZIP to get pre-configured reports
+
+> **HANA-Lens requires a Java runtime.** Install via [SapMachine](https://sapmachine.io/docs/installation) — the SAP-supported OpenJDK distribution.
 
 ---
 
@@ -17,75 +31,20 @@ Built with [Tauri](https://tauri.app) (Rust + WebView2/WebKit). Runs on Windows 
 - **System Availability** — uptime view from availability log
 - **Telemetry Data** — key system metrics
 - **Network Test (NETTEST)** — renders `Network_Test.log` output; one-click "Prepare SAP Joule Work Desktop" button to generate a ready-to-paste AI analysis prompt
+- **Reports** — configurable report sections combining configuration data and trace file searches with a From/To time filter
 
 ---
 
-## Download
+## Settings
 
-Go to the [Releases](../../releases) page and download the latest version.
+Settings are stored automatically in:
 
-### Windows
-
-| File | Description |
+| Platform | Path |
 |---|---|
-| `HANA-Lens_YYYY_MM_DD_vv_x64-portable.zip` | **Portable** — extract and run, no installation needed |
+| **Windows** | `%APPDATA%\com.sap.hana-lens\hana-lens-settings.json` |
+| **macOS / Linux** | `~/.config/com.sap.hana-lens/hana-lens-settings.json` |
 
-**Usage:** Extract the ZIP, double-click `HANA-Lens.exe`. No installation or additional software required. WebView2 is pre-installed on all Windows 11 systems (ships with Microsoft Edge).
-
-### macOS (Apple Silicon)
-
-| File | Description |
-|---|---|
-| `HANA-Lens_YYYY_MM_DD_vv_aarch64.dmg` | macOS disk image (Apple Silicon / M1/M2/M3) |
-
-> **Intel Mac (x86_64) is not currently supported.** The build targets Apple Silicon only.
-
----
-
-## macOS Installation & First Launch Guide
-
-When downloading HANA-Lens directly from GitHub on macOS, Apple's Gatekeeper security feature will block the application from launching because it is not notarized by an Apple Developer account.
-
-### The Error You Will See
-
-After opening the DMG and moving the app to Applications, double-clicking it will show:
-
-> **"HANA-Lens.app" is damaged and can't be opened. You should move it to the Trash.**
-
-The app is not damaged. This is standard macOS behavior for unnotarized apps downloaded from the internet.
-
-### How to Fix It
-
-**Step 1 — Move the App**
-
-Drag `HANA-Lens.app` from your Downloads folder (or the DMG) into your `/Applications` folder.
-
-**Step 2 — Open Terminal**
-
-Press `Cmd + Space`, type `Terminal`, press Enter.
-
-**Step 3 — Run This Command**
-
-```bash
-sudo xattr -r -d com.apple.quarantine /Applications/HANA-Lens.app
-```
-
-**Step 4 — Enter Your Password**
-
-Terminal will ask for your Mac administrator password. Type it and press Enter. No characters will appear while typing — this is normal.
-
-**Step 5 — Launch the App**
-
-Open `/Applications` and double-click `HANA-Lens.app`. It will now launch without any error.
-
----
-
-## Requirements
-
-| Platform | Requirement |
-|---|---|
-| Windows | Windows 10/11 x64, WebView2 (included with Edge) |
-| macOS | macOS 12+, Apple Silicon (M1/M2/M3) |
+Each configured report is additionally stored as its own file (`hana-lens-report-<name>.json`) in the same directory, making reports easy to share and back up individually.
 
 ---
 
@@ -93,23 +52,17 @@ Open `/Applications` and double-click `HANA-Lens.app`. It will now launch withou
 
 The Trace Explorer filter bar includes a preset dropdown that loads search term templates from `.txt` files.
 
-### Pre-defined filters (read-only, shipped with the app)
+**Pre-defined filters** are bundled inside the application.
 
-Pre-defined filters are bundled inside the application and cannot be modified by users.
+**Custom filters** can be added by placing `.txt` files in the `filter_custom` folder inside the settings directory. Each file becomes one entry in the dropdown — the filename (without `.txt`) is shown as the label.
 
-### Custom filters (user-editable)
-
-Place your own `.txt` files in the `filter_custom` folder. Each file becomes one entry in the dropdown — the file name (without `.txt`) is shown as the label, and the file content is loaded into the search field when selected.
-
-**Windows (portable):** Place `filter_custom/` next to `HANA-Lens.exe` in the extracted ZIP folder.
-
-**macOS:** Place `filter_custom/` in the app data directory:
-```
-~/Library/Application Support/com.sap.hana-lens/filter_custom/
-```
-
-A `.txt` file contains comma-separated search terms, one set per file. Example (`replication.txt`):
+Example (`replication.txt`):
 ```
 SAPHanaReplication, replication error, log shipping
 ```
 
+---
+
+## Version check
+
+HANA-Lens checks for new versions against this repository's tags on startup and shows a banner if a newer version is available.
