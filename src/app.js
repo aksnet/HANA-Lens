@@ -1,5 +1,5 @@
 // PLACEHOLDER - PART 1: PARSER
-const APP_VERSION = '2026_11_11_07'
+const APP_VERSION = '2026_11_12_01'
 const MACHINE_KEYS = new Set(['async_io_limit','build_version','clocksource.current_clocksource','cpu_clock','cpu_cores','cpu_flags','cpu_manufacturer','cpu_model','cpu_sockets','cpu_summary','cpu_threads','hw_manufacturer','hw_model','kernel.numa_balancing','kernel.shmall','kernel.shmmax','kernel.shmmni','kernel.transparent_hugepage.enabled','mem_phys','mem_swap','memory_map_area_limit','open_file_limit','os_cpe_name','os_kernel_version','os_name','os_ppms_name','os_rlimit_nofile','os_user','platform','sap_retrieval_path','sap_retrieval_path_shared','sid','sapsystem','start_time','timezone_base_name','timezone_dst_name','timezone_name','timezone_offset','timezone_tz_name','topology_mem_info','topology_mem_type'])
 const NETWORK_KEYS = new Set(['net_domain','net_hostnames','net_ip_addresses','net_nameserver_bindings','net_port_ephemeral_max_count','net_port_ranges','net_port_unreserved_ranges','net_publicname','net_publicports','net_realhostname','net.core.somaxconn','net.ipv4.tcp_max_syn_backlog','net.ipv4.tcp_rmem','net.ipv4.tcp_syn_retries','net.ipv4.tcp_timestamps','net.ipv4.tcp_tw_recycle','net.ipv4.tcp_tw_reuse','net.ipv4.tcp_window_scaling','net.ipv4.tcp_wmem'])
 
@@ -2159,6 +2159,10 @@ function _autoSaveSettings(){
   invoke('write_settings',{content:JSON.stringify(window._hanaLensSettings,null,2)}).catch(e=>console.warn('[HANA-Lens] auto-save failed:',e))
 }
 
+function _rptSlug(title){
+  return (title||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')
+}
+
 function _initAutoSaveOnClose(){
   // Listen for the Tauri close-requested event and flush settings before the window dies.
   // Uses the low-level event API which works without extra capabilities.
@@ -2232,6 +2236,20 @@ document.addEventListener('DOMContentLoaded',()=>{
       catch(e){s.filesystemReference=''}
       needsSave=true
     }
+    // Load individual report files (primary source of truth); migrate from settings.json if no files exist
+    try{
+      const _rptFiles=await invoke('list_report_files')
+      if(_rptFiles&&_rptFiles.length>0){
+        s.reports=_rptFiles.map(f=>{try{const r=JSON.parse(f.content);r._filename=f.filename;return r}catch(e){return null}}).filter(Boolean)
+      } else if(s.reports&&s.reports.length>0){
+        for(const rpt of s.reports){
+          const slug=_rptSlug(rpt.title);if(!slug)continue
+          const fn='hana-lens-report-'+slug+'.json'
+          rpt._filename=fn
+          await invoke('write_report_file',{filename:fn,content:JSON.stringify({...rpt,_filename:undefined},null,2)}).catch(()=>{})
+        }
+      }
+    }catch(e){}
     window.BUNDLED_FS_REFERENCE=s.filesystemReference||''
     if(needsSave)invoke('write_settings',{content:JSON.stringify(s,null,2)}).catch(()=>{})
     initNavSettingsUI()
@@ -2574,11 +2592,31 @@ function toggleAppMenu(btn){
 
 async function saveSettingsFull(statusEl){
   try{
+    const reports=window._hanaLensSettings.reports||[]
+    // Get currently stored report files to detect deletions
+    let existingFiles=[]
+    try{existingFiles=(await invoke('list_report_files')||[]).map(f=>f.filename)}catch(e){}
+    // Write individual file for each report with a non-empty title
+    const writtenFiles=new Set()
+    for(const rpt of reports){
+      if(!rpt.title)continue
+      const slug=_rptSlug(rpt.title);if(!slug)continue
+      let fn='hana-lens-report-'+slug+'.json'
+      let n=2
+      while(writtenFiles.has(fn)){fn='hana-lens-report-'+slug+n+'.json';n++}
+      writtenFiles.add(fn)
+      rpt._filename=fn
+      await invoke('write_report_file',{filename:fn,content:JSON.stringify({...rpt,_filename:undefined},null,2)})
+    }
+    // Delete files for reports that were removed
+    for(const f of existingFiles){
+      if(!writtenFiles.has(f))await invoke('delete_report_file',{filename:f}).catch(()=>{})
+    }
     await invoke('write_settings',{content:JSON.stringify(window._hanaLensSettings,null,2)})
-    if(statusEl){ statusEl.textContent='✓ Saved'; statusEl.style.color='#107C10'; setTimeout(()=>{statusEl.textContent=''},2000) }
+    if(statusEl){statusEl.textContent='✓ Saved';statusEl.style.color='#107C10';setTimeout(()=>{statusEl.textContent=''},2000)}
     renderNavTree()
   }catch(e){
-    if(statusEl){ statusEl.textContent='✗ Error: '+e; statusEl.style.color='#C50F1F' }
+    if(statusEl){statusEl.textContent='✗ Error: '+e;statusEl.style.color='#C50F1F'}
     console.error('saveSettingsFull failed',e)
   }
 }
@@ -2775,6 +2813,14 @@ function showSettingsPanel(activeSection){
   const expandedRpts=new Set()
   const rebuildRpt=()=>{
     rptList2.innerHTML=''
+    const _rpts=s.reports||[]
+    if(_rpts.length===0){
+      const ph=document.createElement('div')
+      ph.style.cssText='padding:20px 16px;font-size:12px;color:#A19F9D;font-style:italic;text-align:center;'
+      ph.textContent='No reports configured yet. Use "+ Add Report" or "+ Import" below.'
+      rptList2.appendChild(ph)
+      return
+    }
     ;(s.reports||[]).forEach((rpt,ri)=>{
       if(!rpt.traceGroups) rpt.traceGroups=[]
       const isExpanded=expandedRpts.has(ri)
@@ -2800,9 +2846,22 @@ function showSettingsPanel(activeSection){
       rptDnBtn.title='Move down';rptDnBtn.disabled=ri===s.reports.length-1
       rptDnBtn.onclick=e=>{ e.stopPropagation();const a=s.reports;if(ri<a.length-1){[a[ri],a[ri+1]]=[a[ri+1],a[ri]];rebuildRpt()} }
       const delRptBtn=document.createElement('button')
-      delRptBtn.textContent='✕ Report';delRptBtn.style.cssText='background:none;border:1px solid #EDEBE9;border-radius:2px;cursor:pointer;font-size:11px;color:#A19F9D;padding:0 8px;height:24px;white-space:nowrap;'
-      delRptBtn.onclick=e=>{ e.stopPropagation();if(!window.confirm('Delete report "'+rpt.title+'"?\nThis cannot be undone.'))return;s.reports.splice(ri,1);rebuildRpt() }
-      header.appendChild(toggleBtn);header.appendChild(titleLbl);header.appendChild(rptUpBtn);header.appendChild(rptDnBtn);header.appendChild(delRptBtn)
+      delRptBtn.textContent='🗑 Delete Report';delRptBtn.style.cssText='background:none;border:1px solid #EDEBE9;border-radius:2px;cursor:pointer;font-size:11px;color:#A19F9D;padding:0 8px;height:24px;white-space:nowrap;'
+      delRptBtn.onclick=e=>{ e.stopPropagation();s.reports.splice(ri,1);rebuildRpt() }
+      const exportRptBtn=document.createElement('button')
+      exportRptBtn.textContent='⬇ Export'
+      exportRptBtn.title='Download this report as a JSON file'
+      exportRptBtn.style.cssText='background:none;border:1px solid #EDEBE9;border-radius:2px;cursor:pointer;font-size:11px;color:#0078D4;padding:0 8px;height:24px;white-space:nowrap;'
+      exportRptBtn.onclick=e=>{
+        e.stopPropagation()
+        const slug=_rptSlug(rpt.title)||'report'
+        const fn='hana-lens-report-'+slug+'.json'
+        const data=JSON.stringify({...rpt,_filename:undefined},null,2)
+        const a=document.createElement('a')
+        a.href='data:application/json;charset=utf-8,'+encodeURIComponent(data)
+        a.download=fn;a.click()
+      }
+      header.appendChild(toggleBtn);header.appendChild(titleLbl);header.appendChild(rptUpBtn);header.appendChild(rptDnBtn);header.appendChild(exportRptBtn);header.appendChild(delRptBtn)
       header.onclick=()=>{ if(expandedRpts.has(ri))expandedRpts.delete(ri);else expandedRpts.add(ri);rebuildRpt() }
       card.appendChild(header)
       const body=document.createElement('div')
@@ -2815,7 +2874,12 @@ function showSettingsPanel(activeSection){
       const titleIn=document.createElement('input')
       titleIn.type='text';titleIn.value=rpt.title||'';titleIn.placeholder='e.g. Replication Report'
       titleIn.style.cssText='width:100%;box-sizing:border-box;height:26px;padding:0 6px;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;font-family:inherit;font-weight:600;'
-      titleIn.oninput=e=>{ rpt.title=e.target.value;titleLbl.textContent=e.target.value||'(untitled report)' }
+      titleIn.oninput=e=>{
+        rpt.title=e.target.value;titleLbl.textContent=e.target.value||'(untitled report)'
+        const isDup=(s.reports||[]).some((r,i)=>i!==ri&&r.title&&r.title.toLowerCase()===e.target.value.trim().toLowerCase())
+        titleIn.style.borderColor=isDup?'#C50F1F':'#C8C6C4'
+        titleIn.title=isDup?'Duplicate title — each report must have a unique name':''
+      }
       titleRow.appendChild(titleLblF);titleRow.appendChild(titleIn);body.appendChild(titleRow)
       const cfgRow=document.createElement('div')
       cfgRow.style.cssText='margin-bottom:8px;'
@@ -2935,11 +2999,38 @@ function showSettingsPanel(activeSection){
   }
   rebuildRpt()
   rptSec.appendChild(rptList2)
+  const _rptBtnRow=document.createElement('div')
+  _rptBtnRow.style.cssText='display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;'
   const addRptBtn2=document.createElement('button')
   addRptBtn2.textContent='+ Add Report'
-  addRptBtn2.style.cssText='margin-top:6px;height:28px;padding:0 14px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;'
+  addRptBtn2.style.cssText='height:28px;padding:0 14px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;'
   addRptBtn2.onclick=()=>{ if(!s.reports)s.reports=[]; s.reports.push({id:'rpt-'+Date.now(),title:'New Report',configSections:[],traceGroups:[]}); expandedRpts.add(s.reports.length-1); rebuildRpt() }
-  rptSec.appendChild(addRptBtn2)
+  const importRptBtn=document.createElement('button')
+  importRptBtn.textContent='⬆ Import'
+  importRptBtn.title='Import a report from a hana-lens-report-*.json file'
+  importRptBtn.style.cssText='height:28px;padding:0 14px;background:#F3F2F1;border:1px solid #C8C6C4;border-radius:2px;font-size:12px;cursor:pointer;'
+  importRptBtn.onclick=()=>{
+    const fi=document.createElement('input')
+    fi.type='file';fi.accept='.json,application/json'
+    fi.onchange=async()=>{
+      const file=fi.files[0];if(!file)return
+      try{
+        const txt=await file.text()
+        const rpt=JSON.parse(txt)
+        if(!rpt||typeof rpt.title!=='string'||!rpt.title.trim()) throw new Error('Invalid report file — missing title')
+        const existingTitles=(s.reports||[]).map(r=>(r.title||'').toLowerCase())
+        let title=rpt.title.trim()
+        let n=2
+        while(existingTitles.includes(title.toLowerCase())){title=rpt.title.trim()+' '+n;n++}
+        rpt.title=title;rpt.id='rpt-'+Date.now();delete rpt._filename
+        if(!s.reports)s.reports=[]
+        s.reports.push(rpt);expandedRpts.add(s.reports.length-1);rebuildRpt()
+      }catch(err){alert('Import failed: '+err.message)}
+    }
+    fi.click()
+  }
+  _rptBtnRow.appendChild(addRptBtn2);_rptBtnRow.appendChild(importRptBtn)
+  rptSec.appendChild(_rptBtnRow)
   sectionEls['reports']=rptSec
   content.appendChild(rptSec)
 
@@ -2975,7 +3066,13 @@ function showSettingsPanel(activeSection){
     const folder=p.replace(/[/\\][^/\\]+$/,'')
     openFolderBtn.onclick=()=>invoke('open_folder',{path:folder}).catch(()=>{})
   }).catch(()=>{})
-  saveBtn.onclick=()=>{ window._hanaLensSettings=s; saveSettingsFull(statusEl) }
+  saveBtn.onclick=()=>{
+    const titles=(s.reports||[]).filter(r=>r.title).map(r=>r.title.toLowerCase())
+    if(titles.length!==new Set(titles).size){
+      statusEl.textContent='✗ Duplicate report titles — each title must be unique';statusEl.style.color='#C50F1F';return
+    }
+    window._hanaLensSettings=s; saveSettingsFull(statusEl)
+  }
   const cancelBtn=document.createElement('button')
   cancelBtn.textContent='✕ Cancel'
   cancelBtn.style.cssText='height:32px;padding:0 14px;background:#fff;color:#323130;border:1px solid #C8C6C4;border-radius:2px;font-size:13px;cursor:pointer;font-family:inherit;'
@@ -3184,7 +3281,7 @@ function buildFsidGroup(s){
     if(_reports.filter(r=>r.title).length===0){
       const ph=document.createElement('div')
       ph.style.cssText='padding:3px 14px;font-size:11px;color:#C8C6C4;font-style:italic;'
-      ph.textContent='Define in Settings…'
+      ph.textContent='No reports defined'
       children.appendChild(ph)
     } else {
       for(const rpt of _reports){
@@ -6512,7 +6609,7 @@ function buildHsiNavGroup(s){
     if(_reports.filter(r=>r.title).length === 0){
       const ph = document.createElement('div')
       ph.style.cssText = 'padding:3px 14px;font-size:11px;color:#C8C6C4;font-style:italic;'
-      ph.textContent = 'Define in Settings…'
+      ph.textContent = 'No reports defined'
       children.appendChild(ph)
     } else {
       for(const rpt of _reports){
