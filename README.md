@@ -50,13 +50,9 @@ Each configured report is additionally stored as its own file (`hana-lens-report
 
 ## Filter Presets
 
-The Trace Explorer filter bar includes a preset dropdown that loads search term templates from `.txt` files.
+The Trace Explorer filter bar includes a preset dropdown for quick search terms. Filter presets are managed directly in **Settings → Filter Presets**: add a name and one or more comma-separated search terms per preset. Presets are saved automatically in the settings file.
 
-**Pre-defined filters** are bundled inside the application.
-
-**Custom filters** can be added by placing `.txt` files in the `filter_custom` folder inside the settings directory. Each file becomes one entry in the dropdown — the filename (without `.txt`) is shown as the label.
-
-Example (`replication.txt`):
+Example preset named `Replication`:
 ```
 SAPHanaReplication, replication error, log shipping
 ```
