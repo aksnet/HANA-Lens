@@ -23,6 +23,13 @@
       <button id="loadBtn" onclick="loadSmartFolder()" style="height:28px;padding:0 14px;background:#107C10;color:#fff;border:none;border-radius:2px 0 0 2px;font-size:12px;font-family:inherit;cursor:pointer;font-weight:500;white-space:nowrap;">Load FSID / HSI / NETTEST</button>
       <button class="split-chevron" onclick="showLoadDropdown(event,'folder')" title="Recent &amp; bookmarks" style="height:28px;width:22px;background:#107C10;color:#fff;border:none;border-left:1px solid rgba(255,255,255,0.25);border-radius:0 2px 2px 0;font-size:10px;cursor:pointer;padding:0;">▾</button>
     </div>
+    <div id="global-search-wrap" style="position:relative;flex:1;min-width:120px;max-width:520px;margin-left:6px;">
+      <input id="global-search" type="search" placeholder="&#128269; Search all pages of the active session…" disabled autocomplete="off"
+        title="Searches the currently active session. Open a page (e.g. START) of an HSI/FSID in the navigation to make it the active session."
+        oninput="globalSearchOnInput(this.value)" onkeydown="globalSearchKey(event)" onfocus="_gsSetPlaceholder()"
+        style="width:100%;height:28px;box-sizing:border-box;padding:0 10px;border:1px solid rgba(255,255,255,0.35);border-radius:2px;background:rgba(255,255,255,0.12);color:#fff;font-family:inherit;font-size:12px;">
+      <div id="global-search-results" style="display:none;"></div>
+    </div>
     <button id="app-menu-btn" onclick="toggleAppMenu(this)" title="Menu" style="height:28px;width:32px;background:transparent;color:#323130;border:none;border-radius:2px;font-size:18px;cursor:pointer;padding:0;margin-left:6px;flex-shrink:0;">&#9776;</button>
   </div>
   <div id="main">

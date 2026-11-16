@@ -230,11 +230,24 @@ mark { background: #fff176; padding: 0 2px; border-radius: 2px; }
 .nsc-param-scale,.nsc-param-unit { font-size:10px; color:#605E5C; text-align:center; }
 .nsc-param-stat { font-size:10px; color:#323130; text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
 
+/* ── Global Search (topbar) ──────────────────────────────────────── */
+#global-search::placeholder { color:rgba(255,255,255,0.6); }
+#global-search:focus { outline:none; border-color:#fff; background:rgba(255,255,255,0.2); }
+#global-search:disabled { opacity:0.45; cursor:not-allowed; }
+#global-search-results { position:absolute; top:calc(100% + 3px); left:0; right:0; background:#fff; border:1px solid #C8C6C4; border-radius:2px; box-shadow:0 6px 18px rgba(0,0,0,0.22); z-index:300; max-height:70vh; overflow-y:auto; color:#323130; font-size:12px; }
+#global-search-results .gs-empty { padding:12px 14px; color:#A19F9D; font-style:italic; }
+#global-search-results .gs-session { position:sticky; top:0; z-index:1; background:#0A1E42; color:#fff; padding:6px 12px; font-size:11px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border-bottom:1px solid #1B3070; }
+#global-search-results .gs-group-hdr { background:#243A5E; color:#fff; padding:5px 12px; font-size:11px; font-weight:600; letter-spacing:0.3px; }
+#global-search-results .gs-hit { padding:6px 12px; border-bottom:1px solid #F3F2F1; cursor:pointer; line-height:1.45; }
+#global-search-results .gs-hit:hover { background:#EFF6FC; }
+#global-search-results .gs-hit mark { background:#FFF176; padding:0 1px; border-radius:1px; }
+#global-search-results .gs-page { font-size:10px; color:#605E5C; font-weight:600; text-transform:uppercase; letter-spacing:0.3px; margin-bottom:2px; }
+#global-search-results .gs-snippet { color:#323130; font-family:Consolas,monospace; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#global-search-results .gs-hint { padding:5px 12px; background:#F8F8F7; color:#A19F9D; font-size:10px; border-top:1px solid #EDEBE9; position:sticky; bottom:0; }
+.gs-flash { animation:gsFlash 1.6s ease-out; }
+@keyframes gsFlash { 0%{ background:#FFF176; } 100%{ background:transparent; } }
+
 /* ── Theme Toggle Button ─────────────────────────────────────────── */
-#theme-toggle-btn { background:transparent; border:none; cursor:pointer; font-size:13px; color:#A19F9D; padding:1px 4px; border-radius:2px; line-height:1; flex-shrink:0; }
-#theme-toggle-btn:hover { background:#EDEBE9; color:#0078D4; }
-body.sap-theme #theme-toggle-btn { color:rgba(255,255,255,0.6); }
-body.sap-theme #theme-toggle-btn:hover { background:rgba(255,255,255,0.12); color:#fff; }
 
 /* ── SAP Horizon Theme ───────────────────────────────────────────── */
 body.sap-theme { font-family:'Arial','72',system-ui,sans-serif; background:#F5F6F7; color:#32363A; }

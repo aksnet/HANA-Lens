@@ -1,5 +1,5 @@
 // PLACEHOLDER - PART 1: PARSER
-const APP_VERSION = '2026_11_12_02'
+const APP_VERSION = '2026_11_16_01'
 const MACHINE_KEYS = new Set(['async_io_limit','build_version','clocksource.current_clocksource','cpu_clock','cpu_cores','cpu_flags','cpu_manufacturer','cpu_model','cpu_sockets','cpu_summary','cpu_threads','hw_manufacturer','hw_model','kernel.numa_balancing','kernel.shmall','kernel.shmmax','kernel.shmmni','kernel.transparent_hugepage.enabled','mem_phys','mem_swap','memory_map_area_limit','open_file_limit','os_cpe_name','os_kernel_version','os_name','os_ppms_name','os_rlimit_nofile','os_user','platform','sap_retrieval_path','sap_retrieval_path_shared','sid','sapsystem','start_time','timezone_base_name','timezone_dst_name','timezone_name','timezone_offset','timezone_tz_name','topology_mem_info','topology_mem_type'])
 const NETWORK_KEYS = new Set(['net_domain','net_hostnames','net_ip_addresses','net_nameserver_bindings','net_port_ephemeral_max_count','net_port_ranges','net_port_unreserved_ranges','net_publicname','net_publicports','net_realhostname','net.core.somaxconn','net.ipv4.tcp_max_syn_backlog','net.ipv4.tcp_rmem','net.ipv4.tcp_syn_retries','net.ipv4.tcp_timestamps','net.ipv4.tcp_tw_recycle','net.ipv4.tcp_tw_reuse','net.ipv4.tcp_window_scaling','net.ipv4.tcp_wmem'])
 
@@ -2200,20 +2200,8 @@ function _checkForUpdates(){
 
 // ── DOMContentLoaded ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded',()=>{
-  // ── SAP Horizon theme init ───────────────────────────────────────
-  if(localStorage.getItem('hl-theme')==='sap') document.body.classList.add('sap-theme')
-  const _themeHdr = document.getElementById('navTreeHeader')
-  if(_themeHdr){
-    const _themeBtn = document.createElement('button')
-    _themeBtn.id = 'theme-toggle-btn'
-    _themeBtn.title = 'Toggle SAP Horizon theme'
-    _themeBtn.textContent = '◑'
-    _themeBtn.onclick = ()=>{
-      const on = document.body.classList.toggle('sap-theme')
-      localStorage.setItem('hl-theme', on ? 'sap' : '')
-    }
-    _themeHdr.appendChild(_themeBtn)
-  }
+  // SAP Horizon is the only theme
+  document.body.classList.add('sap-theme')
   // ── Async boot: load settings, migrate filters + fs-reference from files (once), then init UI
   ;(async()=>{
     try{
@@ -3335,12 +3323,14 @@ function renderNavTree(){
     ph.className='nav-item disabled'
     ph.innerHTML='<span class="nav-icon">📂</span>No data loaded'
     body.appendChild(ph)
+    if(typeof gsUpdateEnabled==='function') gsUpdateEnabled()
     return
   }
   for(const s of fsidSessions){
     if(s.hsiParentId) continue  // child FSID — rendered inside HSI accordion
     body.appendChild(buildFsidGroup(s))
   }
+  if(typeof gsUpdateEnabled==='function') gsUpdateEnabled()
 }
 
 function buildFsidGroup(s){
@@ -3434,6 +3424,7 @@ function activateNavItem(sid,panelKey){
   // switch active session
   if(activeFsidId!==sid){
     activeFsidId=sid
+    if(typeof _gsSetPlaceholder==='function') _gsSetPlaceholder()
     // clear panels that hold session-specific content
     Object.values(_nsChartState).forEach(st=>{if(st?.chart){st.chart.destroy();st.chart=null}})
     document.getElementById('panel-topology').innerHTML=''
@@ -5415,14 +5406,38 @@ function toggleAvailOk(tbodyId){
 // Nameserver History — Chart.js viewer
 // ══════════════════════════════════════════════════════════════════════════
 
-const _NSC_PALETTE=['#0078D4','#107C10','#D83B01','#8764B8','#038387','#D47500','#A4262C','#B146C2','#00B7C3','#004E8C','#881798','#69797E','#01B8AA','#E81123','#0099BC']
+// Fixed per-KPI colors — 1:1 with original ngx-hana-nameserver-history-viewer UIService.getColors()
+const _NSC_COLORS={
+  cpuUsed:[199,21,133],memoryResident:[238,130,238],memoryTotalResident:[72,61,139],memoryUsed:[0,0,205],memoryLimit:[255,105,180],memorySize:[70,130,180],diskUsed:[25,25,112],diskSize:[0,255,255],networkIn:[102,51,153],networkOut:[245,222,179],swapIn:[47,79,79],swapOut:[205,92,92],
+  indexserverCpu:[255,99,71],indexserverCpuSys:[255,20,147],indexserverMemUsed:[0,255,0],indexserverMemLimit:[139,0,0],indexserverHandles:[139,0,139],indexserverPingtime:[189,183,107],indexserverSwapIn:[112,128,144],
+  sqlConnections:[85,107,47],internalConnections:[46,139,87],externalConnections:[147,112,219],idleConnections:[216,191,216],sqlTransactions:[220,20,60],internalTransactions:[186,85,211],externalTransactions:[221,160,221],userTransactions:[210,105,30],sqlBlockedTrans:[0,0,255],sqlStatements:[188,143,143],cidRange:[32,178,170],tidRange:[124,252,0],pendingRequestCount:[160,32,240],
+  mvccNum:[65,105,225],acquiredRecordLocks:[0,250,154],
+  searchCount:[127,255,212],indexingCount:[0,191,255],mergeCount:[135,206,235],unloadCount:[255,165,0],
+  indexserverThreads:[0,100,0],waitingThreads:[176,48,96],totalThreads:[100,149,237],activeSqlExecutors:[175,238,238],waitingSqlExecutors:[50,205,50],totalSqlExecutors:[240,230,140],
+  dataWriteSize:[102,205,170],dataWriteTime:[169,169,169],logWriteSize:[160,82,45],logWriteTime:[128,128,0],dataReadSize:[255,215,0],dataReadTime:[95,158,160],logReadSize:[255,0,0],logReadTime:[184,134,11],
+  dataBackupWriteSize:[255,255,0],dataBackupWriteTime:[154,205,50],logBackupWriteSize:[0,0,139],logBackupWriteTime:[219,112,147],
+  mutexCollisionCount:[244,164,96],readWriteLockCollisionCount:[233,150,122],
+  admissinControlAdmitCount:[143,188,143],admissionControlRejectCount:[255,0,255],admissionControlWaitingRequests:[153,50,204],admissionControlWaitTime:[144,238,144],
+  admissionControlEnqueueCount:[218,165,32],admissionControlDequeueCount:[72,209,204],admissionControlTimeoutCount:[199,21,133],
+}
+function _nscColor(name,mi,alpha){
+  const c=_NSC_COLORS[name]
+  if(c)return`rgba(${c[0]},${c[1]},${c[2]},${alpha==null?0.8:alpha})`
+  // deterministic fallback for any metric without a fixed color
+  let h=0;for(let i=0;i<name.length;i++)h=(h*31+name.charCodeAt(i))&0xffffff
+  const r=(h&0xff),g=((h>>8)&0xff),b=((h>>16)&0xff)
+  return`rgba(${r},${g},${b},${alpha==null?0.8:alpha})`
+}
+function _nscCommas(num){
+  const[ip,dp]=String(num).split('.');const iw=ip.replace(/\B(?=(\d{3})+(?!\d))/g,',');return dp?`${iw}.${dp}`:iw
+}
 const _NSC_DEFAULT=new Set(['cpuUsed','indexserverMemUsed','mvccNum'])
 const _nsChartState={}
 
 // Hardcoded metric → display group (10 groups matching reference tool)
 const _NSC_GROUPS={
   'cpuUsed':'Host','memoryResident':'Host','memoryTotalResident':'Host','memoryUsed':'Host','memoryLimit':'Host','memorySize':'Host','diskUsed':'Host','diskSize':'Host','networkIn':'Host','networkOut':'Host','swapIn':'Host','swapOut':'Host',
-  'indexserverCpu':'Service','indexserverCpuSys':'Service','indexserverMemUsed':'Service','indexserverMemLimit':'Service','indexserverHandles':'Service','indexserverPingtime':'Service','indexserverSwapIn':'Service',
+  'indexserverCpu':'Index Server','indexserverCpuSys':'Index Server','indexserverMemUsed':'Index Server','indexserverMemLimit':'Index Server','indexserverHandles':'Index Server','indexserverPingtime':'Index Server','indexserverSwapIn':'Index Server',
   'sqlConnections':'SQL','internalConnections':'SQL','externalConnections':'SQL','idleConnections':'SQL','sqlTransactions':'SQL','internalTransactions':'SQL','externalTransactions':'SQL','userTransactions':'SQL','sqlBlockedTrans':'SQL','sqlStatements':'SQL','cidRange':'SQL','tidRange':'SQL','pendingRequestCount':'SQL',
   'mvccNum':'Row Store','acquiredRecordLocks':'Row Store',
   'searchCount':'Column Store','indexingCount':'Column Store','mergeCount':'Column Store','unloadCount':'Column Store',
@@ -5458,41 +5473,55 @@ const _NSC_CONV={
   'mutexCollisionCount':'rate','readWriteLockCollisionCount':'rate',
   'admissinControlAdmitCount':'rate','admissionControlRejectCount':'rate','admissionControlWaitingRequests':'rate','admissionControlWaitTime':'rate','admissionControlEnqueueCount':'rate','admissionControlDequeueCount':'rate','admissionControlTimeoutCount':'rate',
 }
-// Human-readable display labels for each metric (matching original ngx-hana-nameserver-history-viewer)
+// Human-readable display labels — 1:1 with original ngx-hana-nameserver-history-viewer KPI names
 const _NSC_LABELS={
-  'cpuUsed':'CPU Used','memoryResident':'Database Resident Memory','memoryTotalResident':'Total Resident Memory',
-  'memoryUsed':'Memory Used','memoryLimit':'Memory Limit','memorySize':'Memory Size',
+  'cpuUsed':'CPU','memoryResident':'Database Resident Memory','memoryTotalResident':'Total Resident Memory',
+  'memoryUsed':'Database Used Memory','memoryLimit':'Database Allocation Limit','memorySize':'Physical Memory Size',
   'diskUsed':'Disk Used','diskSize':'Disk Size','networkIn':'Network In','networkOut':'Network Out','swapIn':'Swap In','swapOut':'Swap Out',
-  'indexserverCpu':'IndexServer CPU','indexserverCpuSys':'IndexServer CPU Sys',
-  'indexserverMemUsed':'IndexServer Memory Used','indexserverMemLimit':'IndexServer Memory Limit',
-  'indexserverHandles':'IndexServer Handles','indexserverPingtime':'IndexServer Ping Time','indexserverSwapIn':'IndexServer Swap In',
-  'sqlConnections':'SQL Connections','internalConnections':'Internal Connections','externalConnections':'External Connections',
-  'idleConnections':'Idle Connections','sqlTransactions':'SQL Transactions','internalTransactions':'Internal Transactions',
+  'indexserverCpu':'Index Server CPU','indexserverCpuSys':'System CPU',
+  'indexserverMemUsed':'Memory Used','indexserverMemLimit':'Memory Allocation Limit',
+  'indexserverHandles':'Handles','indexserverPingtime':'Ping Time','indexserverSwapIn':'Index Server Swap In',
+  'sqlConnections':'Open Connections','internalConnections':'Internal Connections','externalConnections':'External Connections',
+  'idleConnections':'Idle Connections','sqlTransactions':'Open Transactions','internalTransactions':'Internal Transactions',
   'externalTransactions':'External Transactions','userTransactions':'User Transactions',
-  'sqlBlockedTrans':'SQL Blocked Transactions','sqlStatements':'SQL Statements',
-  'cidRange':'CID Range','tidRange':'TID Range','pendingRequestCount':'Pending Request Count',
-  'mvccNum':'MVCC Versions','acquiredRecordLocks':'Acquired Record Locks',
-  'searchCount':'Search Count','indexingCount':'Indexing Count','mergeCount':'Merge Count','unloadCount':'Unload Count',
-  'indexserverThreads':'IndexServer Threads','waitingThreads':'Waiting Threads','totalThreads':'Total Threads',
-  'activeSqlExecutors':'Active SQL Executors','waitingSqlExecutors':'Waiting SQL Executors','totalSqlExecutors':'Total SQL Executors',
+  'sqlBlockedTrans':'Blocked Transactions','sqlStatements':'Statements',
+  'cidRange':'Active Commit ID Range','tidRange':'Active Transaction ID Range','pendingRequestCount':'Pending Request Count',
+  'mvccNum':'Active Versions','acquiredRecordLocks':'Acquired Record Locks',
+  'searchCount':'Read Requests','indexingCount':'Write Requests','mergeCount':'Merge Requests','unloadCount':'Column Unloads',
+  'indexserverThreads':'Active Threads','waitingThreads':'Waiting Threads','totalThreads':'Total Threads',
+  'activeSqlExecutors':'Active SqlExecutors','waitingSqlExecutors':'Waiting SqlExecutors','totalSqlExecutors':'Total SqlExecutors',
   'dataWriteSize':'Data Write Size','dataWriteTime':'Data Write Time','logWriteSize':'Log Write Size','logWriteTime':'Log Write Time',
   'dataReadSize':'Data Read Size','dataReadTime':'Data Read Time','logReadSize':'Log Read Size','logReadTime':'Log Read Time',
   'dataBackupWriteSize':'Data Backup Write Size','dataBackupWriteTime':'Data Backup Write Time',
   'logBackupWriteSize':'Log Backup Write Size','logBackupWriteTime':'Log Backup Write Time',
-  'mutexCollisionCount':'Mutex Collision Count','readWriteLockCollisionCount':'ReadWrite Lock Collision Count',
-  'admissinControlAdmitCount':'Admission Control Admit Count','admissionControlRejectCount':'Admission Control Reject Count',
-  'admissionControlWaitingRequests':'Admission Control Waiting Requests','admissionControlWaitTime':'Admission Control Wait Time',
-  'admissionControlEnqueueCount':'Admission Control Enqueue Count','admissionControlDequeueCount':'Admission Control Dequeue Count',
-  'admissionControlTimeoutCount':'Admission Control Timeout Count',
+  'mutexCollisionCount':'Mutex Collisions','readWriteLockCollisionCount':'Read/Write Lock Collisions',
+  'admissinControlAdmitCount':'Admitted Requests','admissionControlRejectCount':'Rejected Requests',
+  'admissionControlWaitingRequests':'Waiting Requests','admissionControlWaitTime':'Wait Time',
+  'admissionControlEnqueueCount':'Enqueued Requests','admissionControlDequeueCount':'Dequeued Requests',
+  'admissionControlTimeoutCount':'Timed out Requests',
 }
-// Apply unit conversions to parsed data (in-place):
+// Metric → display unit (1:1 with original Unit enum). Empty string = no unit.
+const _NSC_UNITS={
+  cpuUsed:'%',indexserverCpu:'%',indexserverCpuSys:'%',
+  memoryResident:'MB',memoryTotalResident:'MB',memoryUsed:'MB',memoryLimit:'MB',memorySize:'MB',indexserverMemUsed:'MB',indexserverMemLimit:'MB',
+  diskUsed:'GB',diskSize:'GB',
+  networkIn:'MB/s',networkOut:'MB/s',swapIn:'MB/s',swapOut:'MB/s',indexserverSwapIn:'MB/s',
+  dataWriteSize:'MB/s',logWriteSize:'MB/s',dataReadSize:'MB/s',logReadSize:'MB/s',dataBackupWriteSize:'MB/s',logBackupWriteSize:'MB/s',
+  dataWriteTime:'Sec/s',logWriteTime:'Sec/s',dataReadTime:'Sec/s',logReadTime:'Sec/s',dataBackupWriteTime:'Sec/s',logBackupWriteTime:'Sec/s',admissionControlWaitTime:'Sec/s',
+  indexserverPingtime:'ms',
+  sqlStatements:'stm/s',
+  searchCount:'req/s',indexingCount:'req/s',mergeCount:'req/s',unloadCount:'req/s',admissinControlAdmitCount:'req/s',admissionControlRejectCount:'req/s',admissionControlWaitingRequests:'req/s',admissionControlEnqueueCount:'req/s',admissionControlDequeueCount:'req/s',admissionControlTimeoutCount:'req/s',
+  mutexCollisionCount:'col/s',readWriteLockCollisionCount:'col/s',
+  indexserverHandles:'',sqlConnections:'',internalConnections:'',externalConnections:'',idleConnections:'',sqlTransactions:'',internalTransactions:'',externalTransactions:'',userTransactions:'',sqlBlockedTrans:'',cidRange:'',tidRange:'',pendingRequestCount:'',mvccNum:'',acquiredRecordLocks:'',indexserverThreads:'',waitingThreads:'',totalThreads:'',activeSqlExecutors:'',waitingSqlExecutors:'',totalSqlExecutors:'',
+}
+// Apply unit labels + numeric conversions to parsed data (in-place):
 //   mb = bytes→MB (÷1048576), gb = bytes→GB (÷1073741824)
-//   rate = per-interval count÷interval_s, mb_rate = bytes÷1048576÷interval_s, us_rate = µs÷1e6÷interval_s
+//   rate = count÷interval_s, mb_rate = bytes÷1048576÷interval_s, us_rate = µs÷1e6÷interval_s
 function _nscApplyConversions(parsed){
-  const _unitAfter={mb:'MB',gb:'GB',mb_rate:'MBit/s'}
   parsed.metrics.forEach((m,mi)=>{
+    if(_NSC_UNITS[m.name]!=null)m.unit=_NSC_UNITS[m.name]
+    if(_NSC_LABELS[m.name])m.label=_NSC_LABELS[m.name]
     const ct=_NSC_CONV[m.name];if(!ct)return
-    if(_unitAfter[ct])m.unit=_unitAfter[ct]
     for(const port of parsed.ports){
       const pd=parsed.byPort[port],vals=pd.values[mi],ts=pd.timestamps
       if(ct==='mb'){
@@ -5665,7 +5694,9 @@ async function nsChartLoadHost(container,hostName,handle,isCancelled){
     const yScaleArray=parsed.metrics.map((m,mi)=>{
       const sg=_NSC_SGROUPS[m.name]||'unknown'
       if(sg==='pct')return 100
-      return _nscCalcYScale(sg==='unknown'?indMaxes[mi]:sgMaxes[sg]||0)
+      const base=_nscCalcYScale(sg==='unknown'?indMaxes[mi]:sgMaxes[sg]||0)
+      if(sg==='swap')return Math.max(100,base)  // original: swap group min Y-Scale 100
+      return base
     })
     if(isCancelled?.())return
     _nsChartState[cid]={parsedData:parsed,hostName,visiblePort:preferredPort,visibleMetrics:defVis,fromMs:null,toMs:null,yScaleArray}
@@ -5690,12 +5721,14 @@ function _nscScaleGroup(name,unit){
   return'other'
 }
 
-function _nscCalcYScale(maxVal){
-  if(!Number.isFinite(maxVal)||maxVal<=0)return 100
-  const exp=Math.floor(Math.log10(maxVal))
-  const pow=Math.pow(10,exp)
-  const m=maxVal/pow
-  return(m<=2?2:m<=5?5:10)*pow
+function _nscCalcYScale(value){
+  // 1:1 with original calculateYScale: round up to next 2,5,10,20,50,100,...
+  if(!Number.isFinite(value)||value<=0)return 100
+  const scale=Math.pow(10,Math.floor(Math.log10(value)))
+  if(scale>=value)return scale
+  if(2*scale>=value)return 2*scale
+  if(5*scale>=value)return 5*scale
+  return 10*scale
 }
 
 function _nscFmtYScale(v){if(!Number.isFinite(v))return'—';if(v>=1e9)return(v/1e9).toFixed(0)+'B';if(v>=1e6)return(v/1e6).toFixed(0)+'M';if(v>=1000)return(v/1000).toFixed(0)+'K';return String(Math.round(v))}
@@ -5712,7 +5745,7 @@ function nsChartToggleRefs(btn,cid){
   if(pop){pop.remove();return}
   pop=document.createElement('div')
   pop.id=pid
-  pop.style.cssText='position:absolute;top:calc(100% + 4px);right:0;background:#fff;border:1px solid #EDEBE9;border-radius:2px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:9999;padding:12px 16px;font-size:12px;min-width:340px;'
+  pop.style.cssText='position:absolute;background:#fff;border:1px solid #EDEBE9;border-radius:2px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:9999;padding:12px 16px;font-size:12px;min-width:340px;'
   pop.innerHTML=`<div style="font-weight:600;margin-bottom:8px;color:#323130;">References</div>
 <div style="display:flex;flex-direction:column;gap:7px;">
 <a href="https://me.sap.com/notes/3367214" target="_blank" style="color:#0078D4;text-decoration:none;display:flex;align-items:center;gap:6px;">📋 KBA 3367214 — HANA Nameserver History</a>
@@ -5723,6 +5756,12 @@ function nsChartToggleRefs(btn,cid){
   const toolbar=btn.closest('.nsc-toolbar')||btn.parentNode
   toolbar.style.position='relative'
   toolbar.appendChild(pop)
+  // position directly under the References button
+  pop.style.top=(btn.offsetTop+btn.offsetHeight+4)+'px'
+  pop.style.left=btn.offsetLeft+'px'
+  // keep inside the toolbar's right edge
+  const overflow=(pop.offsetLeft+pop.offsetWidth)-toolbar.clientWidth
+  if(overflow>0)pop.style.left=Math.max(0,btn.offsetLeft-overflow)+'px'
   function closeOnOutside(e){if(!pop.contains(e.target)&&e.target!==btn){pop.remove();document.removeEventListener('click',closeOnOutside,true)}}
   setTimeout(()=>document.addEventListener('click',closeOnOutside,true),0)
 }
@@ -5736,7 +5775,7 @@ function nsChartBuildUI(container,cid){
   const portLbl=p=>{const s=portSvcMap[p];return s?`${p} — ${s}`:p}
 
   // Use hardcoded group map (reference tool order); unknown metrics fall into 'Other'
-  const GROUP_ORDER=['Host','Service','SQL','Row Store','Column Store','Threads','Persistence','Backup','Synchronization Primitives','Session Admission Control','Other']
+  const GROUP_ORDER=['Host','Index Server','SQL','Row Store','Column Store','Threads','Persistence','Backup','Synchronization Primitives','Session Admission Control','Other']
   const groupMap={}
   metrics.forEach(m=>{const g=_NSC_GROUPS[m.name]||'Other';if(!groupMap[g])groupMap[g]=[];groupMap[g].push(m)})
   const groups=GROUP_ORDER.filter(g=>groupMap[g]?.length).map(g=>({id:g.toLowerCase().replace(/[^a-z0-9]/g,'-'),label:g,metrics:groupMap[g]}))
@@ -5745,7 +5784,7 @@ function nsChartBuildUI(container,cid){
   const dtFrom=portData?.timestamps.length?_nscMsToDatetimeLocal(portData.timestamps[0]):''
   const dtTo=portData?.timestamps.length?_nscMsToDatetimeLocal(portData.timestamps[portData.timestamps.length-1]):''
   const tzLabel=Intl.DateTimeFormat().resolvedOptions().timeZone
-  const rangeInfo=portData?.timestamps.length?` (${_nscFmtTs(portData.timestamps[0])} – ${_nscFmtTs(portData.timestamps[portData.timestamps.length-1])})`:''
+  const rangeInfo=portData?.timestamps.length?`${_nscFmtTs(portData.timestamps[0])} ~ ${_nscFmtTs(portData.timestamps[portData.timestamps.length-1])}`:'N/A ~ N/A'
 
   const portSel=ports.length>1
     ?`<select id="${cid}-portsel" class="nsc-select" onchange="nsChartSwitchPortSel('${cid}')">${ports.map(p=>`<option value="${escHtml(p)}"${p===visiblePort?' selected':''}>${escHtml(portLbl(p))}</option>`).join('')}</select>`
@@ -5760,10 +5799,10 @@ function nsChartBuildUI(container,cid){
     ${portSel}
     <button class="nsc-btn-primary" onclick="nsChartShow('${cid}')">Show</button>
     <button class="nsc-btn" onclick="nsChartReset('${cid}')">Reset Chart</button>
-    <button class="nsc-btn" onclick="nsChartToggleRefs(this,'${cid}')">References</button>
+    <button class="nsc-btn" onclick="nsChartToggleRefs(this,'${cid}')">References <span style="font-size:9px;">▼</span></button>
     <span id="${cid}-info" class="nsc-tz"></span>
   </div>
-  <div class="nsc-range-info" id="${cid}-range-info">${escHtml(hostName)} · ${escHtml(portLbl(visiblePort))}${escHtml(rangeInfo)}</div>
+  <div class="nsc-range-info" id="${cid}-range-info">${escHtml(hostName)} - ${escHtml(visiblePort)} ( ${escHtml(rangeInfo)} )</div>
   <div class="nsc-body">
     <div class="nsc-chart-area"><canvas id="${cid}-canvas"></canvas></div>
     <div class="nsc-param-panel">
@@ -5778,14 +5817,14 @@ function nsChartBuildUI(container,cid){
     html+=`<div class="nsc-param-group" id="${cid}-grp-${g.id}"><div class="nsc-group-hdr" onclick="nsChartToggleGroup(this)">▼ ${escHtml(g.label)}</div>`
     g.metrics.forEach(m=>{
       const mi=metrics.indexOf(m)
-      const color=_NSC_PALETTE[mi%_NSC_PALETTE.length]
+      const color=_nscColor(m.name,mi,1)
       const chk=visibleMetrics.has(m.name)
       html+=`<div class="nsc-param-row${chk?' checked':''}" data-metric="${escHtml(m.name)}" data-label="${escHtml(m.label)}" id="${cid}-row-${_nscSid(m.name)}" style="border-left-color:${chk?color:'transparent'};">
         <span class="nsc-param-kpi">
           <input type="checkbox"${chk?' checked':''} data-metric="${escHtml(m.name)}" data-color="${color}" onchange="nsChartToggleMetric('${cid}',this.dataset.metric,this.checked)" style="cursor:pointer;margin:0;flex-shrink:0;">
           <span title="${escHtml(m.label)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(_NSC_LABELS[m.name]||m.name)}</span>
         </span>
-        <span class="nsc-param-scale" style="text-align:center;cursor:default;" title="Auto-computed Y-axis max">${escHtml(_nscFmtYScale(st.yScaleArray?.[mi]))}</span>
+        <span class="nsc-param-scale" style="text-align:center;cursor:default;" title="Y-axis scale (max)">${escHtml(Number.isFinite(st.yScaleArray?.[mi])?_nscCommas(st.yScaleArray[mi]):'')}</span>
         <span class="nsc-param-unit">${escHtml(m.unit||'')}</span>
         <span class="nsc-param-stat" id="${cid}-max-${_nscSid(m.name)}">—</span>
         <span class="nsc-param-stat" id="${cid}-avg-${_nscSid(m.name)}">—</span>
@@ -5805,15 +5844,24 @@ function nsChartUpdateStats(cid){
   let iStart=0,iEnd=ts.length
   if(fromMs!=null){let found=false;for(let i=0;i<ts.length;i++){if(ts[i]>=fromMs){iStart=i;found=true;break}};if(!found)iStart=ts.length}
   if(toMs!=null){let found=false;for(let i=ts.length-1;i>=iStart;i--){if(ts[i]<=toMs){iEnd=i+1;found=true;break}};if(!found)iEnd=iStart}
+  const tailIdx=ts.length-1  // original ignores the last line of the file (tail=1)
+  const _round=v=>v>=10?Math.round(v):Math.round(v*100)/100
   st.parsedData.metrics.forEach((m,mi)=>{
     const vals=portData.values[mi]
-    let max=-Infinity,sum=0,cnt=0
-    for(let i=iStart;i<iEnd;i++){const v=vals[i];if(!Number.isFinite(v))continue;if(v>max)max=v;sum+=v;cnt++}
-    const fmt=v=>_nscFmtStat(v,m.unit)
+    const timeRel=(m.unit||'').includes('/s')
+    let max=0,sum=0,cnt=0,wSum=0,wDt=0
+    for(let i=iStart;i<iEnd;i++){
+      if(i===tailIdx)continue
+      const v=vals[i];if(!Number.isFinite(v)||v<0)continue
+      if(v>max)max=v
+      if(timeRel){if(i>0){const dt=ts[i]-ts[i-1];if(dt>0){wSum+=v*dt;wDt+=dt}}}
+      else{sum+=v;cnt++}
+    }
+    const avg=timeRel?(wDt>0?wSum/wDt:0):(cnt>0?sum/cnt:0)
     const sid=_nscSid(m.name)
     const eMx=document.getElementById(cid+'-max-'+sid),eAv=document.getElementById(cid+'-avg-'+sid)
-    if(eMx)eMx.textContent=cnt?fmt(max):'—'
-    if(eAv)eAv.textContent=cnt?fmt(sum/cnt):'—'
+    if(eMx)eMx.textContent=_nscCommas(_round(max))
+    if(eAv)eAv.textContent=_nscCommas(_round(avg))
   })
 }
 
@@ -5822,7 +5870,7 @@ function nsChartUpdateRowVisuals(cid){
   st.parsedData.metrics.forEach((m,mi)=>{
     const row=document.getElementById(cid+'-row-'+_nscSid(m.name));if(!row)return
     const vis=st.visibleMetrics.has(m.name)
-    const color=_NSC_PALETTE[mi%_NSC_PALETTE.length]
+    const color=_nscColor(m.name,mi,1)
     row.style.borderLeftColor=vis?color:'transparent'
     row.classList.toggle('checked',vis)
     const cb=row.querySelector('input[type=checkbox]');if(cb)cb.checked=vis
@@ -5841,50 +5889,30 @@ function nsChartDraw(cid){
   if(toMs!=null){let found=false;for(let i=ts.length-1;i>=iStart;i--){if(ts[i]<=toMs){iEnd=i+1;found=true;break}};if(!found)iEnd=iStart}
   const filteredTs=ts.slice(iStart,iEnd)
   const MAX=1500
+  const yScaleArr=st.yScaleArray||new Array(parsedData.metrics.length).fill(100)
   const datasets=parsedData.metrics.map((m,mi)=>{
     const hidden=!visibleMetrics.has(m.name)
     const{xs,ys}=_nscLttb(filteredTs,portData.values[mi].slice(iStart,iEnd),MAX)
+    const cap=yScaleArr[mi]===100  // original: only cap series whose Y-Scale is 100 (percentage)
+    const color=_nscColor(m.name,mi,0.5)
     return{
-      label:m.label,data:xs.map((x,i)=>({x,y:ys[i]})),
-      borderColor:_NSC_PALETTE[mi%_NSC_PALETTE.length],
-      backgroundColor:_NSC_PALETTE[mi%_NSC_PALETTE.length]+'18',
-      borderWidth:1.5,pointRadius:0,pointHoverRadius:3,tension:0.2,hidden
+      label:m.label,
+      data:xs.map((x,i)=>{
+        const y=ys[i]
+        return cap&&y>100?{x,y:100,originalY:y}:{x,y}
+      }),
+      borderColor:color,backgroundColor:color,
+      borderWidth:1,pointRadius:0,pointHoverRadius:5,pointHitRadius:5,tension:0.2,fill:false,spanGaps:false,hidden
     }
   })
   const spanMs=filteredTs.length>1?filteredTs[filteredTs.length-1]-filteredTs[0]:0
   const MNTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   const xTickCb=v=>{const d=new Date(v),hh=String(d.getHours()).padStart(2,'0'),mm=String(d.getMinutes()).padStart(2,'0');return spanMs>86400000?`${MNTHS[d.getMonth()]}${d.getDate()} ${hh}:${mm}`:`${hh}:${mm}`}
   const scales={x:{type:'linear',ticks:{maxTicksLimit:8,callback:xTickCb,maxRotation:0},grid:{color:'rgba(0,0,0,0.05)'}}}
-  const yScaleArr=st.yScaleArray||new Array(parsedData.metrics.length).fill(100)
-  const hasPctVisible=datasets.some((d,mi)=>!d.hidden&&_NSC_SGROUPS[parsedData.metrics[mi].name]==='pct')
-  const hasMemVisible=datasets.some((d,mi)=>!d.hidden&&_NSC_SGROUPS[parsedData.metrics[mi].name]==='memory')
-  // Memory Y-max: derive from memorySize or memoryLimit values for the current port
-  const _memRefIdx=parsedData.metrics.findIndex(m=>m.name==='memorySize'||m.name==='memoryLimit')
-  let _memYMax=0
-  if(_memRefIdx>=0){const vals=portData.values[_memRefIdx];for(const v of vals)if(Number.isFinite(v)&&v>_memYMax)_memYMax=v}
-  _memYMax=_nscCalcYScale(_memYMax||(yScaleArr[parsedData.metrics.findIndex(m=>_NSC_SGROUPS[m.name]==='memory')]||100))
-  const firstOtherVisIdx=datasets.findIndex((d,mi)=>!d.hidden&&_NSC_SGROUPS[parsedData.metrics[mi].name]!=='pct'&&_NSC_SGROUPS[parsedData.metrics[mi].name]!=='memory')
-  const firstVisIdx=datasets.findIndex(d=>!d.hidden)
-  scales['y-pct']={type:'linear',display:hasPctVisible,min:0,max:100,position:'left',
-    ticks:{stepSize:10,callback:v=>v+'%',font:{size:10},color:'#605E5C'},
-    grid:{drawOnChartArea:hasPctVisible,color:'rgba(0,0,0,0.06)'}
-  }
-  scales['y-memory']={type:'linear',display:hasMemVisible,min:0,max:_memYMax,position:'right',
-    ticks:{maxTicksLimit:6,callback:v=>_nscFmtYScale(v),font:{size:10},color:'#605E5C'},
-    grid:{drawOnChartArea:hasMemVisible&&!hasPctVisible,color:'rgba(0,0,0,0.06)'}
-  }
+  // Original: each series on its own hidden Y-axis (min 0, max = its Y-Scale), grid only on first axis
   datasets.forEach((dataset,mi)=>{
-    const sg=_NSC_SGROUPS[parsedData.metrics[mi].name]||'unknown'
-    if(sg==='pct'){
-      dataset.yAxisID='y-pct'
-    } else if(sg==='memory'){
-      dataset.yAxisID='y-memory'
-    } else {
-      const ys=yScaleArr[mi]||100
-      const isGridAxis=!hasPctVisible&&!hasMemVisible&&mi===(firstOtherVisIdx>=0?firstOtherVisIdx:firstVisIdx)
-      scales['y-'+mi]={type:'linear',display:false,min:0,max:ys,grid:{drawOnChartArea:isGridAxis,color:'rgba(0,0,0,0.06)'}}
-      dataset.yAxisID='y-'+mi
-    }
+    scales['y-'+mi]={type:'linear',display:false,position:'left',min:0,max:yScaleArr[mi]||100,grid:{drawOnChartArea:mi===0,color:'rgba(0,0,0,0.06)'}}
+    dataset.yAxisID='y-'+mi
   })
   st.chart=new Chart(canvas,{type:'line',data:{datasets},options:{
     responsive:true,maintainAspectRatio:false,animation:false,
@@ -5893,7 +5921,14 @@ function nsChartDraw(cid){
       legend:{display:false},
       tooltip:{callbacks:{
         title:items=>_nscFmtTs(items[0]?.parsed?.x||0),
-        label:item=>{if(item.dataset.hidden)return null;const m=parsedData.metrics[item.datasetIndex];const unit=m?.unit||'';const v=item.parsed.y;const valStr=typeof v==='number'?v.toLocaleString(undefined,{maximumFractionDigits:2}):'-';return unit&&!unit.includes('%')?`${item.dataset.label}: ${valStr} ${unit}`:`${item.dataset.label}: ${valStr}`}
+        label:item=>{
+          if(item.dataset.hidden)return null
+          const m=parsedData.metrics[item.datasetIndex]
+          const unit=m?.unit||''
+          const v=item.raw?.originalY!=null?item.raw.originalY:item.parsed.y
+          const valStr=typeof v==='number'?_nscCommas(Math.round(v*100)/100):'-'
+          return unit&&unit!=='%'?`${item.dataset.label}: ${valStr} ${unit}`:`${item.dataset.label}: ${valStr}${unit}`
+        }
       }}
     },
     scales
@@ -5937,7 +5972,7 @@ function nsChartSwitchPort(cid,port){
     }
   }
   const ri=document.getElementById(cid+'-range-info')
-  if(ri){const portSvcMap={};if(topoData){const h=topoData.hosts.find(h=>h.name===st.hostName);if(h)h.services.forEach(s=>portSvcMap[String(s.port)]=s.name)};const s=portSvcMap[port];const lbl=s?`${port} — ${s}`:port;ri.textContent=`${st.hostName} · ${lbl}`+(portData?.timestamps.length?` (${_nscFmtTs(portData.timestamps[0])} – ${_nscFmtTs(portData.timestamps[portData.timestamps.length-1])})`:'')}
+  if(ri){ri.textContent=`${st.hostName} - ${port} ( `+(portData?.timestamps.length?`${_nscFmtTs(portData.timestamps[0])} ~ ${_nscFmtTs(portData.timestamps[portData.timestamps.length-1])}`:'N/A ~ N/A')+` )`}
   nsChartDraw(cid)
 }
 
@@ -5948,7 +5983,7 @@ function nsChartToggleMetric(cid,name,visible){
   if(visible)st.visibleMetrics.add(name);else st.visibleMetrics.delete(name)
   const mi=st.parsedData.metrics.findIndex(m=>m.name===name)
   const row=document.getElementById(cid+'-row-'+_nscSid(name))
-  if(row){row.style.borderLeftColor=visible?_NSC_PALETTE[mi%_NSC_PALETTE.length]:'transparent';row.classList.toggle('checked',visible)}
+  if(row){row.style.borderLeftColor=visible?_nscColor(name,mi,1):'transparent';row.classList.toggle('checked',visible)}
   nsChartDraw(cid)
 }
 
@@ -7398,6 +7433,7 @@ async function _renderHanaDbAvailability(contentArea, pFsid, subTabId, sid, tabI
 // Activate an HSI tab (and optional subtab)
 async function activateHsiTab(sid, tabId, subTabFile){
   activeFsidId = sid
+  if(typeof _gsSetPlaceholder==='function') _gsSetPlaceholder()
   activePanel = 'hsi'
   const _s = sess(sid)
   if(_s){ _s._hsiLastTabId = tabId; _s._hsiLastSubTabId = subTabFile }
@@ -8877,3 +8913,198 @@ function hsiTransformLine(line){
     document.body.style.userSelect=''
   })
 })()
+
+// ── Global Search (topbar) ─────────────────────────────────────────────────
+// Searches all structured pages of the ACTIVE session (HSI tabs, Topology,
+// Version History, Configuration). Builds an in-memory text index on demand,
+// shows grouped results, double-click jumps to the page + highlights the hit.
+let _gsTimer=null, _gsResults=[]
+
+function _gsActiveSession(){
+  let s=sess(activeFsidId)||fsidSessions[fsidSessions.length-1]||null
+  if(s&&s.hsiParentId) s=sess(s.hsiParentId)||s
+  return s
+}
+
+async function _gsReadHandle(h){ try{ const f=await h.getFile(); return await f.text() }catch(e){ return '' } }
+
+async function buildSearchIndex(s){
+  if(!s) return []
+  if(s._searchIndex && s._searchIndexFor===s.id) return s._searchIndex
+  const idx=[]
+  const add=(text,pageTitle,navKind,navKey,subKey,sid)=>{
+    if(text && text.trim()) idx.push({sid:sid||s.id,navKind,navKey,subKey:subKey??null,pageTitle,text})
+  }
+  if(s.type==='hsi'){
+    let tabs=[]; try{ tabs=hsiGetTabList(s) }catch(e){ tabs=[] }
+    for(const tab of tabs){
+      const title=(tab.label||'').replace(/_/g,' ')
+      const _tlow=title.toLowerCase()
+      if(_tlow.includes('runtime')&&_tlow.includes('dump')) continue  // runtime dumps have their own viewer
+      try{
+        if(tab.type==='file'){
+          const r=hsiResolveFile(s,tab.file); if(r) add(await _gsReadHandle(r.handle),title,'hsi',tab.id,null)
+        } else if(tab.type==='md-file'){
+          const h=s.hsiMdFiles?.[tab.file]; if(h) add(await _gsReadHandle(h),title,'hsi',tab.id,null)
+        } else if(tab.type==='group'){
+          for(const sf of (tab.subfiles||[])){
+            const r=hsiResolveFile(s,sf); if(!r) continue
+            const sub=sf.replace(/^[\d]+_/,'').replace(/\.(log|md)$/i,'')
+            add(await _gsReadHandle(r.handle),title+' › '+sub,'hsi',tab.id,sf)
+          }
+        } else if(tab.type==='hsi-config'){
+          for(const db of (s.hsiConfigData?.databases||[])){
+            for(const ini of (db.iniHandles||[])){
+              const t=ini.content!==undefined?ini.content:await _gsReadHandle(ini.handle)
+              add(t,title+' › '+db.name+' › '+ini.name,'hsi',tab.id,db.name)
+            }
+          }
+        } else if(tab.type==='dyn-group'){
+          for(const dt of (tab.tabs||[])){ if(dt.handle) add(await _gsReadHandle(dt.handle),title+' › '+(dt.label||''),'hsi',tab.id,dt.id) }
+        } else if(tab.type==='dyn-explorer' && tab.handle){
+          try{ for await(const [name,h] of tab.handle.entries()){ if(h.kind==='file'&&/\.(md|log|txt)$/i.test(name)&&name.toLowerCase()!=='rtetemp.txt') add(await _gsReadHandle(h),title+' › '+name,'hsi',tab.id,null) } }catch(e){}
+        }
+      }catch(e){}
+    }
+    // Pages surfaced from child FSIDs (Topology / Version History / HOSTS)
+    for(const cs of fsidSessions.filter(c=>c.hsiParentId===s.id)){
+      try{
+        if(cs.loadedFiles?.['topology.txt']) add(await _gsReadHandle(cs.loadedFiles['topology.txt']),'Topology','panel','topology',null,cs.id)
+        if(cs.versionHistoryHandle) add(await _gsReadHandle(cs.versionHistoryHandle),'Version History','panel','versionhistory',null,cs.id)
+        if(cs.hostsFileHandle) add(await _gsReadHandle(cs.hostsFileHandle),'HOSTS','panel','hosts',null,cs.id)
+      }catch(e){}
+    }
+  } else {
+    try{
+      if(s.loadedFiles?.['topology.txt']) add(await _gsReadHandle(s.loadedFiles['topology.txt']),'Topology','panel','topology',null)
+      if(s.versionHistoryHandle) add(await _gsReadHandle(s.versionHistoryHandle),'Version History','panel','versionhistory',null)
+      if(s.hostsFileHandle) add(await _gsReadHandle(s.hostsFileHandle),'HOSTS','panel','hosts',null)
+      for(const cf of (s.configFileHandles||[])){
+        const t=cf.content!==undefined?cf.content:await _gsReadHandle(cf.handle)
+        add(t,'Configuration › '+(cf.name||''),'panel','configuration',cf.name)
+      }
+    }catch(e){}
+  }
+  s._searchIndex=idx; s._searchIndexFor=s.id
+  return idx
+}
+
+function _gsSnippet(text,pos,qlen){
+  const start=Math.max(0,pos-40), end=Math.min(text.length,pos+qlen+70)
+  const clean=x=>x.replace(/\s+/g,' ')
+  const pre=clean(text.slice(start,pos)), mid=clean(text.slice(pos,pos+qlen)), post=clean(text.slice(pos+qlen,end))
+  return (start>0?'…':'')+escHtml(pre)+'<mark>'+escHtml(mid)+'</mark>'+escHtml(post)+(end<text.length?'…':'')
+}
+
+function globalSearchOnInput(v){
+  clearTimeout(_gsTimer)
+  const q=(v||'').trim()
+  const resEl=document.getElementById('global-search-results')
+  if(q.length<2){ if(resEl) resEl.style.display='none'; return }
+  _gsTimer=setTimeout(()=>runGlobalSearch(q),200)
+}
+
+function globalSearchKey(e){ if(e.key==='Escape'){ const r=document.getElementById('global-search-results'); if(r) r.style.display='none' } }
+
+async function runGlobalSearch(q){
+  const resEl=document.getElementById('global-search-results'); if(!resEl) return
+  const s=_gsActiveSession()
+  if(!s){ resEl.innerHTML='<div class="gs-empty">No session loaded.</div>'; resEl.style.display='block'; return }
+  resEl.style.display='block'
+  resEl.innerHTML='<div class="gs-empty">Indexing…</div>'
+  const idx=await buildSearchIndex(s)
+  const cur=(document.getElementById('global-search')?.value||'').trim()
+  if(cur!==q) return   // query changed while indexing
+  const ql=q.toLowerCase()
+  const groups=[]; let total=0
+  for(const e of idx){
+    const tl=e.text.toLowerCase()
+    let from=0,pos,hits=[]
+    while((pos=tl.indexOf(ql,from))!==-1 && hits.length<5){ hits.push(pos); from=pos+ql.length }
+    if(hits.length){ groups.push({e,hits,more:tl.indexOf(ql,from)!==-1}); total+=hits.length }
+  }
+  renderSearchResults(groups,q,total,s.label||'(session)')
+}
+
+function renderSearchResults(groups,q,total,sessionLabel){
+  const resEl=document.getElementById('global-search-results'); if(!resEl) return
+  _gsResults=[]
+  const sessBar=`<div class="gs-session" title="Scope of this search — open a page of another HSI/FSID to switch the active session">🔎 ${escHtml(sessionLabel||'')}</div>`
+  if(!groups.length){ resEl.innerHTML=sessBar+'<div class="gs-empty">No matches.</div>'; resEl.style.display='block'; return }
+  let html=sessBar
+  for(const g of groups){
+    html+=`<div class="gs-group-hdr">${escHtml(g.e.pageTitle)} · ${g.hits.length}${g.more?'+':''}</div>`
+    for(const pos of g.hits){
+      const ri=_gsResults.length
+      _gsResults.push({sid:g.e.sid,navKind:g.e.navKind,navKey:g.e.navKey,subKey:g.e.subKey,query:q})
+      html+=`<div class="gs-hit" data-ri="${ri}" title="Double-click to open"><div class="gs-snippet">${_gsSnippet(g.e.text,pos,q.length)}</div></div>`
+    }
+  }
+  html+=`<div class="gs-hint">${total} match(es) · double-click a result to jump</div>`
+  resEl.innerHTML=html
+  resEl.style.display='block'
+}
+
+async function globalSearchJumpTo(r){
+  if(!r) return
+  const resEl=document.getElementById('global-search-results'); if(resEl) resEl.style.display='none'
+  try{
+    if(r.navKind==='hsi') await activateHsiTab(r.sid, r.navKey, r.subKey)
+    else activateNavItem(r.sid, r.navKey)
+  }catch(e){}
+  const delay=r.navKind==='hsi'?140:280
+  setTimeout(()=>{
+    const panel = r.navKind==='hsi' ? document.getElementById('panel-hsi') : document.getElementById('panel-'+r.navKey)
+    _gsHighlightInPanel(panel, r.query)
+  }, delay)
+}
+
+function _gsHighlightInPanel(panel,query){
+  if(!panel||!query) return
+  const ql=query.toLowerCase()
+  const walker=document.createTreeWalker(panel,NodeFilter.SHOW_TEXT,null)
+  let node
+  while((node=walker.nextNode())){
+    const i=node.nodeValue.toLowerCase().indexOf(ql)
+    if(i===-1) continue
+    try{
+      const range=document.createRange()
+      range.setStart(node,i); range.setEnd(node,i+query.length)
+      const mark=document.createElement('mark'); mark.className='gs-flash'
+      range.surroundContents(mark)
+      mark.scrollIntoView({block:'center',behavior:'smooth'})
+      setTimeout(()=>{ if(mark.parentNode){ const t=document.createTextNode(mark.textContent); mark.parentNode.replaceChild(t,mark) } },1800)
+    }catch(e){
+      const el=node.parentElement
+      if(el){ el.classList.add('gs-flash'); el.scrollIntoView({block:'center',behavior:'smooth'}); setTimeout(()=>el.classList.remove('gs-flash'),1800) }
+    }
+    return
+  }
+}
+
+function _gsSetPlaceholder(){
+  const inp=document.getElementById('global-search'); if(!inp) return
+  const s=_gsActiveSession()
+  inp.placeholder = s ? `🔍 Search: ${s.label||'active session'}` : '🔍 Search all pages of the active session…'
+}
+
+function gsUpdateEnabled(){
+  const inp=document.getElementById('global-search'); if(!inp) return
+  const has=fsidSessions.length>0
+  inp.disabled=!has
+  if(!has){ inp.value=''; const r=document.getElementById('global-search-results'); if(r) r.style.display='none' }
+  _gsSetPlaceholder()
+}
+
+document.addEventListener('DOMContentLoaded',()=>{
+  const resEl=document.getElementById('global-search-results')
+  if(resEl && !resEl._wired){
+    resEl._wired=true
+    resEl.addEventListener('dblclick',e=>{ const row=e.target.closest('.gs-hit'); if(!row) return; const r=_gsResults[+row.dataset.ri]; if(r) globalSearchJumpTo(r) })
+  }
+  document.addEventListener('mousedown',e=>{
+    const wrap=document.getElementById('global-search-wrap')
+    if(wrap && !wrap.contains(e.target)){ const r=document.getElementById('global-search-results'); if(r) r.style.display='none' }
+  },true)
+  gsUpdateEnabled()
+})
