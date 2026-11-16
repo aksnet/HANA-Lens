@@ -3352,8 +3352,7 @@ function buildFsidGroup(s){
 
   // ── header ──
   const hdr=document.createElement('div')
-  hdr.className='fsid-group-header'
-  hdr.style.borderLeftColor=s.color
+  hdr.className='fsid-group-header hsi-session-header'
   hdr.innerHTML=`<span class="fsid-group-arrow">▶</span><span class="fsid-group-label" title="${escHtml(s.label)}">${escHtml(s.label)}<span class="fsid-group-subtitle">${escHtml(s.captureInfo)}</span></span>`
   hdr.onclick=()=>{
     grp.classList.toggle('open')
@@ -5857,11 +5856,35 @@ function nsChartDraw(cid){
   const xTickCb=v=>{const d=new Date(v),hh=String(d.getHours()).padStart(2,'0'),mm=String(d.getMinutes()).padStart(2,'0');return spanMs>86400000?`${MNTHS[d.getMonth()]}${d.getDate()} ${hh}:${mm}`:`${hh}:${mm}`}
   const scales={x:{type:'linear',ticks:{maxTicksLimit:8,callback:xTickCb,maxRotation:0},grid:{color:'rgba(0,0,0,0.05)'}}}
   const yScaleArr=st.yScaleArray||new Array(parsedData.metrics.length).fill(100)
+  const hasPctVisible=datasets.some((d,mi)=>!d.hidden&&_NSC_SGROUPS[parsedData.metrics[mi].name]==='pct')
+  const hasMemVisible=datasets.some((d,mi)=>!d.hidden&&_NSC_SGROUPS[parsedData.metrics[mi].name]==='memory')
+  // Memory Y-max: derive from memorySize or memoryLimit values for the current port
+  const _memRefIdx=parsedData.metrics.findIndex(m=>m.name==='memorySize'||m.name==='memoryLimit')
+  let _memYMax=0
+  if(_memRefIdx>=0){const vals=portData.values[_memRefIdx];for(const v of vals)if(Number.isFinite(v)&&v>_memYMax)_memYMax=v}
+  _memYMax=_nscCalcYScale(_memYMax||(yScaleArr[parsedData.metrics.findIndex(m=>_NSC_SGROUPS[m.name]==='memory')]||100))
+  const firstOtherVisIdx=datasets.findIndex((d,mi)=>!d.hidden&&_NSC_SGROUPS[parsedData.metrics[mi].name]!=='pct'&&_NSC_SGROUPS[parsedData.metrics[mi].name]!=='memory')
   const firstVisIdx=datasets.findIndex(d=>!d.hidden)
+  scales['y-pct']={type:'linear',display:hasPctVisible,min:0,max:100,position:'left',
+    ticks:{stepSize:10,callback:v=>v+'%',font:{size:10},color:'#605E5C'},
+    grid:{drawOnChartArea:hasPctVisible,color:'rgba(0,0,0,0.06)'}
+  }
+  scales['y-memory']={type:'linear',display:hasMemVisible,min:0,max:_memYMax,position:'right',
+    ticks:{maxTicksLimit:6,callback:v=>_nscFmtYScale(v),font:{size:10},color:'#605E5C'},
+    grid:{drawOnChartArea:hasMemVisible&&!hasPctVisible,color:'rgba(0,0,0,0.06)'}
+  }
   datasets.forEach((dataset,mi)=>{
-    const ys=yScaleArr[mi]||100
-    scales['y-'+mi]={type:'linear',display:false,min:0,max:ys,grid:{drawOnChartArea:mi===(firstVisIdx>=0?firstVisIdx:0),color:'rgba(0,0,0,0.06)'}}
-    dataset.yAxisID='y-'+mi
+    const sg=_NSC_SGROUPS[parsedData.metrics[mi].name]||'unknown'
+    if(sg==='pct'){
+      dataset.yAxisID='y-pct'
+    } else if(sg==='memory'){
+      dataset.yAxisID='y-memory'
+    } else {
+      const ys=yScaleArr[mi]||100
+      const isGridAxis=!hasPctVisible&&!hasMemVisible&&mi===(firstOtherVisIdx>=0?firstOtherVisIdx:firstVisIdx)
+      scales['y-'+mi]={type:'linear',display:false,min:0,max:ys,grid:{drawOnChartArea:isGridAxis,color:'rgba(0,0,0,0.06)'}}
+      dataset.yAxisID='y-'+mi
+    }
   })
   st.chart=new Chart(canvas,{type:'line',data:{datasets},options:{
     responsive:true,maintainAspectRatio:false,animation:false,
